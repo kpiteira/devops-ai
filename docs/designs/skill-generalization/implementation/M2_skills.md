@@ -74,7 +74,7 @@ grep -r "\.claude/config" skills/  # should return nothing
 Generalize kdesign from the ktrdr original. This is the simplest skill to generalize — nearly 100% universal content. It validates the generalization pattern before tackling more complex skills.
 
 **What to change from ktrdr original:**
-1. Add YAML frontmatter (`name: kdesign`, `description`, `version: 0.1.0`)
+1. Add YAML frontmatter (`name: kdesign`, `description`, `metadata.version: "0.1.0"`)
 2. Add Configuration Loading preamble as first section after the title
 3. Replace hardcoded `docs/designs/` path with reference to configured design path
 4. Remove any ktrdr-specific examples (minimal — mostly generic already)
@@ -309,7 +309,7 @@ After all 5 skills are generalized, verify cross-skill consistency: config loadi
 2. Cross-skill references match (kdesign → "Run /kdesign-validate", etc.)
 3. Conditional section markers use consistent language ("If infrastructure is configured...", "If E2E testing is configured...")
 4. No hardcoded ktrdr commands remain (grep for `make test`, `docker compose`, `psql`, `ktrdr/`)
-5. YAML frontmatter is consistent (all have name, description, version: 0.1.0)
+5. YAML frontmatter is consistent (all have name, description, metadata.version)
 6. The `/ktask` invocation syntax in kmilestone matches ktask's expected input
 
 **Acceptance Criteria:**

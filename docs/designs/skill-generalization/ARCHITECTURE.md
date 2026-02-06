@@ -93,7 +93,8 @@ Each skill uses the directory-based format with YAML frontmatter:
 ---
 name: kdesign
 description: Collaborative design document generation
-version: 0.1.0
+metadata:
+  version: "0.1.0"
 ---
 
 # Design Generation Command
@@ -101,14 +102,14 @@ version: 0.1.0
 [skill content...]
 ```
 
-### Open Questions (M1 Research)
+### Research Findings (M1 Task 1.1 — Resolved)
 
-These questions will be resolved by M1 research tasks before skills are written:
+All open questions resolved. See `research/agent-skills-research.md` for full details.
 
-1. **Token limits**: Agent Skills recommends < 5000 tokens for body. Our skills range from 400-900+ lines. Do we need to modularize?
-2. **Claude Code slash invocation from skills/**: Does `/kdesign` invocation work from `~/.claude/skills/kdesign/SKILL.md`? This is our primary install target.
-3. **Codex/Copilot paths**: What are the exact skill discovery paths for Codex CLI and Copilot CLI?
-4. **Frontmatter fields**: What additional YAML frontmatter fields are useful (tags, author, etc.)?
+1. **Token limits**: < 5000 tokens recommended, < 500 lines guidance. Not a hard limit. Use `references/` directory for overflow content if needed.
+2. **Claude Code slash invocation**: Confirmed — `name` field in frontmatter becomes slash command. `~/.claude/skills/kdesign/SKILL.md` with `name: kdesign` → `/kdesign` works.
+3. **Codex/Copilot paths**: Resolved — Codex: `~/.codex/skills/`, Copilot: `~/.copilot/skills/` (also reads `~/.claude/skills/` for cross-compat).
+4. **Frontmatter fields**: Resolved — required: `name`, `description`. Optional: `license`, `compatibility`, `metadata` (key-value map), `allowed-tools` (experimental).
 
 ## Data Flow
 
@@ -190,7 +191,8 @@ Each generalized skill follows the Agent Skills standard with a configuration lo
 ---
 name: [skill-name]
 description: [one-line description]
-version: 0.1.0
+metadata:
+  version: "0.1.0"
 ---
 
 # [Command Name]
@@ -387,7 +389,7 @@ fi
 echo "Done. Run 'git pull' in devops-ai to update all skills."
 ```
 
-**Note:** Exact Codex/Copilot paths to be confirmed during M1 research. The script structure supports easy path updates.
+**Note:** Codex (`~/.codex/skills/`) and Copilot (`~/.copilot/skills/`) paths confirmed by M1 research. See `research/agent-skills-research.md`.
 
 ### AGENTS.md Template
 

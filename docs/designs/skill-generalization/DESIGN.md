@@ -100,8 +100,8 @@ Karl tries `/kdesign` in a project without `.devops-ai/project.md`. The skill no
 
 3. ~~**How to handle the existing ktrdr commands**~~ — **RESOLVED (deferred):** ktrdr keeps its own commands until devops-ai is validated. Migration approach to be determined when ready.
 
-4. **Agent Skills token limits** — Our skills range 400-900+ lines. The Agent Skills spec recommends < 5000 tokens. Do we need to modularize? (M1 research task)
+4. ~~**Agent Skills token limits**~~ — **RESOLVED:** < 5000 tokens / < 500 lines is a recommendation, not a hard limit. Use `references/` directory for overflow. See `research/agent-skills-research.md`.
 
-5. **Claude Code skill discovery** — Does `/kdesign` invocation work from `~/.claude/skills/`? (M1 research task)
+5. ~~**Claude Code skill discovery**~~ — **RESOLVED:** Confirmed. `name` field → slash command. `~/.claude/skills/kdesign/SKILL.md` with `name: kdesign` → `/kdesign` works.
 
-6. **Codex/Copilot skill paths** — What are the exact discovery paths for Codex CLI and Copilot CLI? (M1 research task)
+6. ~~**Codex/Copilot skill paths**~~ — **RESOLVED:** Codex: `~/.codex/skills/`. Copilot: `~/.copilot/skills/` (also reads `~/.claude/skills/` for cross-compat). All follow `~/.<tool>/skills/<name>/SKILL.md`.

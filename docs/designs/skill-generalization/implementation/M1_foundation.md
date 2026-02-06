@@ -227,7 +227,7 @@ Create minimal stub SKILL.md files for all 5 skills so the install script has so
 
 **What to do:**
 For each of the 5 skills, create a minimal SKILL.md with:
-- Valid YAML frontmatter (name, description, version: 0.1.0)
+- Valid YAML frontmatter (name, description, metadata.version)
 - A one-line body noting this is a stub pending M2 implementation
 
 **Content per stub:**
@@ -235,7 +235,8 @@ For each of the 5 skills, create a minimal SKILL.md with:
 ---
 name: kdesign
 description: Collaborative design document generation
-version: 0.1.0
+metadata:
+  version: "0.1.0"
 ---
 
 # Design Generation Command
@@ -248,7 +249,7 @@ Repeat for all 5 skills with appropriate name/description.
 **Acceptance Criteria:**
 - [ ] All 5 skill directories exist: `skills/kdesign/`, `skills/kdesign-validate/`, `skills/kdesign-impl-plan/`, `skills/ktask/`, `skills/kmilestone/`
 - [ ] Each contains a `SKILL.md` with valid YAML frontmatter
-- [ ] Frontmatter has `name`, `description`, and `version` fields
+- [ ] Frontmatter has `name`, `description`, and `metadata.version` fields
 - [ ] Install script successfully symlinks all 5
 
 ---
