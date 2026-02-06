@@ -11,3 +11,14 @@
 - Add project inspection logic (pyproject.toml, package.json, Makefile, etc.)
 - Goes in the Configuration Loading section of each skill
 - Refer to `templates/project-config.md` for the template structure
+
+## Task 3.2 Complete: Add Config Generation Capability
+
+**Added "Generating Config (if user accepts)" subsection** to all 5 skills' Configuration Loading section. Same 4-step block in each: inspect project root, pre-fill, show draft, write after confirmation.
+
+**Covers:** pyproject.toml (Python), package.json (Node/TS), Makefile, go.mod (Go), Cargo.toml (Rust)
+
+**Next Task Notes (3.3 — partial config):**
+- Handle case where `.devops-ai/project.md` exists but has missing/empty sections
+- Essential vs optional values differ per skill (see SCENARIOS.md mapping)
+- "Not configured" markers in template should be treated same as missing

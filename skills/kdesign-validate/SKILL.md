@@ -36,6 +36,20 @@ Validate a design by walking through concrete scenarios before implementation be
    - Suggest: "Would you like me to create a `.devops-ai/project.md` so future sessions pick up these values automatically?"
 4. Use the configured values throughout this workflow
 
+### Generating Config (if user accepts)
+
+If the user wants to create a config file:
+
+1. **Inspect the project root** for project type indicators:
+   - `pyproject.toml` → Python (extract project name, look for test commands in `[tool.pytest]`, `[tool.ruff]`)
+   - `package.json` → Node/TypeScript (extract `name`, `scripts.test`, `scripts.lint`)
+   - `Makefile` → Look for `test`, `quality`, `lint`, `check` targets
+   - `go.mod` → Go (extract module name)
+   - `Cargo.toml` → Rust (extract `[package].name`)
+2. **Pre-fill values** from what you found (project name, test commands, quality commands)
+3. **Show the draft config** to the user and ask them to confirm or adjust
+4. **Write** `.devops-ai/project.md` using the template structure from `templates/project-config.md`
+
 ---
 
 ## This is a Conversation, Not a Report
