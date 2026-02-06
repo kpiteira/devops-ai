@@ -92,3 +92,15 @@
 - Verify all 5 skills + shared prompt
 - Check config preambles, cross-references, conditional markers, frontmatter
 - Grep for any remaining ktrdr-specific content
+
+## Task 2.7 Complete: Cross-Skill Consistency Verification
+
+**All checks passed:**
+- Config preambles: identical structure across all 5 skills
+- Cross-skill references: match SCENARIOS.md table (kdesign→validate→impl-plan→ktask, kmilestone→ktask)
+- Conditional markers: consistent ("If infrastructure is configured", "If E2E testing is configured")
+- Zero ktrdr-specific commands (make test, docker compose, psql, ktrdr/) — only examples in config preambles
+- Frontmatter: all 5 have name, description, metadata.version in identical format
+- ktask invocation: kmilestone uses `/ktask impl: <file> task: <id>`, matches ktask's required params
+- All 5 skills reference `.devops-ai/project.md`, none reference `.claude/config`
+- Shared E2E prompt referenced by ktask, kmilestone, kdesign-impl-plan
