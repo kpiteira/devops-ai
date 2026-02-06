@@ -36,8 +36,8 @@ Generate a vertical implementation plan from validated design and architecture d
    - Ask: "What command runs your unit tests?"
    - Ask: "What command runs quality/lint checks?"
    - Ask: "Where do you store design documents?" (default: `docs/designs/`)
-   - Note: Infrastructure and E2E features require config. These sections will be skipped.
-   - Suggest creating config for future sessions.
+   - Note: Infrastructure and E2E sections will be skipped (these require config to be useful).
+   - Suggest: "Would you like me to create a `.devops-ai/project.md` so future sessions pick up these values automatically?"
 4. Use the configured values throughout this workflow
 
 ---

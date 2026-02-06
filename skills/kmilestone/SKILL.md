@@ -24,7 +24,9 @@ Executes an entire milestone by invoking `/ktask` for each task, with context co
 3. If the file does NOT exist:
    - Ask: "What command runs your unit tests?" (default: `pytest tests/`)
    - Ask: "What command runs quality checks?" (default: none)
-   - Proceed with answers. Suggest creating config for future sessions.
+   - Note: E2E agent workflow sections will be skipped (these require config).
+   - Proceed with answers
+   - Suggest: "Would you like me to create a `.devops-ai/project.md` so future sessions pick up these values automatically?"
 4. Use the configured values throughout this workflow
 
 ---

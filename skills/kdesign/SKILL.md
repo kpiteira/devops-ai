@@ -24,7 +24,8 @@ This command embodies partnership values — craftsmanship over completion, hone
 3. If the file does NOT exist:
    - Ask: "Where do you store design documents?" (default: `docs/designs/`)
    - Ask: "What's the project name?"
-   - Proceed with answers. Suggest creating config for future sessions.
+   - Proceed with answers
+   - Suggest: "Would you like me to create a `.devops-ai/project.md` so future sessions pick up these values automatically?"
 4. Use the configured values throughout this workflow
 
 ---

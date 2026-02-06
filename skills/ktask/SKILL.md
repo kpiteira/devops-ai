@@ -29,7 +29,9 @@ This command embodies partnership values — craftsmanship over completion, hone
    - Ask: "What command runs your unit tests?" (default: `pytest tests/`)
    - Ask: "What command runs quality checks?" (default: none)
    - Ask: "Does this project use infrastructure (Docker, databases, etc.)?" (default: no)
-   - Proceed with answers. Suggest creating config for future sessions.
+   - Note: If no infrastructure, integration smoke test and E2E sections will be skipped.
+   - Proceed with answers
+   - Suggest: "Would you like me to create a `.devops-ai/project.md` so future sessions pick up these values automatically?"
 4. Use the configured values throughout this workflow
 
 ---
