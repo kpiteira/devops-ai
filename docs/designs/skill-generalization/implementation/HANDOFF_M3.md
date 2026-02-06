@@ -22,3 +22,14 @@
 - Handle case where `.devops-ai/project.md` exists but has missing/empty sections
 - Essential vs optional values differ per skill (see SCENARIOS.md mapping)
 - "Not configured" markers in template should be treated same as missing
+
+## Task 3.3 Complete: Handle Partial Config
+
+**Added partial-config handling** to the "file exists" path in all 5 skills:
+- kdesign, kdesign-validate: all values essential — ask if missing/Not configured
+- kdesign-impl-plan, ktask, kmilestone: essential values asked for, optional values (Infrastructure, E2E) skipped silently with brief note
+- All 3 skills with optional values include "Do NOT offer to update the config file unless the user asks"
+
+**Next Task Notes (3.4 — verify degradation paths):**
+- Trace all 6 scenarios from the task description through all 5 skills
+- Fix any dead ends or inconsistencies found

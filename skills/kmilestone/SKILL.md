@@ -21,6 +21,9 @@ Executes an entire milestone by invoking `/ktask` for each task, with context co
    - **Testing.unit_tests** — command to run unit tests (used in verification)
    - **Testing.quality_checks** — command to run quality checks (used in verification)
    - **E2E.enabled** — whether E2E testing is configured
+   - If essential values (Testing.*) are missing or say "Not configured": ask for them
+   - If optional values (E2E) are missing or say "Not configured": skip those sections silently — note briefly what was skipped
+   - Do NOT offer to update the config file unless the user asks
 3. If the file does NOT exist:
    - Ask: "What command runs your unit tests?" (default: `pytest tests/`)
    - Ask: "What command runs quality checks?" (default: none)

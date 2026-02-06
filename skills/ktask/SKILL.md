@@ -25,6 +25,9 @@ This command embodies partnership values — craftsmanship over completion, hone
    - **Infrastructure.start** — command to start infrastructure (e.g., `docker compose up -d`)
    - **Infrastructure.logs** — command to check logs (e.g., `docker compose logs backend --since 5m`)
    - **E2E.enabled** — whether E2E testing is configured
+   - If essential values (Testing.*) are missing or say "Not configured": ask for them
+   - If optional values (Infrastructure, E2E) are missing or say "Not configured": skip those sections silently — note briefly what was skipped
+   - Do NOT offer to update the config file unless the user asks
 3. If the file does NOT exist:
    - Ask: "What command runs your unit tests?" (default: `pytest tests/`)
    - Ask: "What command runs quality checks?" (default: none)

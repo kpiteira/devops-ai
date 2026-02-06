@@ -21,6 +21,7 @@ This command embodies partnership values — craftsmanship over completion, hone
 2. If the file exists, extract:
    - **Project.name** — used in document headers and context
    - **Paths.design_documents** — where to save design docs (e.g., `docs/designs/`)
+   - If a value is missing or says "Not configured": ask for it, just like the no-config path
 3. If the file does NOT exist:
    - Ask: "Where do you store design documents?" (default: `docs/designs/`)
    - Ask: "What's the project name?"
