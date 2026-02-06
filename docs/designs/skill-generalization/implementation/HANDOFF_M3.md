@@ -30,6 +30,13 @@
 - kdesign-impl-plan, ktask, kmilestone: essential values asked for, optional values (Infrastructure, E2E) skipped silently with brief note
 - All 3 skills with optional values include "Do NOT offer to update the config file unless the user asks"
 
-**Next Task Notes (3.4 — verify degradation paths):**
-- Trace all 6 scenarios from the task description through all 5 skills
-- Fix any dead ends or inconsistencies found
+## Task 3.4 Complete: Verify Degradation Paths
+
+**Traced all 6 scenarios through all 5 skills** (30 traces total):
+- Scenarios 1-5 (full config, no config, partial essential, partial optional, no config + decline): All passed without gaps
+- Scenario 6 (malformed config): **GAP FOUND** — no skill handled garbled/unrecognizable config files
+
+**Fix applied:** Added malformed config handling line to step 2 of all 5 skills:
+`If the file exists but is malformed (no recognizable sections, garbled content): suggest starting from the template at templates/project-config.md and fall back to the no-config path`
+
+All 6 scenarios now pass across all 5 skills.

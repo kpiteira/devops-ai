@@ -35,6 +35,7 @@ Generate a vertical implementation plan from validated design and architecture d
    - If essential values (Testing.*, Paths.*) are missing or say "Not configured": ask for them
    - If optional values (Infrastructure, E2E) are missing or say "Not configured": skip those sections silently — note briefly what was skipped
    - Do NOT offer to update the config file unless the user asks
+   - If the file exists but is malformed (no recognizable sections, garbled content): suggest starting from the template at `templates/project-config.md` and fall back to the no-config path
 3. If the file does NOT exist:
    - Ask: "What command runs your unit tests?"
    - Ask: "What command runs quality/lint checks?"

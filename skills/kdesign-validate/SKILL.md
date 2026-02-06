@@ -30,6 +30,7 @@ Validate a design by walking through concrete scenarios before implementation be
    - **Project.name** — used in document headers and context
    - **Paths.design_documents** — where design docs are stored
    - If a value is missing or says "Not configured": ask for it, just like the no-config path
+   - If the file exists but is malformed (no recognizable sections, garbled content): suggest starting from the template at `templates/project-config.md` and fall back to the no-config path
 3. If the file does NOT exist:
    - Ask: "Where do you store design documents?" (default: `docs/designs/`)
    - Ask: "What's the project name?"
