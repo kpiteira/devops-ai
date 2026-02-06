@@ -42,3 +42,20 @@
 - 431 lines original, moderate ktrdr-specific content
 - Main changes: make targets, docker commands, runner fixture pattern
 - The runner fixture/ANSI codes section is ktrdr-specific — remove entirely, note in config guidance
+
+## Task 2.4 Complete: Generalize ktask
+
+**Size:** 447 lines (well under 500-line guidance).
+
+**Key changes:**
+- Added Configuration Loading preamble (extracts Testing.*, Infrastructure.*, E2E.* from project config)
+- All hardcoded `make test-unit`, `make quality`, `docker compose` replaced with "configured command" references
+- Infrastructure sections wrapped in "If infrastructure is configured" conditionals
+- E2E sections wrapped in "If E2E testing is configured" conditionals
+- CLI Test Patterns section (runner fixture, ANSI codes) removed — replaced with generic "Project-Specific Test Patterns" section pointing to `.devops-ai/project.md`
+- Config preamble examples kept as illustrations (e.g., `make test-unit`) — these show what config values might look like, not hardcoded commands
+
+**Next Task Notes (2.5 — kmilestone):**
+- 354 lines original, nearly 100% universal
+- Only ktrdr-specific references are make targets in verification checklist
+- Should match ktask invocation syntax from 2.4
