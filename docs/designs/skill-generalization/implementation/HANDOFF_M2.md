@@ -59,3 +59,19 @@
 - 354 lines original, nearly 100% universal
 - Only ktrdr-specific references are make targets in verification checklist
 - Should match ktask invocation syntax from 2.4
+
+## Task 2.5 Complete: Generalize kmilestone
+
+**Size:** 384 lines (well under 500-line guidance). Nearly 100% universal — minimal changes needed.
+
+**Key changes:**
+- Added Configuration Loading preamble (extracts Testing.*, E2E.* from project config)
+- `make test-unit` / `make quality` in verification checklist → "configured unit test/quality command"
+- E2E VALIDATION reminder made conditional on E2E config
+- ktrdr-specific example paths replaced with generic feature paths
+- Kept validation quality tables (Insufficient vs Valid) with generic examples
+
+**Next Task Notes (2.6 — shared E2E prompt):**
+- Extract E2E testing instructions from ktask/kmilestone into shared prompt
+- Referenced by both skills via "If E2E is configured, load shared E2E prompt"
+- Should contain the agent workflow (designer → architect → tester)
