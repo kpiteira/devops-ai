@@ -108,8 +108,8 @@ All open questions resolved. See `research/agent-skills-research.md` for full de
 
 1. **Token limits**: < 5000 tokens recommended, < 500 lines guidance. Not a hard limit. Use `references/` directory for overflow content if needed.
 2. **Claude Code slash invocation**: Confirmed — `name` field in frontmatter becomes slash command. `~/.claude/skills/kdesign/SKILL.md` with `name: kdesign` → `/kdesign` works.
-3. **Codex/Copilot paths**: What are the exact skill discovery paths for Codex CLI and Copilot CLI?
-4. **Frontmatter fields**: What additional YAML frontmatter fields are useful (tags, author, etc.)?
+3. **Codex/Copilot paths**: Resolved — Codex: `~/.codex/skills/`, Copilot: `~/.copilot/skills/` (also reads `~/.claude/skills/` for cross-compat).
+4. **Frontmatter fields**: Resolved — required: `name`, `description`. Optional: `license`, `compatibility`, `metadata` (key-value map), `allowed-tools` (experimental).
 
 ## Data Flow
 

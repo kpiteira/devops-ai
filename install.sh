@@ -32,6 +32,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Validate target
+case "$TARGET" in
+    claude|codex|copilot|all) ;;
+    *) echo "Error: Invalid target '$TARGET'. Allowed values: claude, codex, copilot, all."; exit 1 ;;
+esac
+
 install_skills() {
     local target_dir="$1"
     local tool_name="$2"
