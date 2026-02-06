@@ -25,12 +25,31 @@ This command embodies partnership values — craftsmanship over completion, hone
    - **Infrastructure.start** — command to start infrastructure (e.g., `docker compose up -d`)
    - **Infrastructure.logs** — command to check logs (e.g., `docker compose logs backend --since 5m`)
    - **E2E.enabled** — whether E2E testing is configured
+   - If essential values (Testing.*) are missing or say "Not configured": ask for them
+   - If optional values (Infrastructure, E2E) are missing or say "Not configured": skip those sections silently — note briefly what was skipped
+   - Do NOT offer to update the config file unless the user asks
+   - If the file exists but is malformed (no recognizable sections, garbled content): suggest starting from the template at `templates/project-config.md` and fall back to the no-config path
 3. If the file does NOT exist:
    - Ask: "What command runs your unit tests?" (default: `pytest tests/`)
    - Ask: "What command runs quality checks?" (default: none)
-   - Ask: "Does this project use infrastructure (Docker, databases, etc.)?" (default: no)
-   - Proceed with answers. Suggest creating config for future sessions.
+   - Note: Infrastructure, integration smoke test, and E2E sections will be skipped (these require config).
+   - Proceed with answers
+   - Suggest: "Would you like me to create a `.devops-ai/project.md` so future sessions pick up these values automatically?"
 4. Use the configured values throughout this workflow
+
+### Generating Config (if user accepts)
+
+If the user wants to create a config file:
+
+1. **Inspect the project root** for project type indicators:
+   - `pyproject.toml` → Python (extract project name, look for test commands in `[tool.pytest]`, `[tool.ruff]`)
+   - `package.json` → Node/TypeScript (extract `name`, `scripts.test`, `scripts.lint`)
+   - `Makefile` → Look for `test`, `quality`, `lint`, `check` targets
+   - `go.mod` → Go (extract module name)
+   - `Cargo.toml` → Rust (extract `[package].name`)
+2. **Pre-fill values** from what you found (project name, test commands, quality commands)
+3. **Show the draft config** to the user and ask them to confirm or adjust
+4. **Write** `.devops-ai/project.md` using the template structure from `templates/project-config.md`
 
 ---
 
