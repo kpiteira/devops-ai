@@ -593,3 +593,15 @@ The key difference: tasks within a milestone are all working toward one E2E-test
 3. **Treating gaps as failures** — Finding gaps is the point. A validation that finds nothing is suspicious.
 
 4. **Over-documenting** — The conversation matters more than the artifact. Save decisions and scenarios, not every trace.
+
+---
+
+## Next Steps
+
+After validation is complete:
+
+```
+/kdesign-impl-plan design: DESIGN.md arch: ARCHITECTURE.md validation: SCENARIOS.md
+```
+
+This expands the validated milestone structure into detailed, implementable tasks.

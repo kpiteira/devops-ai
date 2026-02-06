@@ -35,38 +35,71 @@ We are partners building devops-ai together. This section defines our collaborat
 devops-ai provides versioned, configuration-driven development workflow skills for AI-assisted software engineering.
 
 Key components:
-- **Skills** (`skills/`): Markdown command files that encode workflow patterns
+- **Skills** (`skills/`): Markdown command files that encode workflow patterns (Agent Skills standard)
+- **Shared resources** (`skills/shared/`): Cross-skill reference docs (e.g., E2E testing workflow)
 - **Templates** (`templates/`): Bootstrap files for new projects
-- **Docs** (`docs/`): Design documents and patterns
+- **Docs** (`docs/`): Design documents, architecture, and implementation plans
 
 ## Project Structure
 
 ```
 devops-ai/
-├── AGENTS.md              # This file
-├── README.md              # Overview and quick start
+├── AGENTS.md              # This file — guidance for AI assistants
+├── README.md              # User-facing overview and quick start
 ├── install.sh             # Multi-tool symlink installer
-├── skills/                # The actual skill files (Agent Skills standard)
+├── skills/                # Skill files (Agent Skills standard)
 │   ├── kdesign/
-│   │   └── SKILL.md
+│   │   └── SKILL.md       # Design document generation
 │   ├── kdesign-validate/
-│   │   └── SKILL.md
+│   │   └── SKILL.md       # Scenario-based design validation
 │   ├── kdesign-impl-plan/
-│   │   └── SKILL.md
+│   │   └── SKILL.md       # Vertical implementation planning
 │   ├── kmilestone/
-│   │   └── SKILL.md
-│   └── ktask/
-│       └── SKILL.md
+│   │   └── SKILL.md       # Milestone orchestration
+│   ├── ktask/
+│   │   └── SKILL.md       # TDD task execution
+│   └── shared/
+│       └── e2e-prompt.md   # E2E testing workflow (referenced by ktask, kmilestone)
 ├── templates/             # Bootstrap templates
-│   ├── project-config.md
-│   └── AGENTS.md.template
+│   ├── project-config.md  # Config template for .devops-ai/project.md
+│   └── AGENTS.md.template # AGENTS.md template for new projects
 └── docs/
     └── designs/
         └── skill-generalization/
             ├── DESIGN.md
             ├── ARCHITECTURE.md
-            └── SCENARIOS.md
+            ├── SCENARIOS.md
+            ├── research/              # Agent Skills standard research
+            └── implementation/        # Milestone plans and handoffs
+                ├── OVERVIEW.md
+                ├── M1_foundation.md
+                ├── M2_skills.md
+                ├── M3_degradation.md
+                ├── M4_documentation.md
+                └── HANDOFF_M*.md
 ```
+
+## Development Workflow
+
+### Modifying skills
+
+1. Edit `skills/<name>/SKILL.md` directly
+2. Changes take effect immediately — symlinks point to this repo
+3. Test by invoking the skill in Claude Code (or Codex/Copilot)
+
+### Adding a new skill
+
+1. Create `skills/<name>/SKILL.md` with YAML frontmatter (`name`, `description`, `metadata.version`)
+2. Run `./install.sh` to create symlinks for the new skill
+3. Follow the Agent Skills standard: directory-based, `SKILL.md` entry point
+
+### Updating install targets
+
+`install.sh` auto-discovers all directories under `skills/`. No changes needed when adding skills — just create the directory and re-run.
+
+### Testing changes
+
+Skills are markdown prompts, not executable code. Testing means invoking them in an AI tool and verifying behavior. The design docs in `docs/designs/skill-generalization/` describe expected behavior for each skill.
 
 ---
 
