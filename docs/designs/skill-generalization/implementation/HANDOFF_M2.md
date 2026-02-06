@@ -27,8 +27,18 @@
 
 **Size:** 578 lines. Above 500-line guidance but the validation methodology is the core value and shouldn't be split. The conversation patterns section could move to `references/` if needed later.
 
-**Next Task Notes (2.3 — kdesign-impl-plan):**
-- This is the LARGEST skill (944 lines original). Will likely exceed 500 lines.
-- Most ktrdr-specific content: make targets, docker commands, psql queries, ktrdr/ paths
-- Task categories appendix and failure modes table are universal — preserve
-- May need `references/` split for appendix material
+## Task 2.3 Complete: Generalize kdesign-impl-plan
+
+**Size:** 974 lines (largest skill). Above 500-line guidance but the planning methodology + appendix tables are the core value. Could move appendix to `references/` later if needed.
+
+**Key changes:**
+- All make/docker/psql commands replaced with config-driven references
+- Infrastructure sections made conditional ("If infrastructure is configured...")
+- E2E sections reference shared prompt
+- Specificity checklist examples use generic paths (`src/services/user.py`)
+- "M1 persistence bug" anecdote generalized to universal explanation
+
+**Next Task Notes (2.4 — ktask):**
+- 431 lines original, moderate ktrdr-specific content
+- Main changes: make targets, docker commands, runner fixture pattern
+- The runner fixture/ANSI codes section is ktrdr-specific — remove entirely, note in config guidance
