@@ -91,7 +91,7 @@ For each remaining task, follow this loop:
 
 **For VALIDATION tasks — include E2E reminder:**
 
-**If E2E testing is configured in project config:**
+**If E2E testing is configured in project config** (also read `skills/shared/e2e-prompt.md` for full E2E workflow):
 ```
 /ktask impl: <milestone_file> task: <task_id>
 

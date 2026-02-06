@@ -244,7 +244,7 @@ If integration test fails, investigate and fix before proceeding. The issue is l
 
 ### E2E Test Execution (VALIDATION tasks)
 
-**If E2E testing is configured in project config:**
+**If E2E testing is configured in project config**, also read `skills/shared/e2e-prompt.md` for the full E2E workflow instructions.
 
 For tasks with type VALIDATION, this IS the implementation step.
 

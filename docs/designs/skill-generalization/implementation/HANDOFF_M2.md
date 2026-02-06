@@ -75,3 +75,20 @@
 - Extract E2E testing instructions from ktask/kmilestone into shared prompt
 - Referenced by both skills via "If E2E is configured, load shared E2E prompt"
 - Should contain the agent workflow (designer → architect → tester)
+
+## Task 2.6 Complete: Create Shared E2E Prompt
+
+**Size:** 155 lines. Self-contained E2E testing workflow document.
+
+**What it contains:**
+- Three-agent system overview (designer, architect, tester) with roles, models, and when to use each
+- Mandatory workflow Steps 1-4 with concrete invocation examples
+- Anti-patterns and valid vs invalid validation tables
+- Integration guidance for both ktask and kmilestone
+
+**References added:** ktask, kmilestone, and kdesign-impl-plan all reference `skills/shared/e2e-prompt.md` conditionally
+
+**Next Task Notes (2.7 — cross-skill consistency):**
+- Verify all 5 skills + shared prompt
+- Check config preambles, cross-references, conditional markers, frontmatter
+- Grep for any remaining ktrdr-specific content
