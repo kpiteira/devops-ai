@@ -8,9 +8,10 @@ We have five battle-tested development workflow commands (kdesign, kdesign-valid
 
 1. **Extract portable core** — Separate universal workflow patterns from project-specific tooling
 2. **Configuration-driven** — Projects provide a markdown prompt with their test commands, infrastructure, paths; skills adapt
-3. **Versioned and installable** — Skills live in this repo, symlinked to `~/.claude/commands/`, updates propagate via git pull
+3. **Versioned and installable** — Skills live in this repo, symlinked to tool directories, updates propagate via git pull
 4. **Preserve what works** — The ktrdr commands are proven. Don't lose their effectiveness in the abstraction
 5. **AGENTS.md support** — Provide templates using the industry-standard naming
+6. **Cross-tool portable** — Skills follow the Agent Skills standard, working with Claude Code, Codex CLI, and GitHub Copilot CLI
 
 ## Non-Goals (Out of Scope)
 
@@ -26,11 +27,11 @@ We have five battle-tested development workflow commands (kdesign, kdesign-valid
 Karl creates a new Python project. He has devops-ai cloned and installed (symlinks exist). In the new project, he copies the config template:
 
 ```bash
-mkdir -p .claude/config
-cp ~/Documents/dev/devops-ai/templates/project-config.md .claude/config/project.md
+mkdir -p .devops-ai
+cp ~/Documents/dev/devops-ai/templates/project-config.md .devops-ai/project.md
 ```
 
-He edits `.claude/config/project.md` with project-specific values (test commands, paths). Now `/kdesign`, `/ktask`, `/kmilestone` all work, adapted to this project.
+He edits `.devops-ai/project.md` with project-specific values (test commands, paths). Now `/kdesign`, `/ktask`, `/kmilestone` all work, adapted to this project.
 
 ### Scenario 2: Existing Project with Docker + E2E
 
@@ -38,7 +39,7 @@ A more complex project (like ktrdr) has a richer config prompt describing Docker
 
 ### Scenario 3: Running /kdesign
 
-Karl types `/kdesign feature: Add persistent memory retrieval`. The skill reads `.claude/config/project.md`, discovers the project context, and runs the standard design workflow — problem exploration, options, pauses, design doc, architecture doc — saving to the configured designs path.
+Karl types `/kdesign feature: Add persistent memory retrieval`. The skill reads `.devops-ai/project.md`, discovers the project context, and runs the standard design workflow — problem exploration, options, pauses, design doc, architecture doc — saving to the configured designs path.
 
 ### Scenario 4: Running /ktask with TDD
 
@@ -46,7 +47,7 @@ Karl types `/ktask M1_core.md 1.2`. The skill reads project config, knows to use
 
 ### Scenario 5: No Config Yet
 
-Karl tries `/kdesign` in a project without `.claude/config/project.md`. The skill notices the missing config and asks for essential values (test command, quality command) before proceeding. It suggests creating a config file for next time.
+Karl tries `/kdesign` in a project without `.devops-ai/project.md`. The skill notices the missing config and asks for essential values (test command, quality command) before proceeding. It suggests creating a config file for next time.
 
 ## Key Decisions
 
@@ -56,14 +57,14 @@ Karl tries `/kdesign` in a project without `.claude/config/project.md`. The skil
 **Rationale:** The `k` is ours. It's identity.
 
 ### Decision 2: Project config as a markdown prompt
-**Choice:** `.claude/config/project.md` — a markdown prompt loaded by every k* command as its first step
-**Alternatives:** YAML config file; frontmatter in AGENTS.md; auto-detection from package.json/pyproject.toml
-**Rationale:** Skills are prompts. Config as a prompt composes naturally — no parsing, no special handling. The command reads a .md file and adapts. This is the simplest thing that works.
+**Choice:** `.devops-ai/project.md` — a tool-agnostic markdown prompt loaded by every k* command as its first step
+**Alternatives:** YAML config file; `.claude/config/project.md` (tool-specific); frontmatter in AGENTS.md; auto-detection from package.json/pyproject.toml
+**Rationale:** Skills are prompts. Config as a prompt composes naturally — no parsing, no special handling. The command reads a .md file and adapts. The config belongs to devops-ai, not to any particular tool — `.devops-ai/` makes it tool-agnostic.
 
 ### Decision 3: Installation via symlinks
-**Choice:** A shell script that symlinks `devops-ai/skills/*.md` → `~/.claude/commands/*.md`
-**Alternatives:** Copy-based install; package manager; manual setup
-**Rationale:** Symlinks mean `git pull` on devops-ai automatically updates all skills. Simple, no dependencies.
+**Choice:** A shell script that symlinks `devops-ai/skills/*/` → each tool's skills directory (`~/.claude/skills/`, `~/.codex/skills/`, `~/.copilot/skills/`)
+**Alternatives:** Copy-based install; package manager; manual setup; dual-install to commands/ and skills/
+**Rationale:** Symlinks mean `git pull` on devops-ai automatically updates all skills across all tools. All tools use the same `skills/` path pattern following the Agent Skills standard. Simple, no dependencies.
 
 ### Decision 4: Graceful degradation without config
 **Choice:** Skills work without config by prompting for needed values; config makes it automatic
@@ -81,10 +82,26 @@ Karl tries `/kdesign` in a project without `.claude/config/project.md`. The skil
 - `AGENTS.md` (project instructions, industry standard)
 **Rationale:** Quick project bootstrap. Copy template, fill in values, done.
 
+### Decision 7: Agent Skills standard for cross-tool portability
+**Choice:** Skills follow the open [Agent Skills specification](https://agentskills.io) — directory-based structure (`skill-name/SKILL.md`) with YAML frontmatter
+**Alternatives:** Claude Code-only flat files; custom format per tool; lowest-common-denominator plain text
+**Rationale:** The Agent Skills standard is adopted by Claude Code, Codex CLI, GitHub Copilot CLI, Cursor, and others. Following it means skills work across tools without custom adapters. The install script handles symlinking to each tool's expected location.
+
+### Decision 8: E2E content extracted to separate prompt
+**Choice:** E2E testing instructions extracted from ktask/kmilestone into a separate prompt file, loaded conditionally when E2E is configured
+**Alternatives:** Keep inline with conditional markers; remove E2E entirely for v0
+**Rationale:** E2E content is ~150 lines per skill. Extracting it keeps the base skills focused while preserving full E2E capability for projects that need it.
+
 ## Open Questions
 
-1. **Project-specific skill extensions** — e.g., ktrdr has CLI test patterns (runner fixture, ANSI codes). Should there be a mechanism for project-local additions to skills, or does the config prompt handle this via a "Project-Specific Patterns" section?
+1. ~~**Project-specific skill extensions**~~ — **RESOLVED:** Handled via "Project-Specific Patterns" section in config prompt. ktrdr's CLI test patterns (runner fixture, ANSI codes) go in its project.md config.
 
-2. **Skill interdependencies** — kdesign-impl-plan references kdesign-validate, ktask references e2e agents. How do we handle cross-skill references when some capabilities aren't available?
+2. ~~**Skill interdependencies**~~ — **RESOLVED:** Cross-skill references are text-only ("Run /kdesign-validate"). E2E content extracted to separate prompt file loaded conditionally. Skills degrade gracefully when referenced capabilities aren't available.
 
-3. **How to handle the existing ktrdr commands** — When ktrdr migrates, do we delete its `.claude/commands/` and rely on the symlinked globals? Or keep project-local overrides?
+3. ~~**How to handle the existing ktrdr commands**~~ — **RESOLVED (deferred):** ktrdr keeps its own commands until devops-ai is validated. Migration approach to be determined when ready.
+
+4. **Agent Skills token limits** — Our skills range 400-900+ lines. The Agent Skills spec recommends < 5000 tokens. Do we need to modularize? (M1 research task)
+
+5. **Claude Code skill discovery** — Does `/kdesign` invocation work from `~/.claude/skills/`? (M1 research task)
+
+6. **Codex/Copilot skill paths** — What are the exact discovery paths for Codex CLI and Copilot CLI? (M1 research task)

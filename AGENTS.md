@@ -39,28 +39,24 @@ Key components:
 - **Templates** (`templates/`): Bootstrap files for new projects
 - **Docs** (`docs/`): Design documents and patterns
 
-## This Project Uses UV
-
-Always use `uv run` for Python commands:
-
-```bash
-uv run python script.py
-uv run pytest tests/
-```
-
 ## Project Structure
 
 ```
 devops-ai/
 ├── AGENTS.md              # This file
 ├── README.md              # Overview and quick start
-├── install.sh             # Symlink installer
-├── skills/                # The actual skill files
-│   ├── kdesign.md
-│   ├── kdesign-validate.md
-│   ├── kdesign-impl-plan.md
-│   ├── kmilestone.md
-│   └── ktask.md
+├── install.sh             # Multi-tool symlink installer
+├── skills/                # The actual skill files (Agent Skills standard)
+│   ├── kdesign/
+│   │   └── SKILL.md
+│   ├── kdesign-validate/
+│   │   └── SKILL.md
+│   ├── kdesign-impl-plan/
+│   │   └── SKILL.md
+│   ├── kmilestone/
+│   │   └── SKILL.md
+│   └── ktask/
+│       └── SKILL.md
 ├── templates/             # Bootstrap templates
 │   ├── project-config.md
 │   └── AGENTS.md.template
@@ -68,7 +64,8 @@ devops-ai/
     └── designs/
         └── skill-generalization/
             ├── DESIGN.md
-            └── ARCHITECTURE.md
+            ├── ARCHITECTURE.md
+            └── SCENARIOS.md
 ```
 
 ---
