@@ -21,3 +21,14 @@
 **Next Task Notes (4.3 — E2E Validation):**
 - VALIDATION task — verify install, config, skill invocation, no-config, cross-skill references
 - This is documentation-only milestone so "E2E" means manual verification, not agent-based
+
+## Task 4.3 Complete: End-to-End Validation
+
+All 5 validation steps passed:
+1. Fresh install: 6 skills symlinked to `~/.claude/skills/`
+2. New project setup: config template has all 6 sections
+3. README completeness: all 5 commands, workflow, config guide, troubleshooting (164 lines)
+4. Cross-skill references: all chains verified (kdesign→validate→impl-plan→ktask, kmilestone→ktask)
+5. No-config degradation: all 5 skills have config suggestion + malformed handling
+
+**Fix applied during validation:** Added "Next Steps" section to kdesign-validate pointing to `/kdesign-impl-plan` (was the only missing cross-skill reference).
