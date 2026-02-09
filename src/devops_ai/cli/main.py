@@ -1,0 +1,72 @@
+"""kinfra CLI — Developer infrastructure for worktree and sandbox management."""
+
+import typer
+
+app = typer.Typer(
+    name="kinfra",
+    help="Developer infrastructure CLI for worktree and sandbox management.",
+    no_args_is_help=True,
+)
+
+
+@app.command()
+def init() -> None:
+    """Initialize kinfra for the current project."""
+    typer.echo("Not yet implemented")
+    raise typer.Exit(1)
+
+
+@app.command()
+def spec(feature: str = typer.Argument(help="Feature name")) -> None:
+    """Create a spec (design) worktree for a feature."""
+    typer.echo("Not yet implemented")
+    raise typer.Exit(1)
+
+
+@app.command()
+def done(
+    name: str = typer.Argument(help="Worktree name or partial match"),
+    force: bool = typer.Option(False, "--force", help="Remove even if dirty"),
+) -> None:
+    """Remove a worktree (with dirty check)."""
+    typer.echo("Not yet implemented")
+    raise typer.Exit(1)
+
+
+@app.command()
+def worktrees() -> None:
+    """List all active worktrees."""
+    typer.echo("Not yet implemented")
+    raise typer.Exit(1)
+
+
+@app.command(name="impl")
+def impl_cmd(
+    feature: str = typer.Argument(help="Feature name"),
+    milestone: str = typer.Argument(help="Milestone identifier"),
+) -> None:
+    """Create an implementation worktree with sandbox."""
+    typer.echo("Not yet implemented")
+    raise typer.Exit(1)
+
+
+@app.command()
+def status() -> None:
+    """Show status of all sandboxes and worktrees."""
+    typer.echo("Not yet implemented")
+    raise typer.Exit(1)
+
+
+@app.command()
+def observability() -> None:
+    """Manage shared observability stack."""
+    typer.echo("Not yet implemented")
+    raise typer.Exit(1)
+
+
+def main() -> None:
+    app()
+
+
+if __name__ == "__main__":
+    main()
