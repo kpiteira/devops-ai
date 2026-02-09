@@ -47,3 +47,15 @@
 **Next task notes:**
 - `kinfra init` (Task 1.5) needs to create `.devops-ai/infra.toml`. It should detect compose files, parse services/ports, and prompt interactively.
 - The `init` stub in `main.py` needs to be wired like spec/done/worktrees.
+
+## Task 1.5 Complete: CLI init — project inspection + config generation
+
+**Emergent patterns:**
+- Pure functions (`detect_services_from_compose`, `identify_observability_services`, `detect_project_name`, `generate_infra_toml`) are separated from interactive flow (`init_command`).
+- `generate_infra_toml()` builds TOML via string formatting — simple and correct for this format.
+- `check_existing_config()` returns `(exists, project_name)` for re-init detection.
+- Port env var naming: `{PREFIX}_{SERVICE}_PORT` with dashes replaced by underscores.
+
+**Next task notes:**
+- Task 1.6 adds compose parameterization to `init_cmd.py` — replaces host ports with `${VAR:-default}` and comments out observability services.
+- `ruamel.yaml` round-trip mode preserves comments. Import: `from ruamel.yaml import YAML; yml = YAML()`.

@@ -3,6 +3,7 @@
 import typer
 
 from devops_ai.cli.done import done_command
+from devops_ai.cli.init_cmd import init_command
 from devops_ai.cli.spec import spec_command
 from devops_ai.cli.worktrees import worktrees_command
 
@@ -16,8 +17,8 @@ app = typer.Typer(
 @app.command()
 def init() -> None:
     """Initialize kinfra for the current project."""
-    typer.echo("Not yet implemented")
-    raise typer.Exit(1)
+    code = init_command()
+    raise typer.Exit(code)
 
 
 @app.command()
