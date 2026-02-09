@@ -2,6 +2,10 @@
 
 import typer
 
+from devops_ai.cli.done import done_command
+from devops_ai.cli.spec import spec_command
+from devops_ai.cli.worktrees import worktrees_command
+
 app = typer.Typer(
     name="kinfra",
     help="Developer infrastructure CLI for worktree and sandbox management.",
@@ -19,25 +23,28 @@ def init() -> None:
 @app.command()
 def spec(feature: str = typer.Argument(help="Feature name")) -> None:
     """Create a spec (design) worktree for a feature."""
-    typer.echo("Not yet implemented")
-    raise typer.Exit(1)
+    code = spec_command(feature)
+    raise typer.Exit(code)
 
 
 @app.command()
 def done(
     name: str = typer.Argument(help="Worktree name or partial match"),
-    force: bool = typer.Option(False, "--force", help="Remove even if dirty"),
+    force: bool = typer.Option(
+        False, "--force", help="Remove even if dirty"
+    ),
 ) -> None:
     """Remove a worktree (with dirty check)."""
-    typer.echo("Not yet implemented")
-    raise typer.Exit(1)
+    code, msg = done_command(name, force=force)
+    typer.echo(msg)
+    raise typer.Exit(code)
 
 
 @app.command()
 def worktrees() -> None:
     """List all active worktrees."""
-    typer.echo("Not yet implemented")
-    raise typer.Exit(1)
+    code = worktrees_command()
+    raise typer.Exit(code)
 
 
 @app.command(name="impl")

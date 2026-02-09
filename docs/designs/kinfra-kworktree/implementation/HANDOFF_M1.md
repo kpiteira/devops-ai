@@ -36,3 +36,14 @@
 **Next task notes:**
 - CLI commands (Task 1.4) wire `create_spec_worktree`, `remove_worktree`, `list_worktrees`, `check_dirty` to Typer commands.
 - `remove_worktree()` takes `repo_root` as first arg (needed to run git from main repo), plus `wt_path` and optional `force`.
+
+## Task 1.4 Complete: CLI commands — spec, done, worktrees
+
+**Emergent patterns:**
+- Each command has a testable `_command()` function in its own module that returns exit codes. The Typer command in `main.py` is a thin wrapper that calls the function and raises `typer.Exit(code)`.
+- `done_command` finds worktrees by exact-match-first, then partial match. Returns `(exit_code, message)` tuple.
+- Config is optional everywhere — prefix falls back to `repo_root.name` when no `.devops-ai/` exists.
+
+**Next task notes:**
+- `kinfra init` (Task 1.5) needs to create `.devops-ai/infra.toml`. It should detect compose files, parse services/ports, and prompt interactively.
+- The `init` stub in `main.py` needs to be wired like spec/done/worktrees.
