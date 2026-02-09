@@ -3,6 +3,7 @@
 import typer
 
 from devops_ai.cli.done import done_command
+from devops_ai.cli.impl import impl_command
 from devops_ai.cli.init_cmd import init_command
 from devops_ai.cli.spec import spec_command
 from devops_ai.cli.worktrees import worktrees_command
@@ -50,12 +51,14 @@ def worktrees() -> None:
 
 @app.command(name="impl")
 def impl_cmd(
-    feature: str = typer.Argument(help="Feature name"),
-    milestone: str = typer.Argument(help="Milestone identifier"),
+    feature_milestone: str = typer.Argument(
+        help="Feature/milestone (e.g., my-feature/M1)"
+    ),
 ) -> None:
     """Create an implementation worktree with sandbox."""
-    typer.echo("Not yet implemented")
-    raise typer.Exit(1)
+    code, msg = impl_command(feature_milestone)
+    typer.echo(msg)
+    raise typer.Exit(code)
 
 
 @app.command()
