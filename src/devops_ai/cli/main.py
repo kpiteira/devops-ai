@@ -6,6 +6,7 @@ from devops_ai.cli.done import done_command
 from devops_ai.cli.impl import impl_command
 from devops_ai.cli.init_cmd import init_command
 from devops_ai.cli.spec import spec_command
+from devops_ai.cli.status import status_command
 from devops_ai.cli.worktrees import worktrees_command
 
 app = typer.Typer(
@@ -63,9 +64,10 @@ def impl_cmd(
 
 @app.command()
 def status() -> None:
-    """Show status of all sandboxes and worktrees."""
-    typer.echo("Not yet implemented")
-    raise typer.Exit(1)
+    """Show sandbox details for current directory."""
+    code, msg = status_command()
+    typer.echo(msg)
+    raise typer.Exit(code)
 
 
 @app.command()
