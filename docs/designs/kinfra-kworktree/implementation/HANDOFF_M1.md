@@ -24,3 +24,15 @@
 **Next task notes:**
 - Worktree Manager should import `InfraConfig` and `find_project_root` from `devops_ai.config`.
 - For worktrees without infra.toml, prefix falls back to parent directory name — config is optional for spec worktrees.
+
+## Task 1.3 Complete: Worktree Manager
+
+**Emergent patterns:**
+- Pure functions (`spec_worktree_path`, `spec_branch_name`, etc.) are separate from git-backed operations — makes unit testing trivial.
+- `_run_git()` helper centralizes subprocess calls with consistent `cwd`, `capture_output`, `text=True`.
+- `list_worktrees()` parses `git worktree list --porcelain` format and classifies by prefix matching.
+- `check_dirty()` gracefully handles missing upstream (returns `has_unpushed=False`).
+
+**Next task notes:**
+- CLI commands (Task 1.4) wire `create_spec_worktree`, `remove_worktree`, `list_worktrees`, `check_dirty` to Typer commands.
+- `remove_worktree()` takes `repo_root` as first arg (needed to run git from main repo), plus `wt_path` and optional `force`.
