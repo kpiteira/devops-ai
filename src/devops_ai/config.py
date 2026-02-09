@@ -46,7 +46,11 @@ def parse_mount(spec: str) -> MountEntry:
     """Parse a Docker-style mount string: host:container[:ro]."""
     parts = spec.split(":")
     if len(parts) == 3:
-        return MountEntry(host=parts[0], container=parts[1], readonly=parts[2] == "ro")
+        if parts[2] != "ro":
+            raise ValueError(
+                f"Invalid mount syntax: {spec!r} (expected host:container[:ro])"
+            )
+        return MountEntry(host=parts[0], container=parts[1], readonly=True)
     if len(parts) == 2:
         return MountEntry(host=parts[0], container=parts[1])
     raise ValueError(f"Invalid mount syntax: {spec!r} (expected host:container[:ro])")

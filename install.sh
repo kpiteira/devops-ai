@@ -74,11 +74,15 @@ echo ""
 # kinfra CLI (editable install via uv)
 echo "kinfra CLI:"
 if command -v uv &>/dev/null; then
-    uv tool install -e "$SCRIPT_DIR" 2>&1 | while read -r line; do
+    install_output=$(uv tool install -e "$SCRIPT_DIR" 2>&1)
+    install_status=$?
+    echo "$install_output" | while read -r line; do
         echo "  $line"
     done
-    if command -v kinfra &>/dev/null; then
-        echo "  → kinfra CLI installed ($(kinfra --help | head -1))"
+    if [ $install_status -ne 0 ]; then
+        echo "  ERROR: uv tool install failed (exit $install_status)"
+    elif command -v kinfra &>/dev/null; then
+        echo "  → kinfra CLI installed"
     else
         echo "  → installed, but 'kinfra' not on PATH — check 'uv tool dir' output"
     fi

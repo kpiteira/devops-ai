@@ -41,12 +41,13 @@ def parameterize_ports(
     """
     result = yaml_content
     for var_name, port in port_map.items():
-        # Match "PORT:PORT" patterns (quoted or unquoted)
-        # but skip already-parameterized ones
+        # Match "HOST:CONTAINER" patterns where HOST matches the port value
+        # from port_map. Preserves the original container port.
+        # Skips already-parameterized entries.
         pattern = re.compile(
-            rf'(?<!\${{)"?{port}:{port}"?'
+            rf'(?<!\${{)"?{port}:(\d+)"?'
         )
-        replacement = f'"${{{var_name}:-{port}}}:{port}"'
+        replacement = rf'"${{{var_name}:-{port}}}:\1"'
         result = pattern.sub(replacement, result)
     return result
 

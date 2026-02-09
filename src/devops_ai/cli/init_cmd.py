@@ -210,10 +210,28 @@ def check_docker_running() -> bool:
         return False
 
 
+def _git_toplevel() -> Path | None:
+    """Return the git repository toplevel directory, or None."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return Path(result.stdout.strip())
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
 def init_command(project_root: Path | None = None) -> int:
     """Run the interactive init flow. Returns exit code."""
     if project_root is None:
-        project_root = find_project_root() or Path.cwd()
+        project_root = (
+            find_project_root() or _git_toplevel() or Path.cwd()
+        )
 
     # Check for existing config
     exists, existing_name = check_existing_config(project_root)

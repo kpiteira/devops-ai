@@ -81,6 +81,19 @@ class TestAddHeaderComment:
         assert "sandbox isolation" in result
 
 
+class TestParameterizeDifferentHostContainer:
+    def test_different_host_container_ports(self) -> None:
+        compose = """\
+services:
+  myapp:
+    ports:
+      - "8081:8080"
+"""
+        port_map = {"MYAPP_PORT": 8081}
+        result = parameterize_ports(compose, port_map)
+        assert '"${MYAPP_PORT:-8081}:8080"' in result
+
+
 class TestSkipAlreadyParameterized:
     def test_leaves_existing_vars(self) -> None:
         already_param = """\

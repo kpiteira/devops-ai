@@ -183,6 +183,12 @@ class TestParseMountSyntax:
         assert mount.container == "/app/config"
         assert mount.readonly is True
 
+    def test_invalid_flag_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match="Invalid mount syntax"):
+            parse_mount("src/:/app/src:rw")
+
 
 class TestMissingRequiredField:
     def test_no_project_name(self, tmp_path: Path) -> None:
