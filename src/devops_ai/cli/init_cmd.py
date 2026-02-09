@@ -12,6 +12,7 @@ from typing import Any
 import typer
 from ruamel.yaml import YAML
 
+from devops_ai.compose import rewrite_compose
 from devops_ai.config import find_project_root
 
 # Image patterns that identify observability services
@@ -320,4 +321,10 @@ def init_command(project_root: Path | None = None) -> int:
     (config_dir / "infra.toml").write_text(toml_content)
 
     typer.echo("\nConfig written to .devops-ai/infra.toml")
+
+    # Rewrite compose file with parameterized ports and commented obs services
+    if compose_path.exists() and (ports or obs_services):
+        rewrite_compose(compose_path, ports, obs_services)
+        typer.echo(f"Compose file updated: {compose_file}")
+
     return 0

@@ -73,3 +73,15 @@
 
 **Next task notes:**
 - Task 1.7 updates `install.sh` and creates `.devops-ai/project.md`. Also runs M1 E2E verification.
+
+## Task 1.7 Complete: Install script update + M1 verification
+
+**Gotchas:**
+- `init_command()` (Task 1.5) generated config but didn't call `rewrite_compose()`. Added the wiring in Task 1.7 so `kinfra init` parameterizes compose files automatically.
+- `uv tool install -e .` output needs piping through `while read` for clean indentation in install.sh.
+
+**Emergent patterns:**
+- `.devops-ai/project.md` uses the template from `templates/project-config.md` with devops-ai-specific values filled in.
+- `install.sh` checks for `uv` availability before attempting CLI install — gracefully skips with message if not found.
+
+**M1 E2E Results:** All steps passed — init (config + compose rewrite), spec (worktree creation), worktrees (listing), done (cleanup).

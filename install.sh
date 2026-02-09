@@ -71,6 +71,22 @@ install_skills() {
 echo "devops-ai skill installer"
 echo ""
 
+# kinfra CLI (editable install via uv)
+echo "kinfra CLI:"
+if command -v uv &>/dev/null; then
+    uv tool install -e "$SCRIPT_DIR" 2>&1 | while read -r line; do
+        echo "  $line"
+    done
+    if command -v kinfra &>/dev/null; then
+        echo "  → kinfra CLI installed ($(kinfra --help | head -1))"
+    else
+        echo "  → installed, but 'kinfra' not on PATH — check 'uv tool dir' output"
+    fi
+else
+    echo "  SKIP: uv not found — install uv (https://docs.astral.sh/uv/) for kinfra CLI"
+fi
+echo ""
+
 # Claude Code
 if [ "$TARGET" = "all" ] || [ "$TARGET" = "claude" ]; then
     echo "Claude Code:"

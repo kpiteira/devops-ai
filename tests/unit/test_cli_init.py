@@ -138,6 +138,55 @@ class TestGenerateInfraToml:
         assert config.health_endpoint == "/api/v1/health"
 
 
+class TestInitRewritesCompose:
+    def test_init_parameterizes_compose(
+        self, tmp_path: Path, monkeypatch: object
+    ) -> None:
+        from unittest.mock import patch
+
+        from devops_ai.cli.init_cmd import init_command
+
+        # Create a compose file
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(
+            'services:\n  myapp:\n    image: python:3.12\n'
+            '    ports:\n      - "8080:8080"\n'
+            '  jaeger:\n    image: jaegertracing/jaeger:latest\n'
+            '    ports:\n      - "16686:16686"\n'
+        )
+
+        # Mock interactive prompts and Docker check
+        with (
+            patch(
+                "devops_ai.cli.init_cmd.typer.prompt",
+                side_effect=[
+                    "testproj",  # project name
+                    "testproj",  # prefix
+                    "/health",   # health endpoint
+                ],
+            ),
+            patch(
+                "devops_ai.cli.init_cmd.typer.echo",
+            ),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(project_root=tmp_path)
+
+        assert code == 0
+        # Config should be created
+        assert (tmp_path / ".devops-ai" / "infra.toml").exists()
+        # Compose should be parameterized
+        content = compose.read_text()
+        assert "${TESTPROJ_MYAPP_PORT:-8080}" in content
+        # Jaeger should be commented out
+        assert "# jaeger:" in content
+        # Backup should exist
+        assert (tmp_path / "docker-compose.yml.bak").exists()
+
+
 class TestReinitDetectsExisting:
     def test_existing_config_detected(self, tmp_path: Path) -> None:
         from devops_ai.cli.init_cmd import check_existing_config
