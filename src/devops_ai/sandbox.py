@@ -1,10 +1,12 @@
-"""Sandbox manager — slot dir, env file, override generation, compose copy."""
+"""Sandbox manager — slot dir, env/override generation, Docker lifecycle."""
 
 from __future__ import annotations
 
 import logging
 import shutil
 import subprocess
+import time
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -157,3 +159,119 @@ def generate_override(
     override_path = slot_dir / "docker-compose.override.yml"
     override_path.write_text("\n".join(lines) + "\n")
     return override_path
+
+
+# ---------------------------------------------------------------------------
+# Docker lifecycle
+# ---------------------------------------------------------------------------
+
+
+def _compose_cmd(
+    compose_file: str | Path,
+    override_file: str | Path,
+    env_file: str | Path,
+    action: list[str],
+) -> list[str]:
+    """Build a docker compose command with absolute paths."""
+    return [
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "-f",
+        str(override_file),
+        "--env-file",
+        str(env_file),
+        *action,
+    ]
+
+
+def start_sandbox(
+    config: InfraConfig,
+    slot: SlotInfo,
+    worktree_path: Path,
+) -> None:
+    """Start sandbox containers using worktree's compose file.
+
+    On failure, runs compose down to clean partial containers, then raises.
+    """
+    slot_dir = Path(slot.slot_dir)
+    compose_file = worktree_path / config.compose_file
+    override_file = slot_dir / "docker-compose.override.yml"
+    env_file = slot_dir / ".env.sandbox"
+
+    cmd = _compose_cmd(compose_file, override_file, env_file, ["up", "-d"])
+    logger.info("Starting sandbox: %s", " ".join(cmd))
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        logger.error("Sandbox start failed: %s", result.stderr)
+        # Cleanup partial containers
+        down_cmd = _compose_cmd(
+            compose_file, override_file, env_file, ["down"]
+        )
+        subprocess.run(down_cmd, capture_output=True, text=True)
+        raise RuntimeError(
+            f"Sandbox failed to start: {result.stderr.strip()}"
+        )
+
+
+def stop_sandbox(slot: SlotInfo) -> None:
+    """Stop sandbox containers using slot dir's compose copy.
+
+    Uses the compose copy (not worktree) because the worktree might
+    already be removed. Errors are ignored (best-effort cleanup).
+    """
+    slot_dir = Path(slot.slot_dir)
+    compose_file = slot.compose_file_copy
+    override_file = slot_dir / "docker-compose.override.yml"
+    env_file = slot_dir / ".env.sandbox"
+
+    cmd = _compose_cmd(compose_file, override_file, env_file, ["down"])
+    logger.info("Stopping sandbox: %s", " ".join(cmd))
+
+    subprocess.run(cmd, capture_output=True, text=True)
+
+
+def run_health_gate(config: InfraConfig, slot: SlotInfo) -> bool:
+    """Poll health endpoint until HTTP 200 or timeout.
+
+    Returns True on success, False on timeout. Non-fatal.
+    """
+    if not config.health_endpoint or not config.health_port_var:
+        logger.info("No health check configured, skipping")
+        return True
+
+    port = slot.ports.get(config.health_port_var)
+    if port is None:
+        logger.warning(
+            "Health port var %s not in slot ports", config.health_port_var
+        )
+        return False
+
+    endpoint = config.health_endpoint
+    if not endpoint.startswith("/"):
+        endpoint = f"/{endpoint}"
+    url = f"http://localhost:{port}{endpoint}"
+
+    timeout = config.health_timeout
+    deadline = time.monotonic() + timeout
+    attempt = 0
+
+    while time.monotonic() < deadline:
+        attempt += 1
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                if resp.status == 200:
+                    logger.info(
+                        "Health check passed (attempt %d)", attempt
+                    )
+                    return True
+        except Exception:
+            logger.info(
+                "Health check attempt %d... waiting", attempt
+            )
+        time.sleep(2)
+
+    logger.warning("Health check timed out after %ds", timeout)
+    return False
