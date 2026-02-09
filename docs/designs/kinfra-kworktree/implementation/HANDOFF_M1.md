@@ -59,3 +59,17 @@
 **Next task notes:**
 - Task 1.6 adds compose parameterization to `init_cmd.py` — replaces host ports with `${VAR:-default}` and comments out observability services.
 - `ruamel.yaml` round-trip mode preserves comments. Import: `from ruamel.yaml import YAML; yml = YAML()`.
+
+## Task 1.6 Complete: CLI init — compose parameterization
+
+**Gotchas:**
+- `str.splitlines()` uses `keepends=True`, not `keepalinenewlines`.
+- ruamel.yaml round-trip dump reformats the YAML (removes quotes, changes indentation). For operations needing format preservation (`comment_out_services`, `remove_depends_on`), use line-based string manipulation instead.
+
+**Emergent patterns:**
+- Compose rewriting uses string/regex operations (not ruamel round-trip dump) to preserve formatting.
+- `rewrite_compose()` applies transforms in order: remove_depends_on → parameterize_ports → comment_out_services → add_header_comment.
+- Backup is only created once (checks `.bak` existence).
+
+**Next task notes:**
+- Task 1.7 updates `install.sh` and creates `.devops-ai/project.md`. Also runs M1 E2E verification.
