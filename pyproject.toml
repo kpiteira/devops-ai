@@ -21,6 +21,9 @@ packages = ["src/devops_ai"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "e2e: end-to-end tests requiring Docker",
+]
 
 [tool.ruff]
 src = ["src", "tests"]
