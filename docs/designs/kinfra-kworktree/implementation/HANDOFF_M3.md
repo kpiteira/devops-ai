@@ -19,7 +19,15 @@
 - `ensure_running()` checks status first, only calls `start()` if not all 3 services are running
 - `_wait_for_jaeger()` polls Jaeger UI with 30s timeout after compose up
 
-**Next Task Notes (3.3):**
-- Import `ObservabilityManager` and constants from `devops_ai.observability`
-- `sandbox.py` has `_observability_network_exists()` which should be removed — Task 3.3 replaces the conditional check with always-on observability
-- The existing `generate_override()` conditionally adds observability; Task 3.3 makes it unconditional
+## Task 3.3 Complete: Override Generator — Observability Integration
+
+**Approach:** Removed `_observability_network_exists()` conditional. Override now always includes `devops-ai-observability` network + OTEL env vars. Added `otel_endpoint_var`/`otel_namespace_var` to `InfraConfig` with defaults, parsed from `[sandbox.otel]` in infra.toml.
+
+**Gotchas:**
+- Existing tests all patched `_observability_network_exists` — had to remove all those patches when making observability unconditional
+- `OTEL_ENDPOINT` constant extracted to module level in `sandbox.py` for reuse
+
+**Next Task Notes (3.4):**
+- `ObservabilityManager` is in `devops_ai.observability` — import for CLI commands
+- `config.InfraConfig.has_sandbox` indicates whether to auto-start observability in `impl`
+- CLI pattern: testable `_command()` functions, thin Typer wrappers in `main.py`
