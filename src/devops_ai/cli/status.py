@@ -20,9 +20,9 @@ def status_command(cwd: Path | None = None) -> tuple[int, str]:
     if project_root is None:
         return 0, "Not inside a devops-ai project."
 
-    # Check registry for current directory
+    # Check registry for worktree root (not cwd, which may be a subdir)
     registry = load_registry()
-    slot = get_slot_for_worktree(registry, cwd)
+    slot = get_slot_for_worktree(registry, project_root)
 
     if slot is None:
         return 0, "No sandbox running in current directory."

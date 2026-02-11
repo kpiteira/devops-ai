@@ -203,7 +203,13 @@ def start_sandbox(
     cmd = _compose_cmd(compose_file, override_file, env_file, ["up", "-d"])
     logger.info("Starting sandbox: %s", " ".join(cmd))
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        raise RuntimeError(
+            "Docker is not installed or not on PATH"
+        ) from None
+
     if result.returncode != 0:
         logger.error("Sandbox start failed: %s", result.stderr)
         # Cleanup partial containers
@@ -230,7 +236,10 @@ def stop_sandbox(slot: SlotInfo) -> None:
     cmd = _compose_cmd(compose_file, override_file, env_file, ["down"])
     logger.info("Stopping sandbox: %s", " ".join(cmd))
 
-    subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        logger.warning("Docker not found, cannot stop sandbox")
 
 
 def run_health_gate(config: InfraConfig, slot: SlotInfo) -> bool:

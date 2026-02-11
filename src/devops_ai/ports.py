@@ -31,10 +31,9 @@ def check_ports_available(ports: dict[str, int]) -> list[PortConflict]:
     conflicts: list[PortConflict] = []
     for env_var, port in ports.items():
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind(("127.0.0.1", port))
-            sock.close()
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind(("127.0.0.1", port))
         except OSError as e:
             conflicts.append(PortConflict(env_var=env_var, port=port, message=str(e)))
     return conflicts
