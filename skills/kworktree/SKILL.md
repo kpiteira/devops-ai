@@ -1,3 +1,10 @@
+---
+name: kworktree
+description: Worktree and sandbox management via kinfra CLI commands.
+metadata:
+  version: "0.1.0"
+---
+
 # kworktree — Worktree & Sandbox Management
 
 Use this skill when the user asks to create, manage, or clean up development worktrees and sandboxes via `kinfra`.
