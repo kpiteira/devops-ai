@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from devops_ai.cli.done import done_command
+from devops_ai.cli.done import _session_title_from_worktree, done_command
 from devops_ai.cli.impl import impl_command
 
 # --- Helpers ---
@@ -322,12 +322,13 @@ class TestSessionSendCorrectCommand:
 
 class TestDoneRemovesSession:
     def test_remove_called(self, tmp_path: Path) -> None:
-        """done calls agent_deck.remove_session."""
+        """done calls agent_deck.remove_session with slash-separated title."""
         _setup_git_repo(tmp_path)
         _setup_infra_toml(tmp_path)
 
         mock_wt = MagicMock()
         mock_wt.feature = "my-feature-M1"
+        mock_wt.branch = "impl/my-feature-M1"
         mock_wt.wt_type = "impl"
         mock_wt.path = tmp_path / "wt"
 
@@ -365,8 +366,51 @@ class TestDoneRemovesSession:
             )
 
         assert code == 0
+        # Session title derived from branch: impl/my-feature-M1 → my-feature/M1
         mock_ad.remove_session.assert_called_once_with(
-            "my-feature-M1"
+            "my-feature/M1"
+        )
+
+    def test_spec_branch_title(self, tmp_path: Path) -> None:
+        """done derives spec/<feature> title from spec branch."""
+        _setup_git_repo(tmp_path)
+        _setup_infra_toml(tmp_path)
+
+        mock_wt = MagicMock()
+        mock_wt.feature = "my-feature"
+        mock_wt.branch = "spec/my-feature"
+        mock_wt.wt_type = "spec"
+        mock_wt.path = tmp_path / "wt"
+
+        with (
+            patch(
+                "devops_ai.cli.done.list_worktrees",
+                return_value=[mock_wt],
+            ),
+            patch(
+                "devops_ai.cli.done.check_dirty",
+                return_value=MagicMock(is_dirty=False),
+            ),
+            patch(
+                "devops_ai.cli.done.load_registry"
+            ) as mock_lr,
+            patch(
+                "devops_ai.cli.done.get_slot_for_worktree",
+                return_value=None,
+            ),
+            patch("devops_ai.cli.done.remove_worktree"),
+            patch("devops_ai.cli.done.agent_deck") as mock_ad,
+        ):
+            mock_lr.return_value = MagicMock()
+            mock_ad.is_available.return_value = True
+
+            code, msg = done_command(
+                "my-feature", repo_root=tmp_path
+            )
+
+        assert code == 0
+        mock_ad.remove_session.assert_called_once_with(
+            "spec/my-feature"
         )
 
 
@@ -380,6 +424,7 @@ class TestDoneNoAgentDeckSkips:
 
         mock_wt = MagicMock()
         mock_wt.feature = "my-feature-M1"
+        mock_wt.branch = "impl/my-feature-M1"
         mock_wt.wt_type = "impl"
         mock_wt.path = tmp_path / "wt"
 
@@ -448,3 +493,38 @@ class TestSessionWithSpec:
         mock_ad.add_session.assert_called_once()
         mock_ad.start_session.assert_called_once()
         mock_ad.send_to_session.assert_called_once()
+
+
+class TestSessionTitleFromWorktree:
+    """Unit tests for _session_title_from_worktree helper."""
+
+    def test_impl_branch(self) -> None:
+        """impl/feat-M1 → feat/M1."""
+        wt = MagicMock()
+        wt.branch = "impl/my-feature-M1"
+        assert _session_title_from_worktree(wt) == "my-feature/M1"
+
+    def test_impl_branch_phase(self) -> None:
+        """impl/feat-Phase2 → feat/Phase2."""
+        wt = MagicMock()
+        wt.branch = "impl/my-feature-Phase2"
+        assert _session_title_from_worktree(wt) == "my-feature/Phase2"
+
+    def test_spec_branch(self) -> None:
+        """spec/feat → spec/feat."""
+        wt = MagicMock()
+        wt.branch = "spec/my-feature"
+        assert _session_title_from_worktree(wt) == "spec/my-feature"
+
+    def test_fallback_no_branch(self) -> None:
+        """No branch → use wt.feature."""
+        wt = MagicMock()
+        wt.branch = ""
+        wt.feature = "my-feature"
+        assert _session_title_from_worktree(wt) == "my-feature"
+
+    def test_multi_hyphen_impl(self) -> None:
+        """impl/my-cool-feature-M3 → my-cool-feature/M3."""
+        wt = MagicMock()
+        wt.branch = "impl/my-cool-feature-M3"
+        assert _session_title_from_worktree(wt) == "my-cool-feature/M3"

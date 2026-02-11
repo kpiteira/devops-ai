@@ -58,36 +58,46 @@ class TestAddSession:
             mock_run.assert_called_once()
             cmd = mock_run.call_args[0][0]
             assert cmd == [
-                "agent-deck", "add", "my-feature/M1",
-                "--group", "dev",
-                "--path", "/tmp/worktree",
+                "agent-deck", "add", "/tmp/worktree",
+                "-t", "my-feature/M1",
+                "-g", "dev",
             ]
 
     def test_spec_naming(self) -> None:
-        """Spec feature → spec/<feature> in group dev."""
+        """Spec feature → title=spec/<feature>, group=dev."""
         with (
             patch("devops_ai.agent_deck.is_available", return_value=True),
             patch("devops_ai.agent_deck.subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=0, stderr="")
-            add_session("spec/wellness-reminders", group="dev", path="/tmp/wt")
+            add_session(
+                "spec/wellness-reminders",
+                group="dev",
+                path="/tmp/wt",
+            )
 
             cmd = mock_run.call_args[0][0]
-            assert cmd[2] == "spec/wellness-reminders"
-            assert cmd[4] == "dev"
+            # path is positional, title via -t, group via -g
+            assert cmd[2] == "/tmp/wt"
+            assert cmd[4] == "spec/wellness-reminders"
+            assert cmd[6] == "dev"
 
     def test_impl_naming(self) -> None:
-        """Impl feature/milestone → <feature>/<milestone> in group dev."""
+        """Impl feature/milestone → title=<feature>/<milestone>."""
         with (
             patch("devops_ai.agent_deck.is_available", return_value=True),
             patch("devops_ai.agent_deck.subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=0, stderr="")
-            add_session("wellness-reminders/M1", group="dev", path="/tmp/wt")
+            add_session(
+                "wellness-reminders/M1",
+                group="dev",
+                path="/tmp/wt",
+            )
 
             cmd = mock_run.call_args[0][0]
-            assert cmd[2] == "wellness-reminders/M1"
-            assert cmd[4] == "dev"
+            assert cmd[4] == "wellness-reminders/M1"
+            assert cmd[6] == "dev"
 
 
 class TestRemoveSession:

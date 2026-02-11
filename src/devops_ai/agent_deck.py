@@ -43,7 +43,11 @@ def add_session(title: str, *, group: str, path: str) -> None:
     """Add an agent-deck session."""
     if not is_available():
         return
-    _run_command(["agent-deck", "add", title, "--group", group, "--path", path])
+    _run_command([
+        "agent-deck", "add", path,
+        "-t", title,
+        "-g", group,
+    ])
 
 
 def remove_session(title: str) -> None:
