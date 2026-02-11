@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
+from devops_ai import agent_deck
 from devops_ai.config import find_project_root, load_config
 from devops_ai.registry import (
     get_slot_for_worktree,
@@ -19,6 +21,28 @@ from devops_ai.worktree import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Matches the last hyphen before a milestone token (e.g., -M1, -M2, -Phase2)
+_MILESTONE_SEP_RE = re.compile(r"-(?=[A-Z]\w*$)")
+
+
+def _session_title_from_worktree(wt: object) -> str:
+    """Derive agent-deck session title from worktree info.
+
+    impl worktree: branch ``impl/feat-M1`` → session ``feat/M1``
+    spec worktree: branch ``spec/feat`` → session ``spec/feat``
+    """
+    branch: str = getattr(wt, "branch", "")
+    if branch.startswith("impl/"):
+        stem = branch.removeprefix("impl/")
+        # Replace last -<Milestone> with /<Milestone>
+        title = _MILESTONE_SEP_RE.sub("/", stem, count=1)
+        return title
+    if branch.startswith("spec/"):
+        feature = branch.removeprefix("spec/")
+        return f"spec/{feature}"
+    # Fallback: use raw feature name
+    return getattr(wt, "feature", "")
 
 
 def done_command(
@@ -76,6 +100,13 @@ def done_command(
                 f"Worktree '{wt.feature}' has {detail}. "
                 "Use --force to remove anyway."
             )
+
+    # Agent-deck cleanup (best-effort, before sandbox stop)
+    # Session title derives from branch: impl/feat-M1 → feat/M1,
+    # spec/feat → spec/feat.  Fall back to wt.feature if no branch.
+    if agent_deck.is_available():
+        session_title = _session_title_from_worktree(wt)
+        agent_deck.remove_session(session_title)
 
     # Check registry for sandbox slot
     registry = load_registry()

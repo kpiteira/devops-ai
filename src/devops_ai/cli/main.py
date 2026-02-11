@@ -62,9 +62,14 @@ def impl_cmd(
     feature_milestone: str = typer.Argument(
         help="Feature/milestone (e.g., my-feature/M1)"
     ),
+    session: bool = typer.Option(
+        False,
+        "--session",
+        help="Create an agent-deck session with Claude",
+    ),
 ) -> None:
     """Create an implementation worktree with sandbox."""
-    code, msg = impl_command(feature_milestone)
+    code, msg = impl_command(feature_milestone, session=session)
     typer.echo(msg)
     raise typer.Exit(code)
 
