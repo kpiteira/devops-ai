@@ -35,7 +35,17 @@
 - `logger = logging.getLogger(__name__)` must go after all imports (ruff E402)
 - Typer sub-app commands need distinct function names (`obs_up` not `up`) to avoid shadowing builtins
 
-**Next Task Notes (3.5 — VALIDATION):**
-- All CLI commands registered: `kinfra observability up|down|status`
-- `kinfra impl` auto-starts observability when config.has_sandbox is true
-- E2E should test real Docker lifecycle — Jaeger/Grafana/Prometheus on 4xxxx ports
+## Task 3.5 Complete: M3 E2E Verification
+
+**E2E test:** manual/observability-lifecycle — PASSED (7 steps)
+
+**Fixes found during validation:**
+- `docker compose ps --format json` outputs NDJSON (one object per line), not a JSON array — fixed parser to handle both formats
+- Typer sub-app command names defaulted to function names (`obs-up`) — added explicit `name="up"` params
+
+**Results:**
+- All 3 services start on 4xxxx ports and respond to HTTP
+- Status correctly reports running/stopped/not_found
+- "Already running" detection works
+- Down stops cleanly
+- 144 unit tests pass, ruff + mypy clean
