@@ -9,7 +9,17 @@
 - Grafana provisioned with anonymous admin access for dev convenience (no login required)
 - Template at repo root `templates/` (not inside Python package) — Task 3.2 will need to locate it via `__file__` or `importlib.resources`
 
-**Next Task Notes (3.2):**
-- The template lives at `templates/observability/docker-compose.yml` relative to repo root
-- Package only includes `src/devops_ai/` (see `pyproject.toml` wheel config) — template discovery needs to work from installed package path
-- Consider using `Path(__file__).resolve().parents[N]` or shipping template as package data
+## Task 3.2 Complete: Observability Manager
+
+**Approach:** `ObservabilityManager` class with `base_dir` injection for testability. Template discovered by walking parent dirs from `__file__` — works for editable installs (`uv run`).
+
+**Key decisions:**
+- `_find_template()` walks up from `observability.py` to find `templates/observability/docker-compose.yml` at repo root — good enough for dev usage; wheel distribution would need package data
+- `status()` parses `docker compose ps --format json` — handles both list and single-object JSON formats
+- `ensure_running()` checks status first, only calls `start()` if not all 3 services are running
+- `_wait_for_jaeger()` polls Jaeger UI with 30s timeout after compose up
+
+**Next Task Notes (3.3):**
+- Import `ObservabilityManager` and constants from `devops_ai.observability`
+- `sandbox.py` has `_observability_network_exists()` which should be removed — Task 3.3 replaces the conditional check with always-on observability
+- The existing `generate_override()` conditionally adds observability; Task 3.3 makes it unconditional
