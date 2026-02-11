@@ -37,15 +37,21 @@
 
 ## Task 3.5 Complete: M3 E2E Verification
 
-**E2E test:** manual/observability-lifecycle — PASSED (7 steps)
+**E2E test:** observability-trace-flow — PASSED (11 steps)
+
+**Full E2E flow executed:**
+1. Created test project with OTEL-instrumented Python app + Dockerfile + compose
+2. Set up `.devops-ai/infra.toml` with sandbox config (port, health, code mount)
+3. Verified observability not running initially
+4. `kinfra observability up` → Jaeger/Grafana/Prometheus started on 4xxxx ports
+5. `kinfra impl my-feature/M1` → worktree created, sandbox started on slot 1 (port 8081)
+6. Verified override has `devops-ai-observability` network + OTEL env vars
+7. Verified sandbox container (`test-m3-slot-1-myapp-1`) joined observability network
+8. Sent HTTP requests to sandbox → traces generated
+9. Queried Jaeger API → **5 traces found**, operation=`handle-request`, `service.namespace=test-m3-slot-1`
+10. `kinfra done my-feature-M1 --force` → worktree + sandbox cleaned up
+11. `kinfra observability down` → stack stopped, test project removed
 
 **Fixes found during validation:**
 - `docker compose ps --format json` outputs NDJSON (one object per line), not a JSON array — fixed parser to handle both formats
 - Typer sub-app command names defaulted to function names (`obs-up`) — added explicit `name="up"` params
-
-**Results:**
-- All 3 services start on 4xxxx ports and respond to HTTP
-- Status correctly reports running/stopped/not_found
-- "Already running" detection works
-- Down stops cleanly
-- 144 unit tests pass, ruff + mypy clean
