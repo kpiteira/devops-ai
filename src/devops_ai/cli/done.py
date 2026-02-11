@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from devops_ai import agent_deck
 from devops_ai.config import find_project_root, load_config
 from devops_ai.registry import (
     get_slot_for_worktree,
@@ -76,6 +77,10 @@ def done_command(
                 f"Worktree '{wt.feature}' has {detail}. "
                 "Use --force to remove anyway."
             )
+
+    # Agent-deck cleanup (best-effort, before sandbox stop)
+    if agent_deck.is_available():
+        agent_deck.remove_session(wt.feature)
 
     # Check registry for sandbox slot
     registry = load_registry()

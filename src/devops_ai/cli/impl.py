@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
+from devops_ai import agent_deck
 from devops_ai.config import InfraConfig, find_project_root, load_config
 from devops_ai.observability import ObservabilityManager
 from devops_ai.registry import (
@@ -68,6 +69,7 @@ def _find_milestone_file(
 def impl_command(
     arg: str,
     repo_root: Path | None = None,
+    session: bool = False,
 ) -> tuple[int, str]:
     """Create an impl worktree with optional sandbox.
 
@@ -117,13 +119,20 @@ def impl_command(
     except Exception as e:
         return 1, f"Error creating worktree: {e}"
 
-    # If no sandbox config, we're done
+    # If no sandbox config, we're done (but session may still apply)
     if not config or not config.has_sandbox:
-        return 0, (
+        msg = (
             f"Created worktree: {wt_path}\n"
             f"  Branch: impl/{feature}-{milestone}\n"
             f"  No sandbox configured."
         )
+        if session:
+            session_msg = _setup_session(
+                feature, milestone, wt_path
+            )
+            if session_msg:
+                msg += f"\n{session_msg}"
+        return 0, msg
 
     # Observability: network is required (sandbox override declares it
     # external), full stack is non-fatal.
@@ -143,7 +152,28 @@ def impl_command(
         )
 
     # --- Sandbox setup ---
-    return _setup_sandbox(config, repo_root, wt_path, feature, milestone)
+    return _setup_sandbox(
+        config, repo_root, wt_path, feature, milestone, session
+    )
+
+
+def _setup_session(
+    feature: str,
+    milestone: str,
+    wt_path: Path,
+) -> str:
+    """Set up agent-deck session. Returns status message."""
+    if not agent_deck.is_available():
+        return "  agent-deck not found, skipping session management"
+    title = f"{feature}/{milestone}"
+    agent_deck.add_session(
+        title, group="dev", path=str(wt_path)
+    )
+    agent_deck.start_session(title)
+    agent_deck.send_to_session(
+        title, f"/kmilestone {feature}/{milestone}", delay=3
+    )
+    return f"  agent-deck session started: {title}"
 
 
 def _setup_sandbox(
@@ -152,6 +182,7 @@ def _setup_sandbox(
     wt_path: Path,
     feature: str,
     milestone: str,
+    session: bool = False,
 ) -> tuple[int, str]:
     """Set up sandbox for an impl worktree."""
     registry = load_registry()
@@ -216,5 +247,10 @@ def _setup_sandbox(
             f"  Warning: Health check timed out after "
             f"{config.health_timeout}s"
         )
+
+    if session:
+        session_msg = _setup_session(feature, milestone, wt_path)
+        if session_msg:
+            lines.append(session_msg)
 
     return 0, "\n".join(lines)
