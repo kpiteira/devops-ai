@@ -72,19 +72,32 @@ class ObservabilityManager:
     # ------------------------------------------------------------------
 
     def ensure_network(self) -> None:
-        """Create the Docker network if it doesn't exist (idempotent)."""
-        result = subprocess.run(
-            ["docker", "network", "inspect", NETWORK_NAME],
-            capture_output=True,
-            text=True,
-        )
+        """Create the Docker network if it doesn't exist (idempotent).
+
+        Raises RuntimeError if the network cannot be created.
+        """
+        try:
+            result = subprocess.run(
+                ["docker", "network", "inspect", NETWORK_NAME],
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            raise RuntimeError(
+                "Docker is not installed or not on PATH"
+            ) from None
         if result.returncode != 0:
             logger.info("Creating Docker network %s", NETWORK_NAME)
-            subprocess.run(
+            create = subprocess.run(
                 ["docker", "network", "create", NETWORK_NAME],
                 capture_output=True,
                 text=True,
             )
+            if create.returncode != 0:
+                raise RuntimeError(
+                    f"Failed to create network {NETWORK_NAME}: "
+                    f"{create.stderr.strip()}"
+                )
 
     # ------------------------------------------------------------------
     # Compose file
@@ -104,7 +117,10 @@ class ObservabilityManager:
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        """Start the observability stack (network + compose up)."""
+        """Start the observability stack (network + compose up).
+
+        Raises RuntimeError if compose up fails.
+        """
         self.ensure_network()
         self.ensure_compose_file()
 
@@ -114,7 +130,17 @@ class ObservabilityManager:
             "up", "-d",
         ]
         logger.info("Starting observability stack: %s", " ".join(cmd))
-        subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+        except FileNotFoundError:
+            raise RuntimeError(
+                "Docker is not installed or not on PATH"
+            ) from None
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Observability stack failed to start: "
+                f"{result.stderr.strip()}"
+            )
 
         self._wait_for_jaeger()
 
@@ -126,7 +152,17 @@ class ObservabilityManager:
             "down",
         ]
         logger.info("Stopping observability stack")
-        subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+        except FileNotFoundError:
+            raise RuntimeError(
+                "Docker is not installed or not on PATH"
+            ) from None
+        if result.returncode != 0:
+            logger.warning(
+                "Observability stack stop returned non-zero: %s",
+                result.stderr.strip(),
+            )
 
     def _wait_for_jaeger(self, timeout: int = 30) -> None:
         """Poll Jaeger UI until reachable or timeout."""
@@ -139,6 +175,7 @@ class ObservabilityManager:
                         logger.info("Jaeger UI reachable")
                         return
             except Exception:
+                # Jaeger may not be up yet; retry until timeout.
                 pass
             time.sleep(1)
         logger.warning("Jaeger UI not reachable after %ds", timeout)

@@ -82,8 +82,9 @@ def generate_override(
     """Generate docker-compose.override.yml with volume mounts.
 
     Always includes the devops-ai-observability network and OTEL
-    environment variables. The Observability Manager guarantees the
-    network exists before this is called.
+    environment variables. Callers must ensure the network exists
+    (e.g. via ``ObservabilityManager.ensure_network()``) before
+    starting the sandbox.
     """
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     namespace = f"{config.project_name}-slot-{slot.slot_id}"

@@ -14,8 +14,8 @@ services:
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "44317:4317"   # OTLP gRPC receiver
-      - "46686:16686"  # Jaeger UI
+      - "127.0.0.1:44317:4317"   # OTLP gRPC receiver
+      - "127.0.0.1:46686:16686"  # Jaeger UI
     networks:
       - devops-ai-observability
 
@@ -27,7 +27,7 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
     ports:
-      - "43000:3000"  # Grafana UI
+      - "127.0.0.1:43000:3000"  # Grafana UI
     networks:
       - devops-ai-observability
 
@@ -36,7 +36,7 @@ services:
     container_name: devops-ai-prometheus
     restart: unless-stopped
     ports:
-      - "49090:9090"  # Prometheus HTTP
+      - "127.0.0.1:49090:9090"  # Prometheus HTTP
     networks:
       - devops-ai-observability
 

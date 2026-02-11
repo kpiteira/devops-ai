@@ -151,6 +151,7 @@ class TestImplAutoStart:
             code, msg = impl_command("my-feature/M1", repo_root=tmp_path)
 
         assert code == 0
+        MockObs.return_value.ensure_network.assert_called_once()
         MockObs.return_value.ensure_running.assert_called_once()
 
     def test_impl_ensure_running_failure_non_fatal(
@@ -179,7 +180,7 @@ class TestImplAutoStart:
             ) as MockObs,
         ):
             MockObs.return_value.ensure_running.side_effect = (
-                RuntimeError("Docker not running")
+                RuntimeError("Stack failed to start")
             )
             mock_wt.return_value = (
                 tmp_path.parent / f"{tmp_path.name}-impl-my-feature-M1"
@@ -193,8 +194,37 @@ class TestImplAutoStart:
 
             code, msg = impl_command("my-feature/M1", repo_root=tmp_path)
 
-        # Should succeed despite observability failure
+        # ensure_running failure is non-fatal (network succeeded)
         assert code == 0
+
+    def test_impl_ensure_network_failure_is_fatal(
+        self, tmp_path: Path
+    ) -> None:
+        """ensure_network failure is fatal — impl returns error."""
+        _setup_git_repo(tmp_path)
+        _setup_milestone(tmp_path, "my-feature", "M1")
+        _setup_infra_toml(tmp_path)
+        (tmp_path / "docker-compose.yml").write_text("services: {}\n")
+
+        with (
+            patch("devops_ai.cli.impl.create_impl_worktree") as mock_wt,
+            patch(
+                "devops_ai.cli.impl.ObservabilityManager"
+            ) as MockObs,
+        ):
+            MockObs.return_value.ensure_network.side_effect = (
+                RuntimeError("Docker not running")
+            )
+            mock_wt.return_value = (
+                tmp_path.parent / f"{tmp_path.name}-impl-my-feature-M1"
+            )
+
+            from devops_ai.cli.impl import impl_command
+
+            code, msg = impl_command("my-feature/M1", repo_root=tmp_path)
+
+        assert code == 1
+        assert "observability network" in msg.lower()
 
 
 # --- Helpers ---
@@ -205,6 +235,18 @@ def _setup_git_repo(path: Path) -> None:
 
     subprocess.run(
         ["git", "init"], cwd=path, capture_output=True, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=path,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=path,
+        capture_output=True,
+        check=True,
     )
     subprocess.run(
         ["git", "commit", "--allow-empty", "-m", "init"],

@@ -36,8 +36,9 @@ def test_template_ports_in_4xxxx_range() -> None:
     data = _load_template()
     for svc_name, svc in data["services"].items():
         for port_mapping in svc.get("ports", []):
-            # port_mapping is "host:container" string
-            host_port = int(str(port_mapping).split(":")[0])
+            # port_mapping can be "host:container" or "ip:host:container"
+            parts = str(port_mapping).split(":")
+            host_port = int(parts[-2])  # second-to-last is always the host port
             assert 40000 <= host_port <= 49999, (
                 f"{svc_name}: host port {host_port} not in 4xxxx range"
             )

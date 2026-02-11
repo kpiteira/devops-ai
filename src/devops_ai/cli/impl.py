@@ -125,9 +125,18 @@ def impl_command(
             f"  No sandbox configured."
         )
 
-    # Auto-start observability (non-fatal)
+    # Observability: network is required (sandbox override declares it
+    # external), full stack is non-fatal.
+    obs_mgr = ObservabilityManager()
     try:
-        ObservabilityManager().ensure_running()
+        obs_mgr.ensure_network()
+    except Exception as exc:
+        return 1, (
+            f"Cannot create observability network: {exc}\n"
+            f"  Worktree created at {wt_path}"
+        )
+    try:
+        obs_mgr.ensure_running()
     except Exception:
         logger.warning(
             "Could not start observability stack — continuing without it"

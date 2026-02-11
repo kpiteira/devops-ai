@@ -18,22 +18,25 @@ def _up_command() -> tuple[int, str]:
 
     Returns (exit_code, message).
     """
-    mgr = ObservabilityManager()
-    status = mgr.status()
+    try:
+        mgr = ObservabilityManager()
+        status = mgr.status()
 
-    if all(s == ServiceState.RUNNING for s in status.services.values()):
+        if all(s == ServiceState.RUNNING for s in status.services.values()):
+            endpoints = mgr.get_endpoints()
+            lines = ["Observability stack already running."]
+            for name, url in sorted(endpoints.items()):
+                lines.append(f"  {name}: {url}")
+            return 0, "\n".join(lines)
+
+        mgr.start()
         endpoints = mgr.get_endpoints()
-        lines = ["Observability stack already running."]
+        lines = ["Observability stack started."]
         for name, url in sorted(endpoints.items()):
             lines.append(f"  {name}: {url}")
         return 0, "\n".join(lines)
-
-    mgr.start()
-    endpoints = mgr.get_endpoints()
-    lines = ["Observability stack started."]
-    for name, url in sorted(endpoints.items()):
-        lines.append(f"  {name}: {url}")
-    return 0, "\n".join(lines)
+    except Exception as exc:
+        return 1, f"Failed to start observability stack: {exc}"
 
 
 def _down_command() -> tuple[int, str]:
@@ -41,8 +44,11 @@ def _down_command() -> tuple[int, str]:
 
     Returns (exit_code, message).
     """
-    mgr = ObservabilityManager()
-    mgr.stop()
+    try:
+        mgr = ObservabilityManager()
+        mgr.stop()
+    except Exception as exc:
+        return 1, f"Failed to stop observability stack: {exc}"
 
     # Check for active sandboxes
     registry = load_registry()
@@ -64,8 +70,11 @@ def _status_command() -> tuple[int, str]:
 
     Returns (exit_code, message).
     """
-    mgr = ObservabilityManager()
-    status = mgr.status()
+    try:
+        mgr = ObservabilityManager()
+        status = mgr.status()
+    except Exception as exc:
+        return 1, f"Failed to query observability status: {exc}"
 
     lines = ["Observability Stack:"]
     for svc_name in sorted(status.services):
