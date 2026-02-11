@@ -27,7 +27,15 @@
 - Existing tests all patched `_observability_network_exists` — had to remove all those patches when making observability unconditional
 - `OTEL_ENDPOINT` constant extracted to module level in `sandbox.py` for reuse
 
-**Next Task Notes (3.4):**
-- `ObservabilityManager` is in `devops_ai.observability` — import for CLI commands
-- `config.InfraConfig.has_sandbox` indicates whether to auto-start observability in `impl`
-- CLI pattern: testable `_command()` functions, thin Typer wrappers in `main.py`
+## Task 3.4 Complete: CLI Observability Commands + impl Auto-Start
+
+**Approach:** Typer sub-app `observability_app` with `obs_up`, `obs_down`, `obs_status` commands mapped to `_up_command()`, `_down_command()`, `_status_command()` functions. `impl.py` calls `ObservabilityManager().ensure_running()` before sandbox setup (wrapped in try/except for non-fatal).
+
+**Gotchas:**
+- `logger = logging.getLogger(__name__)` must go after all imports (ruff E402)
+- Typer sub-app commands need distinct function names (`obs_up` not `up`) to avoid shadowing builtins
+
+**Next Task Notes (3.5 — VALIDATION):**
+- All CLI commands registered: `kinfra observability up|down|status`
+- `kinfra impl` auto-starts observability when config.has_sandbox is true
+- E2E should test real Docker lifecycle — Jaeger/Grafana/Prometheus on 4xxxx ports
