@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
 from devops_ai.config import InfraConfig, find_project_root, load_config
+from devops_ai.observability import ObservabilityManager
 from devops_ai.registry import (
     SlotInfo,
     allocate_slot,
@@ -28,6 +30,8 @@ from devops_ai.worktree import (
     impl_worktree_path,
     validate_feature_name,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def parse_feature_milestone(arg: str) -> tuple[str, str]:
@@ -119,6 +123,23 @@ def impl_command(
             f"Created worktree: {wt_path}\n"
             f"  Branch: impl/{feature}-{milestone}\n"
             f"  No sandbox configured."
+        )
+
+    # Observability: network is required (sandbox override declares it
+    # external), full stack is non-fatal.
+    obs_mgr = ObservabilityManager()
+    try:
+        obs_mgr.ensure_network()
+    except Exception as exc:
+        return 1, (
+            f"Cannot create observability network: {exc}\n"
+            f"  Worktree created at {wt_path}"
+        )
+    try:
+        obs_mgr.ensure_running()
+    except Exception:
+        logger.warning(
+            "Could not start observability stack — continuing without it"
         )
 
     # --- Sandbox setup ---

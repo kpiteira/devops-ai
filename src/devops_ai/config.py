@@ -40,6 +40,8 @@ class InfraConfig:
     code_mount_targets: list[str] = field(default_factory=list)
     shared_mounts: list[MountEntry] = field(default_factory=list)
     shared_mount_targets: list[str] = field(default_factory=list)
+    otel_endpoint_var: str = "OTEL_EXPORTER_OTLP_ENDPOINT"
+    otel_namespace_var: str = "OTEL_RESOURCE_ATTRIBUTES"
 
 
 def parse_mount(spec: str) -> MountEntry:
@@ -99,6 +101,15 @@ def load_config(project_root: Path) -> InfraConfig | None:
     shared_mounts = [parse_mount(m) for m in mounts.get("shared", [])]
     shared_mount_targets = mounts.get("shared_targets", [])
 
+    # OTEL overrides
+    otel = sandbox.get("otel", {})
+    otel_endpoint_var = otel.get(
+        "endpoint_var", "OTEL_EXPORTER_OTLP_ENDPOINT"
+    )
+    otel_namespace_var = otel.get(
+        "namespace_var", "OTEL_RESOURCE_ATTRIBUTES"
+    )
+
     return InfraConfig(
         project_name=name,
         prefix=prefix,
@@ -112,6 +123,8 @@ def load_config(project_root: Path) -> InfraConfig | None:
         code_mount_targets=code_mount_targets,
         shared_mounts=shared_mounts,
         shared_mount_targets=shared_mount_targets,
+        otel_endpoint_var=otel_endpoint_var,
+        otel_namespace_var=otel_namespace_var,
     )
 
 
