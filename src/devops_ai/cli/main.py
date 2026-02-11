@@ -77,7 +77,7 @@ def status() -> None:
     raise typer.Exit(code)
 
 
-@observability_app.command()
+@observability_app.command(name="up")
 def obs_up() -> None:
     """Start the shared observability stack."""
     code, msg = _up_command()
@@ -85,7 +85,7 @@ def obs_up() -> None:
     raise typer.Exit(code)
 
 
-@observability_app.command()
+@observability_app.command(name="down")
 def obs_down() -> None:
     """Stop the shared observability stack."""
     code, msg = _down_command()

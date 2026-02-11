@@ -167,9 +167,17 @@ class ObservabilityManager:
         services: dict[str, ServiceState] = {}
 
         if result.returncode == 0 and result.stdout.strip():
-            entries = json.loads(result.stdout)
-            if isinstance(entries, dict):
-                entries = [entries]
+            # docker compose ps --format json outputs NDJSON (one object
+            # per line) or a JSON array depending on version.
+            raw = result.stdout.strip()
+            if raw.startswith("["):
+                entries = json.loads(raw)
+            else:
+                entries = [
+                    json.loads(line)
+                    for line in raw.splitlines()
+                    if line.strip()
+                ]
             for entry in entries:
                 name = entry.get("Service", "")
                 state = entry.get("State", "")
