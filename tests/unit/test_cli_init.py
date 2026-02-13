@@ -3,6 +3,8 @@
 from pathlib import Path
 
 from devops_ai.cli.init_cmd import (
+    InitPlan,
+    detect_project,
     detect_project_name,
     detect_services_from_compose,
     generate_infra_toml,
@@ -206,3 +208,118 @@ class TestReinitDetectsExisting:
         exists, name = check_existing_config(tmp_path)
         assert exists is False
         assert name is None
+
+
+COMPOSE_APP_AND_JAEGER = """\
+services:
+  myapp:
+    build: .
+    ports:
+      - "8080:8080"
+  jaeger:
+    image: jaegertracing/jaeger:latest
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+"""
+
+COMPOSE_APP_ONLY = """\
+services:
+  myapp:
+    build: .
+    ports:
+      - "8080:8080"
+"""
+
+COMPOSE_EMPTY = """\
+version: "3"
+"""
+
+
+class TestDetectProject:
+    """Tests for detect_project() — the pure detection pipeline."""
+
+    def test_detects_compose_with_app_and_obs(
+        self, tmp_path: Path
+    ) -> None:
+        """detect_project returns correct InitPlan for app + Jaeger."""
+        (tmp_path / "docker-compose.yml").write_text(
+            COMPOSE_APP_AND_JAEGER
+        )
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "test-proj"\n'
+        )
+
+        plan = detect_project(tmp_path)
+
+        assert isinstance(plan, InitPlan)
+        assert plan.project_name == "test-proj"
+        assert plan.prefix == "test-proj"
+        assert plan.compose_file == "docker-compose.yml"
+        assert plan.compose_path == tmp_path / "docker-compose.yml"
+        assert "jaeger" in plan.obs_services
+        assert "myapp" in plan.app_services
+        assert "jaeger" not in plan.app_services
+        assert len(plan.ports) > 0
+        assert plan.health_endpoint == "/api/v1/health"
+        assert "[project]" in plan.toml_content
+
+    def test_detects_compose_no_obs(self, tmp_path: Path) -> None:
+        """detect_project handles compose with no obs services."""
+        (tmp_path / "docker-compose.yml").write_text(COMPOSE_APP_ONLY)
+
+        plan = detect_project(tmp_path)
+
+        assert plan.obs_services == []
+        assert "myapp" in plan.app_services
+
+    def test_handles_no_compose_file(self, tmp_path: Path) -> None:
+        """detect_project handles missing compose file gracefully."""
+        plan = detect_project(tmp_path)
+
+        assert plan.compose_file == "docker-compose.yml"
+        assert plan.services == {}
+        assert plan.obs_services == []
+        assert plan.app_services == {}
+        assert plan.ports == {}
+
+    def test_handles_empty_compose(self, tmp_path: Path) -> None:
+        """detect_project handles compose with no services key."""
+        (tmp_path / "docker-compose.yml").write_text(COMPOSE_EMPTY)
+
+        plan = detect_project(tmp_path)
+
+        assert plan.services == {}
+        assert plan.obs_services == []
+        assert plan.app_services == {}
+
+    def test_existing_interactive_flow_unchanged(
+        self, tmp_path: Path
+    ) -> None:
+        """init_command interactive flow still works after refactor."""
+        from unittest.mock import patch
+
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(COMPOSE_APP_AND_JAEGER)
+
+        with (
+            patch(
+                "devops_ai.cli.init_cmd.typer.prompt",
+                side_effect=[
+                    "testproj",  # project name
+                    "testproj",  # prefix
+                    "/health",   # health endpoint
+                ],
+            ),
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(project_root=tmp_path)
+
+        assert code == 0
+        assert (tmp_path / ".devops-ai" / "infra.toml").exists()

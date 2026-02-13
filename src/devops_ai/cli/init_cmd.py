@@ -6,6 +6,7 @@ import json
 import re
 import subprocess
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,89 @@ OBSERVABILITY_PATTERNS = [
     re.compile(r"^prom/prometheus"),
     re.compile(r"^grafana/grafana"),
 ]
+
+
+@dataclass
+class InitPlan:
+    """Structured result of project detection — no prompts, no file writes."""
+
+    project_root: Path
+    project_name: str
+    prefix: str
+    compose_file: str
+    compose_path: Path
+    services: dict[str, dict[str, Any]]
+    obs_services: list[str]
+    app_services: dict[str, dict[str, Any]]
+    ports: dict[str, int]
+    health_endpoint: str | None
+    health_port_var: str | None
+    toml_content: str = ""
+
+
+def detect_project(project_root: Path) -> InitPlan:
+    """Run the full detection pipeline and return a structured plan.
+
+    Pure function — no prompts, no file writes.
+    """
+    # Find compose files
+    compose_files = find_compose_files(project_root)
+    compose_file = compose_files[0].name if compose_files else "docker-compose.yml"
+    compose_path = project_root / compose_file
+
+    # Parse services
+    services: dict[str, dict[str, Any]] = {}
+    if compose_path.exists():
+        services = detect_services_from_compose(compose_path.read_text())
+
+    # Identify obs vs app services
+    obs_services = identify_observability_services(services)
+    app_services = {k: v for k, v in services.items() if k not in obs_services}
+
+    # Detect project name
+    project_name = detect_project_name(project_root)
+    prefix = project_name
+
+    # Default health endpoint
+    health_endpoint: str | None = "/api/v1/health"
+    health_port_var: str | None = None
+
+    # Build port map from app services
+    ports: dict[str, int] = {}
+    for svc_name, svc in app_services.items():
+        for port_info in svc["ports"]:
+            var_name = (
+                f"{prefix.upper().replace('-', '_')}"
+                f"_{svc_name.upper().replace('-', '_')}_PORT"
+            )
+            ports[var_name] = port_info["host"]
+            if health_port_var is None and health_endpoint:
+                health_port_var = var_name
+
+    # Generate toml content
+    toml_content = generate_infra_toml(
+        project_name=project_name,
+        prefix=prefix,
+        compose_file=compose_file,
+        ports=ports,
+        health_endpoint=health_endpoint,
+        health_port_var=health_port_var,
+    )
+
+    return InitPlan(
+        project_root=project_root,
+        project_name=project_name,
+        prefix=prefix,
+        compose_file=compose_file,
+        compose_path=compose_path,
+        services=services,
+        obs_services=obs_services,
+        app_services=app_services,
+        ports=ports,
+        health_endpoint=health_endpoint,
+        health_port_var=health_port_var,
+        toml_content=toml_content,
+    )
 
 
 def detect_services_from_compose(
@@ -250,7 +334,10 @@ def init_command(project_root: Path | None = None) -> int:
             "Init can proceed, but sandbox features need Docker."
         )
 
-    # Find compose files
+    # Run detection pipeline
+    plan = detect_project(project_root)
+
+    # Interactive overrides for compose file selection
     compose_files = find_compose_files(project_root)
     if not compose_files:
         typer.echo("No docker-compose.yml or compose.yml found.")
@@ -267,51 +354,49 @@ def init_command(project_root: Path | None = None) -> int:
             "Which compose file?", default=compose_files[0].name
         )
 
-    # Parse services
-    compose_path = project_root / compose_file
-    services: dict[str, dict[str, Any]] = {}
-    if compose_path.exists():
-        services = detect_services_from_compose(
-            compose_path.read_text()
-        )
-
-    # Identify observability services
-    obs_services = identify_observability_services(services)
-    app_services = {
-        k: v for k, v in services.items() if k not in obs_services
-    }
-
-    if services:
-        typer.echo(f"\nDetected {len(services)} services:")
-        for name, svc in services.items():
+    # Display detected services
+    if plan.services:
+        typer.echo(f"\nDetected {len(plan.services)} services:")
+        for name, svc in plan.services.items():
             ports_str = ", ".join(
                 str(p["host"]) for p in svc["ports"]
             )
-            label = " (observability)" if name in obs_services else ""
+            label = (
+                " (observability)" if name in plan.obs_services else ""
+            )
             typer.echo(f"  {name}: ports [{ports_str}]{label}")
 
-    if obs_services:
+    if plan.obs_services:
         typer.echo(
-            f"\nObservability services ({', '.join(obs_services)}) "
+            f"\nObservability services ({', '.join(plan.obs_services)}) "
             "will be provided by kinfra's shared stack."
         )
 
-    # Detect project name
-    detected_name = detect_project_name(project_root)
+    # Interactive overrides for project name, prefix, health
     project_name = typer.prompt(
-        "Project name", default=detected_name
+        "Project name", default=plan.project_name
     )
     prefix = typer.prompt("Worktree prefix", default=project_name)
 
-    # Health endpoint
-    health_endpoint = typer.prompt(
+    health_endpoint: str | None = typer.prompt(
         "Health check endpoint (empty to skip)",
         default="/api/v1/health",
     )
     if not health_endpoint:
         health_endpoint = None
 
-    # Build port map for app services
+    # Rebuild port map and toml with possibly-overridden values
+    compose_path = project_root / compose_file
+    services: dict[str, dict[str, Any]] = {}
+    if compose_path.exists():
+        services = detect_services_from_compose(
+            compose_path.read_text()
+        )
+    obs_services = identify_observability_services(services)
+    app_services = {
+        k: v for k, v in services.items() if k not in obs_services
+    }
+
     ports: dict[str, int] = {}
     health_port_var: str | None = None
     for svc_name, svc in app_services.items():
@@ -324,7 +409,6 @@ def init_command(project_root: Path | None = None) -> int:
             if health_port_var is None and health_endpoint:
                 health_port_var = var_name
 
-    # Generate and write config
     toml_content = generate_infra_toml(
         project_name=project_name,
         prefix=prefix,
