@@ -1,6 +1,8 @@
 ---
 name: kinfra-onboard
 description: Onboard a project to the kinfra sandbox and shared observability ecosystem.
+metadata:
+  version: "0.1.0"
 ---
 
 # kinfra-onboard — Project Onboarding

@@ -1,6 +1,8 @@
 ---
 name: kdesign
 description: Design and validate features through collaborative exploration. Produces DESIGN.md, ARCHITECTURE.md, and a milestone structure.
+metadata:
+  version: "0.1.0"
 ---
 
 # Design Command

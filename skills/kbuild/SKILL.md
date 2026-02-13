@@ -1,6 +1,8 @@
 ---
 name: kbuild
 description: Execute tasks (TDD) and orchestrate milestones from implementation plans.
+metadata:
+  version: "0.1.0"
 ---
 
 # Build Command

@@ -1,6 +1,8 @@
 ---
 name: kissue
 description: Implement GitHub issues using TDD. Fetches the issue, creates a branch, implements with RED/GREEN/REFACTOR, and opens a PR with "Closes #N".
+metadata:
+  version: "0.1.0"
 ---
 
 # Issue Implementation Command

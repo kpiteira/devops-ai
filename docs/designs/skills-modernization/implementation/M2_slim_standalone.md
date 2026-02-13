@@ -15,7 +15,7 @@ architecture: docs/designs/skills-modernization/ARCHITECTURE.md
 ## Task 2.1: Trim kreview
 
 **File(s):**
-- `skills/kreview/skill.md` (modify)
+- `skills/kreview/SKILL.md` (modify)
 
 **Type:** CODING
 **Estimated time:** 1 hour
@@ -49,7 +49,7 @@ Keep the core assessment framework intact — it's already principled and well-s
 ## Task 2.2: Trim kissue
 
 **File(s):**
-- `skills/kissue/skill.md` (modify)
+- `skills/kissue/SKILL.md` (modify)
 
 **Type:** CODING
 **Estimated time:** 1 hour
@@ -86,7 +86,7 @@ Shift language from prescriptive to principled where found.
 ## Task 2.3: Trim kinfra-onboard
 
 **File(s):**
-- `skills/kinfra-onboard/skill.md` (modify)
+- `skills/kinfra-onboard/SKILL.md` (modify)
 
 **Type:** CODING
 **Estimated time:** 1 hour
@@ -131,16 +131,16 @@ Verify each trimmed skill works correctly with rules providing shared context.
 1. **Structural checks:**
    ```bash
    # Line counts
-   wc -l skills/kreview/skill.md    # Target: ~150
-   wc -l skills/kissue/skill.md     # Target: ~120
-   wc -l skills/kinfra-onboard/skill.md  # Target: ~300
+   wc -l skills/kreview/SKILL.md    # Target: ~150
+   wc -l skills/kissue/SKILL.md     # Target: ~120
+   wc -l skills/kinfra-onboard/SKILL.md  # Target: ~300
 
    # No residual config boilerplate (the full block)
-   grep -l "Inspect the project root.*for project type indicators" skills/kreview/skill.md skills/kissue/skill.md
+   grep -l "Inspect the project root.*for project type indicators" skills/kreview/SKILL.md skills/kissue/SKILL.md
    # Should return nothing
 
    # No aggressive language
-   grep -c "CRITICAL\|MANDATORY" skills/kreview/skill.md skills/kissue/skill.md
+   grep -c "CRITICAL\|MANDATORY" skills/kreview/SKILL.md skills/kissue/SKILL.md
    # Should be 0 for each
    ```
 

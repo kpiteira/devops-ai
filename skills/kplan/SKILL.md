@@ -1,6 +1,8 @@
 ---
 name: kplan
 description: Expand milestones into implementable tasks with architecture alignment, TDD requirements, and E2E validation.
+metadata:
+  version: "0.1.0"
 ---
 
 # Implementation Planning Command

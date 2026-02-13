@@ -17,7 +17,7 @@ architecture: docs/designs/skills-modernization/ARCHITECTURE.md
 ## Task 4.1: Create New /kbuild
 
 **File(s):**
-- `skills/kbuild/skill.md` (create)
+- `skills/kbuild/SKILL.md` (create)
 
 **Type:** CODING
 **Estimated time:** 2-3 hours
@@ -76,7 +76,7 @@ Resume: read handoff file to find where to start
 **Target:** ~200 lines (1 skill)
 
 **Acceptance Criteria:**
-- [ ] Single skill.md handles both task and milestone modes
+- [ ] Single SKILL.md handles both task and milestone modes
 - [ ] No prescribed step numbers or mandatory pauses
 - [ ] Research-first principle preserved
 - [ ] "Code samples are structure" warning preserved
@@ -108,17 +108,17 @@ ln -sfn /Users/karl/Documents/dev/devops-ai/skills/kbuild ~/.claude/skills/kbuil
 1. **Structural checks:**
    ```bash
    # New skill exists
-   ls skills/kbuild/skill.md
+   ls skills/kbuild/SKILL.md
 
    # Line count
-   wc -l skills/kbuild/skill.md   # Target: ~200
+   wc -l skills/kbuild/SKILL.md   # Target: ~200
 
    # No residual boilerplate
-   grep -c "Inspect the project root.*for project type indicators" skills/kbuild/skill.md
+   grep -c "Inspect the project root.*for project type indicators" skills/kbuild/SKILL.md
    # Should be 0
 
    # No E2E agent ceremony
-   grep -c "e2e-test-designer\|e2e-test-architect\|e2e-tester" skills/kbuild/skill.md
+   grep -c "e2e-test-designer\|e2e-test-architect\|e2e-tester" skills/kbuild/SKILL.md
    # Should be 0
    ```
 
@@ -262,11 +262,11 @@ Changes needed:
 2. **Token budget verification:**
    ```bash
    echo "=== Skills ==="
-   wc -l skills/*/skill.md skills/kplan/kplan-categories.md
+   wc -l skills/*/SKILL.md skills/kplan/kplan-categories.md
    echo "=== Rules ==="
    wc -l rules/*.md
    echo "=== Total ==="
-   cat skills/*/skill.md skills/kplan/kplan-categories.md rules/*.md | wc -l
+   cat skills/*/SKILL.md skills/kplan/kplan-categories.md rules/*.md | wc -l
    ```
 
    Expected totals:

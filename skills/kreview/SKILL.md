@@ -1,6 +1,8 @@
 ---
 name: kreview
 description: Address PR review comments critically — assess each comment, recommend action (implement/push-back/discuss), and execute. Works with any reviewer (Copilot, Claude, human).
+metadata:
+  version: "0.1.0"
 ---
 
 # Address PR Review Comments

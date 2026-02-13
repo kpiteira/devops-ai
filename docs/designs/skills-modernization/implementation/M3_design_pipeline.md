@@ -17,7 +17,7 @@ architecture: docs/designs/skills-modernization/ARCHITECTURE.md
 ## Task 3.1: Create New /kdesign
 
 **File(s):**
-- `skills/kdesign/skill.md` (rewrite)
+- `skills/kdesign/SKILL.md` (rewrite)
 
 **Type:** CODING
 **Estimated time:** 2-3 hours
@@ -76,7 +76,7 @@ Output files (where to save, naming convention)
 **Target:** ~200 lines (1 skill)
 
 **Acceptance Criteria:**
-- [ ] Single skill.md replaces both kdesign and kdesign-validate
+- [ ] Single SKILL.md replaces both kdesign and kdesign-validate
 - [ ] No prescribed step numbers or mandatory pauses
 - [ ] No output templates (Opus decides format)
 - [ ] Rosetta stone approach preserved
@@ -90,7 +90,7 @@ Output files (where to save, naming convention)
 ## Task 3.2: Create New /kplan + Reference File
 
 **File(s):**
-- `skills/kplan/skill.md` (create)
+- `skills/kplan/SKILL.md` (create)
 - `skills/kplan/kplan-categories.md` (create)
 
 **Type:** CODING
@@ -147,7 +147,7 @@ Reference: load kplan-categories.md for task type analysis when useful
 **Target:** ~250 lines (skill) + ~100 lines (reference file)
 
 **Acceptance Criteria:**
-- [ ] skill.md captures architecture alignment, task quality, output structure
+- [ ] SKILL.md captures architecture alignment, task quality, output structure
 - [ ] kplan-categories.md contains task type taxonomy
 - [ ] No prescribed step numbers or mandatory pauses
 - [ ] Architecture alignment preserved as principle
@@ -179,15 +179,15 @@ ln -sfn /Users/karl/Documents/dev/devops-ai/skills/kplan ~/.claude/skills/kplan
 1. **Structural checks:**
    ```bash
    # New skills exist
-   ls skills/kdesign/skill.md skills/kplan/skill.md skills/kplan/kplan-categories.md
+   ls skills/kdesign/SKILL.md skills/kplan/SKILL.md skills/kplan/kplan-categories.md
 
    # Line counts
-   wc -l skills/kdesign/skill.md   # Target: ~200
-   wc -l skills/kplan/skill.md     # Target: ~250
+   wc -l skills/kdesign/SKILL.md   # Target: ~200
+   wc -l skills/kplan/SKILL.md     # Target: ~250
    wc -l skills/kplan/kplan-categories.md  # Target: ~100
 
    # No residual boilerplate
-   grep -c "Inspect the project root.*for project type indicators" skills/kdesign/skill.md
+   grep -c "Inspect the project root.*for project type indicators" skills/kdesign/SKILL.md
    # Should be 0
    ```
 
