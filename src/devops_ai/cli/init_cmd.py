@@ -310,8 +310,66 @@ def _git_toplevel() -> Path | None:
     return None
 
 
-def init_command(project_root: Path | None = None) -> int:
-    """Run the interactive init flow. Returns exit code."""
+def _format_dry_run_output(plan: InitPlan) -> str:
+    """Format the dry-run output for display."""
+    lines = [
+        f"Project: {plan.project_name}",
+        f"Prefix: {plan.prefix}",
+        f"Compose: {plan.compose_file}",
+        "",
+        "Services detected:",
+    ]
+
+    for name, svc in plan.services.items():
+        ports_str = ", ".join(str(p["host"]) for p in svc["ports"])
+        label = ""
+        if name in plan.obs_services:
+            label = " (observability — will be commented out)"
+        lines.append(f"  {name}: ports [{ports_str}]{label}")
+
+    if not plan.services:
+        lines.append("  (none)")
+
+    lines.append("")
+    lines.append("Planned infra.toml:")
+    for toml_line in plan.toml_content.splitlines():
+        lines.append(f"  {toml_line}")
+
+    lines.append("")
+    lines.append("Compose changes:")
+    for var_name, port in plan.ports.items():
+        lines.append(
+            f"  - Parameterize port {port}"
+            f" → ${{{var_name}:-{port}}}"
+        )
+    for obs_name in plan.obs_services:
+        lines.append(f"  - Comment out service: {obs_name}")
+    if plan.obs_services:
+        lines.append("  - Remove depends_on references to obs services")
+    if plan.services:
+        lines.append("  - Add kinfra header comment")
+        lines.append(
+            f"  - Backup: {plan.compose_file}.bak"
+        )
+
+    lines.append("")
+    lines.append("No files written (dry run).")
+    return "\n".join(lines)
+
+
+def init_command(
+    project_root: Path | None = None,
+    dry_run: bool = False,
+    auto: bool = False,
+    health_endpoint: str | None = None,
+) -> int:
+    """Run the init flow. Returns exit code.
+
+    With no flags: interactive mode (prompts for all values).
+    With --auto: accept all detected defaults, no prompts.
+    With --dry-run: preview changes without writing files.
+    With --health-endpoint: override the default health endpoint.
+    """
     if project_root is None:
         project_root = (
             find_project_root() or _git_toplevel() or Path.cwd()
@@ -320,12 +378,19 @@ def init_command(project_root: Path | None = None) -> int:
     # Check for existing config
     exists, existing_name = check_existing_config(project_root)
     if exists:
-        typer.echo(
-            f"Found existing config for '{existing_name}'."
-        )
-        if not typer.confirm("Update existing config?", default=False):
-            typer.echo("Aborted.")
-            return 0
+        if auto:
+            typer.echo(
+                f"Updating existing config for '{existing_name}'."
+            )
+        else:
+            typer.echo(
+                f"Found existing config for '{existing_name}'."
+            )
+            if not typer.confirm(
+                "Update existing config?", default=False
+            ):
+                typer.echo("Aborted.")
+                return 0
 
     # Check Docker
     if not check_docker_running():
@@ -337,7 +402,43 @@ def init_command(project_root: Path | None = None) -> int:
     # Run detection pipeline
     plan = detect_project(project_root)
 
-    # Interactive overrides for compose file selection
+    # Apply --health-endpoint override
+    if health_endpoint is not None:
+        plan.health_endpoint = health_endpoint
+        # Regenerate toml with overridden endpoint
+        plan.toml_content = generate_infra_toml(
+            project_name=plan.project_name,
+            prefix=plan.prefix,
+            compose_file=plan.compose_file,
+            ports=plan.ports,
+            health_endpoint=plan.health_endpoint,
+            health_port_var=plan.health_port_var,
+        )
+
+    if auto:
+        # Use detected defaults directly — no prompts
+        if dry_run:
+            typer.echo(_format_dry_run_output(plan))
+            return 0
+
+        # Write config and rewrite compose
+        config_dir = project_root / ".devops-ai"
+        config_dir.mkdir(exist_ok=True)
+        (config_dir / "infra.toml").write_text(plan.toml_content)
+        typer.echo("\nConfig written to .devops-ai/infra.toml")
+
+        if plan.compose_path.exists() and (
+            plan.ports or plan.obs_services
+        ):
+            rewrite_compose(
+                plan.compose_path, plan.ports, plan.obs_services
+            )
+            typer.echo(
+                f"Compose file updated: {plan.compose_file}"
+            )
+        return 0
+
+    # Interactive mode — prompt for overrides
     compose_files = find_compose_files(project_root)
     if not compose_files:
         typer.echo("No docker-compose.yml or compose.yml found.")
@@ -362,7 +463,9 @@ def init_command(project_root: Path | None = None) -> int:
                 str(p["host"]) for p in svc["ports"]
             )
             label = (
-                " (observability)" if name in plan.obs_services else ""
+                " (observability)"
+                if name in plan.obs_services
+                else ""
             )
             typer.echo(f"  {name}: ports [{ports_str}]{label}")
 
@@ -372,18 +475,17 @@ def init_command(project_root: Path | None = None) -> int:
             "will be provided by kinfra's shared stack."
         )
 
-    # Interactive overrides for project name, prefix, health
     project_name = typer.prompt(
         "Project name", default=plan.project_name
     )
     prefix = typer.prompt("Worktree prefix", default=project_name)
 
-    health_endpoint: str | None = typer.prompt(
+    prompted_health: str | None = typer.prompt(
         "Health check endpoint (empty to skip)",
-        default="/api/v1/health",
+        default=health_endpoint or "/api/v1/health",
     )
-    if not health_endpoint:
-        health_endpoint = None
+    if not prompted_health:
+        prompted_health = None
 
     # Rebuild port map and toml with possibly-overridden values
     compose_path = project_root / compose_file
@@ -406,7 +508,7 @@ def init_command(project_root: Path | None = None) -> int:
                 f"_{svc_name.upper().replace('-', '_')}_PORT"
             )
             ports[var_name] = port_info["host"]
-            if health_port_var is None and health_endpoint:
+            if health_port_var is None and prompted_health:
                 health_port_var = var_name
 
     toml_content = generate_infra_toml(
@@ -414,9 +516,28 @@ def init_command(project_root: Path | None = None) -> int:
         prefix=prefix,
         compose_file=compose_file,
         ports=ports,
-        health_endpoint=health_endpoint,
+        health_endpoint=prompted_health,
         health_port_var=health_port_var,
     )
+
+    if dry_run:
+        # Build a plan with user-overridden values for display
+        overridden_plan = InitPlan(
+            project_root=project_root,
+            project_name=project_name,
+            prefix=prefix,
+            compose_file=compose_file,
+            compose_path=compose_path,
+            services=services,
+            obs_services=obs_services,
+            app_services=app_services,
+            ports=ports,
+            health_endpoint=prompted_health,
+            health_port_var=health_port_var,
+            toml_content=toml_content,
+        )
+        typer.echo(_format_dry_run_output(overridden_plan))
+        return 0
 
     config_dir = project_root / ".devops-ai"
     config_dir.mkdir(exist_ok=True)

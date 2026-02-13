@@ -323,3 +323,223 @@ class TestDetectProject:
 
         assert code == 0
         assert (tmp_path / ".devops-ai" / "infra.toml").exists()
+
+
+class TestInitDryRun:
+    """Tests for --dry-run flag."""
+
+    def test_dry_run_auto_prints_plan_writes_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        """--dry-run --auto: detection runs, output printed, no files."""
+        from unittest.mock import patch
+
+        from devops_ai.cli.init_cmd import init_command
+
+        (tmp_path / "docker-compose.yml").write_text(
+            COMPOSE_APP_AND_JAEGER
+        )
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "test-proj"\n'
+        )
+
+        echo_calls: list[str] = []
+        with (
+            patch(
+                "devops_ai.cli.init_cmd.typer.echo",
+                side_effect=lambda msg="": echo_calls.append(str(msg)),
+            ),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(
+                project_root=tmp_path, dry_run=True, auto=True
+            )
+
+        assert code == 0
+        # No files should be created
+        assert not (tmp_path / ".devops-ai" / "infra.toml").exists()
+        assert not (tmp_path / "docker-compose.yml.bak").exists()
+        # Output should contain project info
+        output = "\n".join(echo_calls)
+        assert "test-proj" in output
+        assert "No files written" in output
+
+    def test_dry_run_without_auto_still_prompts(
+        self, tmp_path: Path
+    ) -> None:
+        """--dry-run alone (without --auto) still prompts, then previews."""
+        from unittest.mock import patch
+
+        from devops_ai.cli.init_cmd import init_command
+
+        (tmp_path / "docker-compose.yml").write_text(
+            COMPOSE_APP_AND_JAEGER
+        )
+
+        echo_calls: list[str] = []
+        with (
+            patch(
+                "devops_ai.cli.init_cmd.typer.prompt",
+                side_effect=[
+                    "myproj",   # project name
+                    "myproj",   # prefix
+                    "/health",  # health endpoint
+                ],
+            ),
+            patch(
+                "devops_ai.cli.init_cmd.typer.echo",
+                side_effect=lambda msg="": echo_calls.append(str(msg)),
+            ),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(
+                project_root=tmp_path, dry_run=True
+            )
+
+        assert code == 0
+        # No files should be created
+        assert not (tmp_path / ".devops-ai" / "infra.toml").exists()
+        output = "\n".join(echo_calls)
+        assert "No files written" in output
+
+
+class TestInitAuto:
+    """Tests for --auto flag."""
+
+    def test_auto_creates_files_without_prompts(
+        self, tmp_path: Path
+    ) -> None:
+        """--auto: uses detected defaults, creates files without prompts."""
+        from unittest.mock import patch
+
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(COMPOSE_APP_AND_JAEGER)
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "test-proj"\n'
+        )
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(
+                project_root=tmp_path, auto=True
+            )
+
+        assert code == 0
+        # Config should be created
+        assert (tmp_path / ".devops-ai" / "infra.toml").exists()
+        toml = (tmp_path / ".devops-ai" / "infra.toml").read_text()
+        assert 'name = "test-proj"' in toml
+        # Compose should be parameterized
+        content = compose.read_text()
+        assert "${" in content
+        # Jaeger should be commented out
+        assert "# jaeger:" in content
+
+    def test_auto_with_existing_config_updates(
+        self, tmp_path: Path
+    ) -> None:
+        """--auto with existing config: auto-confirms update."""
+        from unittest.mock import patch
+
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(COMPOSE_APP_ONLY)
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "updated"\n'
+        )
+        # Pre-existing config
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "infra.toml").write_text(
+            '[project]\nname = "old"\n'
+        )
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(
+                project_root=tmp_path, auto=True
+            )
+
+        assert code == 0
+        toml = (tmp_path / ".devops-ai" / "infra.toml").read_text()
+        assert 'name = "updated"' in toml
+
+    def test_auto_with_health_endpoint_override(
+        self, tmp_path: Path
+    ) -> None:
+        """--auto --health-endpoint /health: uses provided endpoint."""
+        from unittest.mock import patch
+
+        from devops_ai.cli.init_cmd import init_command
+
+        (tmp_path / "docker-compose.yml").write_text(
+            COMPOSE_APP_ONLY
+        )
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(
+                project_root=tmp_path,
+                auto=True,
+                health_endpoint="/health",
+            )
+
+        assert code == 0
+        toml = (tmp_path / ".devops-ai" / "infra.toml").read_text()
+        assert 'endpoint = "/health"' in toml
+
+    def test_interactive_mode_unchanged(
+        self, tmp_path: Path
+    ) -> None:
+        """No flags: interactive mode unchanged (prompts required)."""
+        from unittest.mock import patch
+
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(COMPOSE_APP_ONLY)
+
+        with (
+            patch(
+                "devops_ai.cli.init_cmd.typer.prompt",
+                side_effect=[
+                    "interproj",  # project name
+                    "interproj",  # prefix
+                    "/api/health",  # health endpoint
+                ],
+            ),
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(project_root=tmp_path)
+
+        assert code == 0
+        toml = (tmp_path / ".devops-ai" / "infra.toml").read_text()
+        assert 'name = "interproj"' in toml
