@@ -1,10 +1,17 @@
 # devops-ai
 
-Versioned, configuration-driven development workflow skills for AI-assisted software engineering.
+Development workflow skills and infrastructure CLI for AI-assisted software engineering.
 
 ## What This Is
 
-A collection of battle-tested development workflow commands that work with Claude Code, Codex CLI, and GitHub Copilot CLI via the [Agent Skills standard](https://agentskills.io):
+Two things that work together:
+
+1. **Skills** — Markdown prompts that guide AI coding tools through proven development workflows (design, validate, plan, implement)
+2. **kinfra** — A Python CLI that manages git worktrees, Docker sandbox slots with port isolation, and a shared observability stack (Jaeger/Grafana/Prometheus)
+
+Skills work with Claude Code, Codex CLI, and GitHub Copilot CLI via the [Agent Skills standard](https://agentskills.io). kinfra is installed globally via `uv` and works from any project.
+
+## Skills
 
 | Command | Purpose |
 |---------|---------|
@@ -13,46 +20,10 @@ A collection of battle-tested development workflow commands that work with Claud
 | `/kdesign-impl-plan` | Vertical implementation planning |
 | `/kmilestone` | Milestone orchestration |
 | `/ktask` | TDD task execution with handoffs |
+| `/kworktree` | Worktree and sandbox management via kinfra |
+| `/kinfra-onboard` | Onboard any project to kinfra's sandbox and observability ecosystem |
 
-These encode proven patterns: collaborative design, scenario validation, vertical milestones, TDD execution, and handoff continuity.
-
-## Quick Start
-
-### 1. Install skills
-
-```bash
-git clone https://github.com/kpiteira/devops-ai.git ~/Documents/dev/devops-ai
-cd ~/Documents/dev/devops-ai
-./install.sh
-```
-
-This symlinks all skills to each tool's `skills/` directory (`~/.claude/skills/`, `~/.codex/skills/`, `~/.copilot/skills/`). Use `--target claude` to install for a single tool only.
-
-### 2. Configure a project
-
-```bash
-cd /path/to/your/project
-mkdir -p .devops-ai
-cp ~/Documents/dev/devops-ai/templates/project-config.md .devops-ai/project.md
-# Edit .devops-ai/project.md with your project's commands and paths
-```
-
-Or skip this step — skills will ask for needed values and offer to create the config.
-
-### 3. Use the commands
-
-```bash
-# In Claude Code (or Codex, Copilot):
-/kdesign feature: Add user authentication
-/kdesign-validate design: DESIGN.md arch: ARCHITECTURE.md
-/kdesign-impl-plan design: DESIGN.md arch: ARCHITECTURE.md
-/kmilestone @M1_auth.md
-/ktask M1_auth.md 1.2
-```
-
-## Workflow
-
-The commands chain together in a design-to-implementation pipeline:
+The first five encode a design-to-implementation pipeline:
 
 ```
 /kdesign          → DESIGN.md + ARCHITECTURE.md    (what + how)
@@ -62,52 +33,103 @@ The commands chain together in a design-to-implementation pipeline:
 /ktask             → TDD implementation + handoffs   (execute task)
 ```
 
-Each stage produces artifacts consumed by the next. You can enter at any point — `/ktask` works fine standalone with a hand-written task list.
+Each stage produces artifacts consumed by the next. You can enter at any point.
 
-## Commands
+## kinfra CLI
 
-### `/kdesign`
+A Python CLI for managing isolated development environments across projects.
 
-Generates DESIGN.md and ARCHITECTURE.md through collaborative exploration. Asks clarifying questions, proposes options with trade-offs, pauses for alignment at each stage.
+### Commands
 
-**Produces:** `DESIGN.md`, `ARCHITECTURE.md` in configured design path.
+| Command | What it does |
+|---------|-------------|
+| `kinfra init` | Inspect a project, parameterize compose ports, generate `infra.toml` |
+| `kinfra spec <feature>` | Create a spec worktree for design work |
+| `kinfra impl <feature-milestone>` | Create an impl worktree with optional Docker sandbox |
+| `kinfra done <worktree>` | Clean up worktree, sandbox slot, and Docker containers |
+| `kinfra worktrees` | List active worktrees for the project |
+| `kinfra status` | Show sandbox slot, ports, and container health |
+| `kinfra observability` | Manage the shared Jaeger/Grafana/Prometheus stack |
 
-### `/kdesign-validate`
+### Key capabilities
 
-Walks through concrete scenarios against the design, catching gaps before implementation. Traces execution paths, identifies missing state transitions, and produces interface contracts.
+**Git worktrees** — Isolated branches for spec and implementation work, following `spec/<feature>` and `impl/<feature>-<milestone>` conventions.
 
-**Produces:** `SCENARIOS.md` with validated scenarios and milestone structure.
+**Docker sandbox slots** — Each `kinfra impl` allocates a numbered slot (1-100) with port isolation. Port formula: `base_port + slot_id`. Slots are tracked in a global registry at `~/.devops-ai/registry.json` so multiple projects never collide.
 
-### `/kdesign-impl-plan`
+**Shared observability** — A single Jaeger/Grafana/Prometheus stack on dedicated 4xxxx ports (Jaeger UI: 46686, OTLP: 44317, Prometheus: 49090, Grafana: 43000). All sandboxes auto-connect to the `devops-ai-observability` Docker network and export OTEL traces with project-specific namespacing.
 
-Generates vertical implementation plans where each milestone delivers an E2E-testable capability. Includes detailed tasks with files, acceptance criteria, and test requirements.
+**Agent-deck integration** — Optional `--session` flag on `impl`/`done` for agent-deck session management, with graceful degradation when agent-deck isn't installed.
 
-**Produces:** One file per milestone (`M1_*.md`, `M2_*.md`, ...) plus `OVERVIEW.md`.
+### Onboarding a project
 
-### `/kmilestone`
+The `/kinfra-onboard` skill provides intelligent, phased onboarding for any project:
 
-Orchestrates execution of an entire milestone by invoking `/ktask` for each task. Tracks progress via handoff files, verifies quality gates between tasks, and produces a completion summary.
+1. **Analyze** — Reads compose files, app config, and git state. Reports what it found.
+2. **Propose** — Runs `kinfra init --dry-run` to preview changes, plans app-level OTEL rewiring.
+3. **Execute** — Runs `kinfra init --auto`, updates OTEL endpoints, modifies project docs.
+4. **Verify** — Confirms config validity, compose parsing, and consistency.
 
-**Usage:** `/kmilestone @M1_foundation.md`
+`kinfra init` supports `--dry-run` (preview without writing), `--auto` (non-interactive), and `--health-endpoint` (custom health check URL) flags. The skill uses these to separate assessment from execution.
 
-### `/ktask`
+## Quick Start
 
-Implements individual tasks using TDD methodology: RED (write failing tests) → GREEN (minimal implementation) → REFACTOR (clean up). Updates handoff documents for context continuity.
+### 1. Install
 
-**Usage:** `/ktask M1_foundation.md 1.2`
+```bash
+git clone https://github.com/kpiteira/devops-ai.git ~/Documents/dev/devops-ai
+cd ~/Documents/dev/devops-ai
+./install.sh
+```
+
+This does two things:
+- Installs the `kinfra` CLI globally via `uv tool install`
+- Symlinks all skills to `~/.claude/skills/`, `~/.codex/skills/`, `~/.copilot/skills/`
+
+Use `--target claude` to install for a single tool only.
+
+### 2. Configure a project
+
+```bash
+cd /path/to/your/project
+mkdir -p .devops-ai
+cp ~/Documents/dev/devops-ai/templates/project-config.md .devops-ai/project.md
+# Edit with your project's commands and paths
+```
+
+Or skip this — skills ask for needed values and offer to create the config. `/kinfra-onboard` handles the full setup including infrastructure config.
+
+### 3. Use
+
+```bash
+# Design workflow
+/kdesign feature: Add user authentication
+/kdesign-validate design: DESIGN.md arch: ARCHITECTURE.md
+/kdesign-impl-plan design: DESIGN.md arch: ARCHITECTURE.md
+/kmilestone @M1_auth.md
+/ktask M1_auth.md 1.2
+
+# Infrastructure
+kinfra init                          # Set up kinfra in current project
+kinfra impl auth-M1                  # Worktree + sandbox for milestone 1
+kinfra status                        # Check sandbox health
+kinfra done devops-ai-impl-auth-M1   # Clean up everything
+
+# Or let the skill handle onboarding
+/kinfra-onboard                      # Full 4-phase guided onboarding
+/kinfra-onboard --check              # Just analyze, no changes
+```
 
 ## Configuration
 
-Skills read `.devops-ai/project.md` from your project root. Copy the template from `templates/project-config.md` and fill in your values.
-
-**Sections:**
+Skills read `.devops-ai/project.md` from your project root.
 
 | Section | Used By | Required |
 |---------|---------|----------|
 | **Project** (name, language) | All skills | For context |
 | **Testing** (unit tests, quality checks) | ktask, kmilestone, kdesign-impl-plan | Essential |
-| **Infrastructure** (start, logs) | ktask | Optional |
-| **E2E Testing** (system, catalog) | ktask, kmilestone, kdesign-impl-plan | Optional |
+| **Infrastructure** (start, logs) | ktask, kworktree | Optional |
+| **E2E Testing** (command, catalog) | ktask, kmilestone, kdesign-impl-plan | Optional |
 | **Paths** (design docs) | kdesign, kdesign-validate, kdesign-impl-plan | Essential |
 | **Project-Specific Patterns** | ktask | Optional |
 
@@ -115,50 +137,80 @@ Without a config file, skills ask for essential values and skip optional section
 
 ## How It Works
 
-Skills are markdown prompts that instruct AI coding tools. Each skill starts by reading your project's `.devops-ai/project.md` to learn project-specific values. The core workflow patterns are universal; the tooling adapts.
+Skills are markdown prompts that instruct AI coding tools. Each skill reads `.devops-ai/project.md` to adapt to your project. kinfra is a real Python CLI that manages git and Docker state.
 
 ```
-devops-ai (versioned)        ~/.claude/skills/ (symlinks)         your-project/
-├── skills/                  ├── kdesign/ →                       ├── .devops-ai/
-│   ├── kdesign/SKILL.md ───┤── ktask/ →                         │   └── project.md  ← config
-│   ├── ktask/SKILL.md ─────┤── kmilestone/ →                    └── ...
-│   └── ...                  └── ...
+devops-ai/                          ~/.claude/skills/ (symlinks)      your-project/
+├── skills/                         ├── kdesign/ →                    ├── .devops-ai/
+│   ├── kdesign/SKILL.md ──────────┤── ktask/ →                      │   ├── project.md
+│   ├── ktask/SKILL.md ────────────┤── kworktree/ →                  │   └── infra.toml
+│   ├── kworktree/SKILL.md ────────┤── kinfra-onboard/ →             ├── docker-compose.yml
+│   ├── kinfra-onboard/SKILL.md ───┤── ...                           └── ...
+│   └── ...                         └── ...
+├── src/devops_ai/                  kinfra (global CLI via uv)
+│   ├── cli/                        └── manages worktrees, sandboxes,
+│   ├── compose.py                     ports, observability
+│   ├── config.py
+│   ├── ports.py
+│   ├── registry.py
+│   └── ...
+└── templates/
+    ├── project-config.md
+    └── observability/docker-compose.yml
 ```
-
-Same symlinks are created for `~/.codex/skills/` and `~/.copilot/skills/`.
 
 ## Design Principles
 
 1. **Skills are prompts, not code** — No runtime, no framework, just markdown
-2. **Config is also a prompt** — `.devops-ai/project.md` is read by skills, not parsed by a program
-3. **Symlinks for updates** — `git pull` in devops-ai updates all skills globally
-4. **Graceful degradation** — Skills work without config by asking for needed values
-5. **Conditional capabilities** — E2E testing, Docker infrastructure are optional
+2. **kinfra is deterministic** — The CLI handles mechanical work; skills provide the judgment layer
+3. **Config is also a prompt** — `.devops-ai/project.md` is read by skills, not parsed by a program
+4. **Symlinks for updates** — `git pull` in devops-ai updates all skills globally
+5. **Graceful degradation** — Skills work without config; kinfra features (sandbox, observability) are opt-in
 6. **Agent Skills standard** — Cross-tool portable via [agentskills.io](https://agentskills.io) spec
+
+## Project Structure
+
+```
+devops-ai/
+├── src/devops_ai/          # kinfra CLI source (Python)
+│   ├── cli/                # Typer command modules
+│   ├── compose.py          # Docker Compose parameterization
+│   ├── config.py           # infra.toml loader
+│   ├── ports.py            # Port allocation with conflict detection
+│   ├── registry.py         # Global slot registry (~/.devops-ai/registry.json)
+│   ├── sandbox.py          # Sandbox file generation (.env, overrides)
+│   ├── observability.py    # Shared observability stack management
+│   ├── worktree.py         # Git worktree lifecycle
+│   └── agent_deck.py       # Optional agent-deck integration
+├── skills/                 # AI tool skills (symlinked on install)
+│   ├── kdesign/            # Design document generation
+│   ├── kdesign-validate/   # Scenario-based validation
+│   ├── kdesign-impl-plan/  # Implementation planning
+│   ├── kmilestone/         # Milestone orchestration
+│   ├── ktask/              # TDD task execution
+│   ├── kworktree/          # Worktree/sandbox management skill
+│   ├── kinfra-onboard/     # Project onboarding skill
+│   └── shared/             # Shared skill components (E2E prompt)
+├── templates/              # Project config and observability templates
+├── tests/                  # 185 unit tests, 8 E2E tests
+└── docs/designs/           # Design documents for devops-ai itself
+```
 
 ## Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
-| "Command not found" when using `/kdesign` etc. | Run `./install.sh` from the devops-ai directory |
+| `kinfra: command not found` | Run `./install.sh` — requires `uv` |
+| Skill commands not found | Run `./install.sh` and restart your AI tool |
 | Skills not picking up config | Verify `.devops-ai/project.md` exists in your project root |
+| Port conflict on `kinfra impl` | Another slot is using that port range — check `kinfra status` |
 | Skills not updating after `git pull` | Check symlinks: `ls -la ~/.claude/skills/kdesign` should point to devops-ai |
-| Broken symlinks after moving devops-ai | Re-run `./install.sh` |
-| Skills ask for values that are in config | Check for "Not configured" placeholders — replace them with actual values |
-
-## Relationship to Other Projects
-
-| Project | Purpose | Visibility |
-|---------|---------|------------|
-| **devops-ai** (this) | Development workflow skills | Public (eventually) |
-| **agent-memory** | Memory infrastructure (store, retrieve, consolidate) | Public (eventually) |
+| Observability stack not starting | Ensure Docker is running, then `kinfra observability start` |
 
 ## Status
 
-Early development. Current focus: generalizing skills from project-specific to portable.
-
-See `docs/designs/skill-generalization/` for design and architecture documents.
+Active development. The core workflow skills and kinfra CLI are stable and used daily. Current test coverage: 185 unit tests, 8 E2E tests.
 
 ## License
 
-TBD — considering open source once stable.
+TBD
