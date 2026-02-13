@@ -17,20 +17,16 @@ Skills work with Claude Code, Codex CLI, and GitHub Copilot CLI via the [Agent S
 
 | Command | Purpose |
 |---------|---------|
-| `/kdesign` | Collaborative design document generation |
-| `/kdesign-validate` | Scenario-based design validation |
-| `/kdesign-impl-plan` | Vertical implementation planning |
-| `/kmilestone` | Milestone orchestration |
-| `/ktask` | TDD task execution with handoffs |
+| `/kdesign` | Collaborative design and validation — produces DESIGN.md, ARCHITECTURE.md, and a milestone structure |
+| `/kplan` | Expand milestones into implementable tasks with architecture alignment and TDD requirements |
+| `/kbuild` | Execute tasks (TDD) or orchestrate full milestones from implementation plans |
 
 These chain together:
 
 ```
-/kdesign          → DESIGN.md + ARCHITECTURE.md    (what + how)
-/kdesign-validate → SCENARIOS.md                    (does it hold up?)
-/kdesign-impl-plan → M1_*.md, M2_*.md, ...         (vertical milestones)
-/kmilestone        → orchestrates /ktask per task    (execute milestone)
-/ktask             → TDD implementation + handoffs   (execute task)
+/kdesign → DESIGN.md + ARCHITECTURE.md + milestone structure
+/kplan   → M1_*.md, M2_*.md, ... (vertical milestones with tasks)
+/kbuild  → TDD implementation + handoffs (single task or full milestone)
 ```
 
 Each stage produces artifacts consumed by the next. You can enter at any point.
@@ -101,11 +97,12 @@ cd ~/Documents/dev/devops-ai
 ./install.sh
 ```
 
-This does two things:
+This does three things:
 - **kinfra CLI** — Installed globally via `uv tool install -e .` (editable mode)
 - **Skills** — Symlinked to `~/.claude/skills/`, `~/.codex/skills/`, `~/.copilot/skills/`
+- **Rules** — Symlinked to `.claude/rules/` in devops-ai itself (shared principles loaded into every conversation)
 
-Use `--target claude` to install for a single tool only. Use `--force` to overwrite non-symlink files.
+Use `--target claude` to install for a single tool only. Use `--force` to overwrite non-symlink files. Use `--rules /path/to/project` to install rules into another project.
 
 Verify:
 
@@ -160,12 +157,13 @@ Or skip config entirely — skills ask for needed values on first use.
 ```bash
 # Design
 /kdesign feature: Add user authentication
-/kdesign-validate design: DESIGN.md arch: ARCHITECTURE.md
-/kdesign-impl-plan design: DESIGN.md arch: ARCHITECTURE.md
+
+# Plan
+/kplan design: DESIGN.md arch: ARCHITECTURE.md
 
 # Implement
-/kmilestone @M1_auth.md              # Runs each task via /ktask
-/ktask M1_auth.md 1.2                # Or run a single task directly
+/kbuild impl: M1_auth.md             # Run full milestone
+/kbuild impl: M1_auth.md task: 1.2   # Or run a single task
 ```
 
 ### Work in isolated environments
@@ -184,11 +182,11 @@ Skills read `.devops-ai/project.md` from your project root.
 | Section | Used By | Required |
 |---------|---------|----------|
 | **Project** (name, language) | All skills | For context |
-| **Testing** (unit tests, quality checks) | ktask, kmilestone, kdesign-impl-plan | Essential |
-| **Infrastructure** (start, logs) | ktask, kworktree | Optional |
-| **E2E Testing** (command, catalog) | ktask, kmilestone, kdesign-impl-plan | Optional |
-| **Paths** (design docs) | kdesign, kdesign-validate, kdesign-impl-plan | Essential |
-| **Project-Specific Patterns** | ktask | Optional |
+| **Testing** (unit tests, quality checks) | kbuild, kplan | Essential |
+| **Infrastructure** (start, logs) | kbuild, kworktree | Optional |
+| **E2E Testing** (command, catalog) | kbuild, kplan | Optional |
+| **Paths** (design docs) | kdesign, kplan | Essential |
+| **Project-Specific Patterns** | kbuild | Optional |
 
 Without a config file, skills ask for essential values and skip optional sections.
 
@@ -199,10 +197,10 @@ Skills are markdown prompts that instruct AI coding tools. Each skill reads `.de
 ```
 devops-ai/                          ~/.claude/skills/ (symlinks)      your-project/
 ├── skills/                         ├── kdesign/ →                    ├── .devops-ai/
-│   ├── kdesign/SKILL.md ──────────┤── ktask/ →                      │   ├── project.md
-│   ├── ktask/SKILL.md ────────────┤── kworktree/ →                  │   └── infra.toml
-│   ├── kworktree/SKILL.md ────────┤── kinfra-onboard/ →             ├── docker-compose.yml
-│   ├── kinfra-onboard/SKILL.md ───┤── ...                           └── ...
+│   ├── kdesign/SKILL.md ──────────┤── kplan/ →                      │   ├── project.md
+│   ├── kplan/SKILL.md ────────────┤── kbuild/ →                     │   └── infra.toml
+│   ├── kbuild/SKILL.md ──────────┤── kworktree/ →                  ├── docker-compose.yml
+│   ├── kworktree/SKILL.md ────────┤── kinfra-onboard/ →             └── ...
 │   └── ...                         └── ...
 ├── src/devops_ai/                  kinfra (global CLI via uv)
 │   ├── cli/                        └── manages worktrees, sandboxes,
@@ -240,16 +238,14 @@ devops-ai/
 │   ├── worktree.py         # Git worktree lifecycle
 │   └── agent_deck.py       # Optional agent-deck integration
 ├── skills/                 # AI tool skills (symlinked on install)
-│   ├── kdesign/            # Design document generation
-│   ├── kdesign-validate/   # Scenario-based validation
-│   ├── kdesign-impl-plan/  # Implementation planning
-│   ├── kmilestone/         # Milestone orchestration
-│   ├── ktask/              # TDD task execution
+│   ├── kdesign/            # Design and validation
+│   ├── kplan/              # Implementation planning
+│   ├── kbuild/             # TDD task execution and milestone orchestration
 │   ├── kissue/             # GitHub issue implementation
 │   ├── kreview/            # PR review comment assessment
 │   ├── kworktree/          # Worktree/sandbox management skill
-│   ├── kinfra-onboard/     # Project onboarding skill
-│   └── shared/             # Shared skill components (E2E prompt)
+│   └── kinfra-onboard/     # Project onboarding skill
+├── rules/                  # Shared principles (auto-loaded via .claude/rules/)
 ├── templates/              # Project config and observability templates
 ├── tests/                  # 185 unit tests, 8 E2E tests
 └── docs/designs/           # Design documents for devops-ai itself
