@@ -1,50 +1,19 @@
 ---
 name: kdesign
-description: Generate design and architecture documents through collaborative exploration. Use when starting a new feature or system change.
+description: Design and validate features through collaborative exploration. Produces DESIGN.md, ARCHITECTURE.md, and a milestone structure.
 metadata:
   version: "0.1.0"
 ---
 
-# Design Generation Command
+# Design Command
 
-Generate design and architecture documents for a new feature or system change through collaborative exploration.
+Generate, validate, and refine design and architecture documents for a feature or system change. This replaces the separate design, validation, and milestone-structure steps with a single conversation.
 
-This command embodies partnership values — craftsmanship over completion, honesty over confidence, decisions made together.
+## What This Produces
 
----
-
-## Configuration Loading
-
-**FIRST STEP — Do this before any workflow action.**
-
-1. Read `.devops-ai/project.md` from the project root
-2. If the file exists, extract:
-   - **Project.name** — used in document headers and context
-   - **Paths.design_documents** — where to save design docs (e.g., `docs/designs/`)
-   - If a value is missing or says "Not configured": ask for it, just like the no-config path
-   - If the file exists but is malformed (no recognizable sections, garbled content): suggest starting from the template at `templates/project-config.md` and fall back to the no-config path
-3. If the file does NOT exist:
-   - Ask: "Where do you store design documents?" (default: `docs/designs/`)
-   - Ask: "What's the project name?"
-   - Proceed with answers
-   - Suggest: "Would you like me to create a `.devops-ai/project.md` so future sessions pick up these values automatically?"
-4. Use the configured values throughout this workflow
-
-### Generating Config (if user accepts)
-
-If the user wants to create a config file:
-
-1. **Inspect the project root** for project type indicators:
-   - `pyproject.toml` → Python (extract project name, look for test commands in `[tool.pytest]`, `[tool.ruff]`)
-   - `package.json` → Node/TypeScript (extract `name`, `scripts.test`, `scripts.lint`)
-   - `Makefile` → Look for `test`, `quality`, `lint`, `check` targets
-   - `go.mod` → Go (extract module name)
-   - `Cargo.toml` → Rust (extract `[package].name`)
-2. **Pre-fill values** from what you found (project name, test commands, quality commands)
-3. **Show the draft config** to the user and ask them to confirm or adjust
-4. **Write** `.devops-ai/project.md` using the template structure from `templates/project-config.md`
-
----
+1. **DESIGN.md** — The what and why: problem statement, goals, non-goals, user scenarios, key decisions with trade-offs
+2. **ARCHITECTURE.md** — The how: components, data flow, state, errors, interface signatures, integration points
+3. **Milestone structure** — Vertical slices ready for implementation planning
 
 ## Command Usage
 
@@ -52,422 +21,119 @@ If the user wants to create a config file:
 /kdesign feature: <description> [context: <relevant-docs>]
 ```
 
-**Required:**
-- `feature:` — What you're building (can be brief, we'll explore together)
-
-**Optional:**
-- `context:` — Existing docs, code references, or constraints to consider
-- Additional reference materials as needed
-
----
-
-## What This Produces
-
-Two documents ready for validation:
-
-1. **DESIGN.md** — The what and why
-   - Problem statement and goals
-   - User-facing behavior
-   - Key decisions and trade-offs
-   - Out of scope
-
-2. **ARCHITECTURE.md** — The how
-   - Component structure
-   - Data flow
-   - API contracts
-   - State management
-   - Error handling approach
-
 ---
 
 ## This is a Conversation, Not a Generator
 
-The command produces drafts. The value comes from refining them together.
+The value comes from the back-and-forth, not from the first draft. Claude proposes, you refine. Claude finds gaps, you make decisions.
 
-Claude will ask questions, propose options, and surface trade-offs. You bring domain knowledge, constraints, and preferences. The back-and-forth is how good designs emerge.
+- Claude will miss scenarios. You know what's flaky, what failed before, what "feels wrong."
+- Claude will propose approaches. You know which constraints actually matter.
+- Gaps are discoveries, not failures. Every gap found now saves hours later.
 
 ---
 
-## Design Process
+## What to Explore
 
-### Step 1: Understand the Problem
+### Problem Space
 
-Before proposing solutions, Claude explores the problem space:
-
-**Questions to answer:**
-- What problem are we solving?
-- Who experiences this problem?
+Before proposing solutions, understand the problem:
+- What problem are we solving? Who experiences it?
 - What does success look like?
-- What's the current state?
 - What constraints exist?
 
-Claude asks clarifying questions. This isn't a checklist — it's a conversation to build shared understanding.
+Share a problem statement (2-3 sentences). Get alignment before moving on.
 
-**Output:** Problem statement (2-3 sentences capturing the core issue)
+### Solution Options
 
----
+Explore 2-3 approaches with trade-offs. Not every feature needs multiple options — simple features can have an obvious best approach.
 
-**Pause: Problem Alignment**
+For each option: how it works, what it makes easy, what it makes hard, what the risks are. Share a recommendation with reasoning.
 
-Claude shares the problem statement and asks:
+### Architecture
 
-> "Here's my understanding of the problem:
->
-> [Problem statement]
->
-> Does this capture it? What am I missing or misunderstanding?"
+Design the system structure:
+- Components and their responsibilities
+- Data flow (how information moves through the system)
+- State management (where state lives, lifecycle)
+- Error handling (what can go wrong, what happens)
+- Integration points (what existing code changes)
 
----
+### Validation
 
-### Step 2: Explore Solution Space
+Trace concrete scenarios through the architecture to find gaps:
 
-Before committing to a design, explore options:
+**Scenario types to cover:**
+- Happy paths (primary use case, key variations)
+- Error paths (expected failures, recovery flows)
+- Edge cases (cancellation, concurrent operations, ambiguous state transitions)
+- Integration boundaries (cross-component communication, external systems)
 
-**For each reasonable approach:**
-- How would it work?
-- What are the trade-offs?
-- What does it make easy? Hard?
-- What are the risks?
+**For each scenario**, trace step-by-step: which component handles it, what's the input, what processing occurs, what state changes, what could go wrong.
 
-Claude proposes 2-3 approaches with trade-offs. Not every feature needs multiple options — simple features can have an obvious best approach.
+**Gap categories to look for:**
+- State machine gaps — transitions not covered, ambiguous intermediate states
+- Error handling gaps — failures without defined behavior
+- Data shape gaps — undefined or ambiguous data structures
+- Integration gaps — unclear component boundaries or ownership
+- Concurrency gaps — race conditions, ordering issues
 
----
+Gaps are decisions to make, not problems to report. For each gap: present options, trade-offs, and a recommendation. Record the decision.
 
-**Pause: Approach Selection**
+### Milestones
 
-Claude presents options and asks:
+Propose a vertical milestone structure. Each milestone should be E2E-testable, build on the previous one, and deliver user-visible value. The `vertical-slicing` rule has the core principles.
 
-> "Here are the approaches I see:
->
-> **Option A: [Name]**
-> [Brief description]
-> - Good: [benefits]
-> - Concern: [drawbacks]
->
-> **Option B: [Name]**
-> [Brief description]
-> - Good: [benefits]
-> - Concern: [drawbacks]
->
-> I'm leaning toward [X] because [reasoning]. What's your take?"
+Milestone 1 is the smallest thing that proves the architecture works end-to-end — testable, not necessarily useful.
 
 ---
 
-### Step 3: Draft Design Document
+## Design Principles
 
-Based on the selected approach, Claude drafts the design doc:
+**Right-sized:** Match documentation depth to complexity. A small change might not need formal docs. A large system might need docs split by component.
 
-```markdown
-# [Feature Name]: Design
+**Decisions over description:** Capture why, not just what. "Uses a queue because operations take 30+ seconds and we don't want to block the API" beats "uses a queue."
 
-## Problem Statement
+**Acknowledge uncertainty:** Open questions are fine. Name them rather than pretending certainty.
 
-[2-3 sentences from Step 1]
+## Architecture Principles
 
-## Goals
+**Rosetta stone:** Diagrams for humans (ASCII box-and-arrow), structured tables for LLM consumption. Both capture the same information.
 
-What we're trying to achieve:
-- [Goal 1]
-- [Goal 2]
-- [Goal 3]
+**Interface signatures, not implementations:** Show method names, parameters, return types. If someone could copy-paste it as working code, it's too much detail.
 
-## Non-Goals (Out of Scope)
-
-What we're explicitly not doing:
-- [Non-goal 1]
-- [Non-goal 2]
-
-## User Experience
-
-How users interact with this feature:
-
-### [Scenario 1]
-[Description of user flow]
-
-### [Scenario 2]
-[Description of user flow]
-
-## Key Decisions
-
-### [Decision 1]
-**Choice:** [What we decided]
-**Alternatives considered:** [Other options]
-**Rationale:** [Why this choice]
-
-### [Decision 2]
-...
-
-## Open Questions
-
-Issues to resolve during validation or implementation:
-- [Question 1]
-- [Question 2]
-```
+**Right level of detail:** Enough to create implementation tasks, not so much that you've done the implementation.
 
 ---
 
-**Pause: Design Review**
+## Conversation Patterns
 
-Claude shares the draft and asks:
+These patterns produce the best results:
 
-> "Here's the design draft. Before we move to architecture:
->
-> 1. Do the goals capture what matters?
-> 2. Are the non-goals right? Anything we should add or remove?
-> 3. Do the user scenarios cover the important cases?
-> 4. Any decisions you'd make differently?"
-
----
-
-### Step 4: Draft Architecture Document
-
-With the design settled, Claude drafts the architecture.
-
-**Remember:** Use the Rosetta stone approach — diagrams for humans, structured tables/lists for implementation planning. See "What Makes a Good Architecture Document" below.
-
-```markdown
-# [Feature Name]: Architecture
-
-## Overview
-
-[1-2 paragraph summary of the technical approach]
-
-## Component Diagram
-
-[ASCII diagram showing major components and their relationships]
-
-### Component Relationships (Structured Summary)
-
-| Component | Type | Depends On | Used By |
-|-----------|------|------------|---------|
-| [Component 1] | [Class/Module/Service] | [Dependencies] | [Consumers] |
-| [Component 2] | ... | ... | ... |
-
-## Components
-
-### [Component 1]
-**Location:** [File/module path]
-**Purpose:** [What it does — 1-2 sentences]
-**Key behaviors:** [Bullet list of main responsibilities]
-
-**Interface** (illustrative):
-[Method signatures only — no implementations]
-
-### [Component 2]
-...
-
-## Data Flow
-
-[ASCII diagram showing how data moves through the system]
-
-**Flow Steps (Structured Summary):**
-1. [Step 1]
-2. [Step 2]
-3. [Step 3]
-
-## State Management
-
-| State | Where | Lifecycle |
-|-------|-------|-----------|
-| [State 1] | [Location] | [When created, when destroyed] |
-| [State 2] | ... | ... |
-
-## Error Handling
-
-| Situation | Error Type | Message/Behavior |
-|-----------|------------|------------------|
-| [Condition 1] | [Exception] | [What happens] |
-| [Condition 2] | ... | ... |
-
-## Integration Points
-
-| Component | Current State | Change Needed |
-|-----------|---------------|---------------|
-| [Existing component 1] | [How it works now] | [What changes] |
-| [Existing component 2] | ... | ... |
-
-## Migration Considerations
-
-[Brief notes on what existing code/data needs to change — NOT a phased rollout plan. Implementation planning handles the "how to get there."]
-
-## Verification Approach
-
-| Component | How to Verify |
-|-----------|---------------|
-| [Component 1] | [Test strategy] |
-| [Component 2] | ... |
-
-## Implementation Planning Summary
-
-[Structured summary for handoff to implementation planning]
-
-### New Components to Create
-| Component | Location | Purpose |
-|-----------|----------|---------|
-
-### Existing Components to Modify
-| Component | Location | Changes Required |
-|-----------|----------|------------------|
-
-### Files to Delete (if any)
-| File | Reason |
-|------|--------|
-```
+- **"What keeps you up at night?"** — After proposing scenarios, ask what feels risky even if hard to articulate. The answer often reveals scenarios Claude would never think of.
+- **"What's the constraint?"** — When a gap has multiple options, ask for the real constraint. It often simplifies the decision.
+- **"Does this remind you of anything?"** — Past failures predict future failures. When a gap surfaces, ask if it's familiar.
+- **"Let me trace that"** — When the user adds a scenario, trace it immediately. The act of tracing often reveals surprises.
+- **"What would you need to see to decide?"** — When the user is uncertain, ask what information would help.
 
 ---
 
-**Pause: Architecture Review**
+## Output
 
-Claude shares the draft and asks:
-
-> "Here's the architecture draft. Before we finalize:
->
-> 1. Does the component breakdown make sense?
-> 2. Any existing patterns I should align with?
-> 3. Are there integration points I'm missing?
-> 4. Any concerns about this approach?"
-
----
-
-### Step 5: Finalize Documents
-
-After incorporating feedback, Claude produces final versions of both documents.
-
-**The documents should be:**
-- Complete enough to validate (via `/kdesign-validate`)
-- Clear about what's decided vs. open
-- Honest about trade-offs and risks
-
----
-
-## Output Files
-
-Save documents to the configured design documents path:
+Save to the configured design documents path (from project config):
 
 ```
-[configured design path]/
-  [feature-name]/
-    DESIGN.md
-    ARCHITECTURE.md
+docs/designs/<feature-name>/
+  DESIGN.md
+  ARCHITECTURE.md
 ```
 
-If no design path is configured, use the project's standard documentation location or ask.
+The milestone structure can be included at the end of the design output or as a separate section — whatever fits the conversation.
 
----
+### When Validation Reveals Rework
 
-## What Makes a Good Architecture Document
+If validation finds many critical gaps (>5), the design likely needs another iteration. Say so. It's better to discover this now than after writing code.
 
-### Architecture vs Implementation Planning
+### When Design Isn't Needed
 
-**Architecture describes the finished system** — what components exist, how they interact, where state lives, what can go wrong.
-
-**Implementation planning describes how to build it** — phases, task breakdown, ordering, dependencies.
-
-Keep them separate. The architecture doc should describe the system as it will be when complete, not the steps to get there.
-
-### The Rosetta Stone Approach
-
-Architecture docs serve two audiences with different needs:
-
-**For humans:** Diagrams clarify relationships and flows at a glance. Use ASCII diagrams for:
-- Component relationships (box-and-arrow)
-- Data/control flow sequences
-- State transitions
-
-**For LLM-based implementation planning:** Structured lists and tables are more parseable. Accompany each diagram with:
-- A table or list capturing the same relationships
-- Numbered steps for flows
-- Structured summaries for implementation planning handoff
-
-Example pattern:
-```
-[ASCII diagram showing component relationships]
-
-### Component Relationships (Structured Summary)
-
-| Component | Depends On | Used By |
-|-----------|------------|---------|
-| A         | None       | B, C    |
-| B         | A          | D       |
-```
-
-### Code in Architecture Docs
-
-**YES:**
-- Interface signatures (method names, parameters, return types)
-- Illustrative snippets (3-5 lines max) showing patterns
-
-**NO:**
-- Full method implementations
-- "Pseudocode" that could be copy-pasted as working code
-- Step-by-step implementation logic
-
-Test: If someone could copy-paste it as working code, it's too much.
-
-### Level of Detail
-
-The goal: enough detail that implementation planning can break it into tasks, not so much that you've done the implementation.
-
-Good architecture doc → someone can create a task list from it
-Over-detailed doc → someone could skip planning and just copy-paste
-
----
-
-## Principles
-
-### Right-Sized Design
-
-Not every feature needs extensive documentation:
-
-- **Small change:** Maybe just a design doc, or even inline in the PR
-- **Medium feature:** Design + architecture docs
-- **Large system:** Extensive docs, possibly split by component
-
-Match the documentation to the complexity.
-
-### Decisions Over Description
-
-Good design docs capture **why**, not just what:
-
-- "The system uses a queue" → ❌
-- "The system uses a queue because operations can take 30+ seconds and we don't want to block the API. We chose Redis over Postgres-based queues because..." → ✅
-
-### Acknowledge Uncertainty
-
-It's fine to have open questions. Better to name them than pretend certainty:
-
-- "We'll need to determine the right batch size during implementation"
-- "The error handling for [edge case] needs more thought"
-- "This assumes [X] is true — need to verify"
-
-### Design for Validation
-
-The output should be ready for `/kdesign-validate`:
-
-- Scenarios should be concrete enough to trace
-- Components should be specific enough to identify gaps
-- State transitions should be clear enough to verify
-
----
-
-## When Design Isn't Needed
-
-Skip formal design docs when:
-
-- The change is small and obvious
-- You're spiking to learn something
-- The implementation will be faster than the design
-
-It's okay to say "let's just build it and see."
-
----
-
-## Next Steps
-
-After design is complete:
-
-```
-/kdesign-validate design: DESIGN.md arch: ARCHITECTURE.md
-```
-
-This validates the design through scenario traces before implementation planning.
+Skip formal design docs when the change is small and obvious, you're spiking to learn something, or the implementation will be faster than the design.

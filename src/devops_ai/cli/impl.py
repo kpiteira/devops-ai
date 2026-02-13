@@ -171,7 +171,7 @@ def _setup_session(
     )
     agent_deck.start_session(title)
     agent_deck.send_to_session(
-        title, f"/kmilestone {feature}/{milestone}", delay=3
+        title, f"/kbuild {feature}/{milestone}", delay=3
     )
     return f"  agent-deck session started: {title}"
 

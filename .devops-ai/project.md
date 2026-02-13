@@ -1,6 +1,6 @@
 # Project Configuration
 
-This file is read by k* development commands (kdesign, ktask, kmilestone, etc.)
+This file is read by k* development commands (kdesign, kplan, kbuild, etc.)
 to adapt workflows to this project's specific tooling and conventions.
 
 ## Project
