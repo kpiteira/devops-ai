@@ -62,7 +62,7 @@ kinfra impl wellness-reminders/M1
 
 kinfra impl wellness-reminders/M1 --session
 # Same as above + creates agent-deck session with Claude
-# Sends: /kmilestone wellness-reminders/M1
+# Sends: /kbuild wellness-reminders/M1
 ```
 
 ### `kinfra done <name> [--force]`
@@ -114,7 +114,7 @@ kinfra observability status  # Show service health and endpoints
 
 **Implementation (impl):** `kinfra impl <feature>/<milestone>` → work with sandbox → `kinfra done <feature>-<milestone>`
 
-**With agent-deck:** `kinfra impl <feature>/<milestone> --session` → Claude launches with `/kmilestone` → `kinfra done <feature>-<milestone>`
+**With agent-deck:** `kinfra impl <feature>/<milestone> --session` → Claude launches with `/kbuild` → `kinfra done <feature>-<milestone>`
 
 ---
 
