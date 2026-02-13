@@ -13,6 +13,8 @@ Skills work with Claude Code, Codex CLI, and GitHub Copilot CLI via the [Agent S
 
 ## Skills
 
+### Design-to-implementation pipeline
+
 | Command | Purpose |
 |---------|---------|
 | `/kdesign` | Collaborative design document generation |
@@ -20,10 +22,8 @@ Skills work with Claude Code, Codex CLI, and GitHub Copilot CLI via the [Agent S
 | `/kdesign-impl-plan` | Vertical implementation planning |
 | `/kmilestone` | Milestone orchestration |
 | `/ktask` | TDD task execution with handoffs |
-| `/kworktree` | Worktree and sandbox management via kinfra |
-| `/kinfra-onboard` | Onboard any project to kinfra's sandbox and observability ecosystem |
 
-The first five encode a design-to-implementation pipeline:
+These chain together:
 
 ```
 /kdesign          → DESIGN.md + ARCHITECTURE.md    (what + how)
@@ -34,6 +34,20 @@ The first five encode a design-to-implementation pipeline:
 ```
 
 Each stage produces artifacts consumed by the next. You can enter at any point.
+
+### Issue workflow
+
+| Command | Purpose |
+|---------|---------|
+| `/kissue <number>` | Implement a GitHub issue: fetch, branch, TDD, PR with `Closes #N` |
+| `/kreview` | Critically assess PR review comments — implement, push back, or discuss |
+
+### Infrastructure
+
+| Command | Purpose |
+|---------|---------|
+| `/kworktree` | Worktree and sandbox management via kinfra |
+| `/kinfra-onboard` | Onboard any project to kinfra's sandbox and observability ecosystem |
 
 ## kinfra CLI
 
@@ -231,6 +245,8 @@ devops-ai/
 │   ├── kdesign-impl-plan/  # Implementation planning
 │   ├── kmilestone/         # Milestone orchestration
 │   ├── ktask/              # TDD task execution
+│   ├── kissue/             # GitHub issue implementation
+│   ├── kreview/            # PR review comment assessment
 │   ├── kworktree/          # Worktree/sandbox management skill
 │   ├── kinfra-onboard/     # Project onboarding skill
 │   └── shared/             # Shared skill components (E2E prompt)
