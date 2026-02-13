@@ -149,7 +149,7 @@ class TestSendToSession:
             patch("devops_ai.agent_deck.time.sleep"),
         ):
             mock_run.return_value = MagicMock(returncode=0, stderr="")
-            msg = "/kmilestone my-feature/M1"
+            msg = "/kbuild my-feature/M1"
             send_to_session("my-feature/M1", msg, delay=3)
 
             cmd = mock_run.call_args[0][0]

@@ -268,10 +268,10 @@ class TestSessionSendDelay:
 
 
 class TestSessionSendCorrectCommand:
-    def test_kmilestone_command_sent(
+    def test_kbuild_command_sent(
         self, tmp_path: Path
     ) -> None:
-        """/kmilestone <feature>/<milestone> sent."""
+        """/kbuild <feature>/<milestone> sent."""
         _setup_git_repo(tmp_path)
         _setup_milestone(tmp_path, "my-feature", "M1")
         _setup_infra_toml(tmp_path)
@@ -325,7 +325,7 @@ class TestSessionSendCorrectCommand:
 
         send_call = mock_ad.send_to_session.call_args
         # First positional arg is title, second is message
-        assert send_call[0][1] == "/kmilestone my-feature/M1"
+        assert send_call[0][1] == "/kbuild my-feature/M1"
 
 
 class TestDoneRemovesSession:
