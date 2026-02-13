@@ -11,85 +11,55 @@ Two things that work together:
 
 Skills work with Claude Code, Codex CLI, and GitHub Copilot CLI via the [Agent Skills standard](https://agentskills.io). kinfra is installed globally via `uv` and works from any project.
 
-## Skills
+## How to Use It
 
-### Design-to-implementation pipeline
-
-| Command | Purpose |
-|---------|---------|
-| `/kdesign` | Collaborative design and validation — produces DESIGN.md, ARCHITECTURE.md, and a milestone structure |
-| `/kplan` | Expand milestones into implementable tasks with architecture alignment and TDD requirements |
-| `/kbuild` | Execute tasks (TDD) or orchestrate full milestones from implementation plans |
-
-These chain together:
+The typical workflow for a new feature:
 
 ```
-/kdesign → DESIGN.md + ARCHITECTURE.md + milestone structure
-/kplan   → M1_*.md, M2_*.md, ... (vertical milestones with tasks)
-/kbuild  → TDD implementation + handoffs (single task or full milestone)
+1. Design       /kdesign feature: Add wellness reminders
+                 → Collaborative conversation producing DESIGN.md + ARCHITECTURE.md
+                 → Validates through scenario tracing, produces milestone structure
+
+2. Plan         /kplan design: DESIGN.md arch: ARCHITECTURE.md
+                 → Expands milestones into tasks with files, tests, acceptance criteria
+
+3. Build        /kbuild impl: M1_reminders.md
+                 → Executes each task with TDD (red → green → refactor)
+                 → Maintains handoff documents between tasks
+                 → Produces milestone completion report
 ```
 
-Each stage produces artifacts consumed by the next. You can enter at any point.
+Each stage produces artifacts consumed by the next. You can enter at any point — `/kbuild` works fine with a hand-written plan, and `/kplan` works with a design you wrote yourself.
 
-### Issue workflow
+For day-to-day work, two shortcuts handle the common cases:
 
-| Command | Purpose |
-|---------|---------|
-| `/kissue <number>` | Implement a GitHub issue: fetch, branch, TDD, PR with `Closes #N` |
-| `/kreview` | Critically assess PR review comments — implement, push back, or discuss |
+```
+/kissue 42       → Fetch GitHub issue, branch, TDD implement, PR with "Closes #42"
+/kreview         → Assess PR review comments, implement fixes or push back
+```
 
-### Infrastructure
+For projects with Docker infrastructure, kinfra provides isolated environments:
 
-| Command | Purpose |
-|---------|---------|
-| `/kworktree` | Worktree and sandbox management via kinfra |
-| `/kinfra-onboard` | Onboard any project to kinfra's sandbox and observability ecosystem |
+```bash
+kinfra impl auth/M1              # Worktree + sandbox with isolated ports
+kinfra status                    # Check container health and port mappings
+kinfra done auth-M1              # Clean up everything
+```
 
-## kinfra CLI
+## Contents
 
-A Python CLI for managing isolated development environments across projects.
-
-### Commands
-
-| Command | What it does |
-|---------|-------------|
-| `kinfra init` | Inspect a project, parameterize compose ports, generate `infra.toml` |
-| `kinfra spec <feature>` | Create a spec worktree for design work |
-| `kinfra impl <feature-milestone>` | Create an impl worktree with optional Docker sandbox |
-| `kinfra done <worktree>` | Clean up worktree, sandbox slot, and Docker containers |
-| `kinfra worktrees` | List active worktrees for the project |
-| `kinfra status` | Show sandbox slot, ports, and container health |
-| `kinfra observability` | Manage the shared Jaeger/Grafana/Prometheus stack |
-
-### Key capabilities
-
-**Git worktrees** — Isolated branches for spec and implementation work, following `spec/<feature>` and `impl/<feature>-<milestone>` conventions.
-
-**Docker sandbox slots** — Each `kinfra impl` allocates a numbered slot (1-100) with port isolation. Port formula: `base_port + slot_id`. Slots are tracked in a global registry at `~/.devops-ai/registry.json` so multiple projects never collide.
-
-**Shared observability** — A single Jaeger/Grafana/Prometheus stack on dedicated 4xxxx ports (Jaeger UI: 46686, OTLP: 44317, Prometheus: 49090, Grafana: 43000). All sandboxes auto-connect to the `devops-ai-observability` Docker network and export OTEL traces with project-specific namespacing.
-
-**Agent-deck integration** — Optional `--session` flag on `impl`/`done` for agent-deck session management, with graceful degradation when agent-deck isn't installed.
-
-### Onboarding a project
-
-The `/kinfra-onboard` skill provides intelligent, phased onboarding for any project:
-
-1. **Analyze** — Reads compose files, app config, and git state. Reports what it found.
-2. **Propose** — Runs `kinfra init --dry-run` to preview changes, plans app-level OTEL rewiring.
-3. **Execute** — Runs `kinfra init --auto`, updates OTEL endpoints, modifies project docs.
-4. **Verify** — Confirms config validity, compose parsing, and consistency.
-
-`kinfra init` supports `--dry-run` (preview without writing), `--auto` (non-interactive), and `--health-endpoint` (custom health check URL) flags. The skill uses these to separate assessment from execution.
-
-## Prerequisites
-
-- [uv](https://docs.astral.sh/uv/) — Python package manager (for kinfra CLI)
-- [git](https://git-scm.com/) — Version control
-- [Docker](https://www.docker.com/) — Only needed for sandbox slots and observability (skills work without it)
-- An AI coding tool: [Claude Code](https://claude.ai/claude-code), [Codex CLI](https://github.com/openai/codex), or [GitHub Copilot CLI](https://docs.github.com/en/copilot)
+- [Install](#install)
+- [Getting Started](#getting-started)
+- [Skills Reference](#skills-reference)
+- [kinfra CLI Reference](#kinfra-cli-reference)
+- [Configuration](#configuration)
+- [How It Works](#how-it-works)
+- [Project Structure](#project-structure)
+- [Troubleshooting](#troubleshooting)
 
 ## Install
+
+**Prerequisites:** [uv](https://docs.astral.sh/uv/), [git](https://git-scm.com/), an AI coding tool ([Claude Code](https://claude.ai/claude-code), [Codex CLI](https://github.com/openai/codex), or [GitHub Copilot CLI](https://docs.github.com/en/copilot)). Docker is only needed for sandbox slots and observability.
 
 ```bash
 git clone https://github.com/kpiteira/devops-ai.git ~/Documents/dev/devops-ai
@@ -111,7 +81,7 @@ kinfra --help              # CLI is on PATH
 ls ~/.claude/skills/       # Skills are symlinked
 ```
 
-## Upgrade
+### Upgrade
 
 Skills are symlinks and kinfra is an editable install, so pulling new code is usually enough:
 
@@ -120,19 +90,13 @@ cd ~/Documents/dev/devops-ai
 git pull
 ```
 
-If a new skill was added (check the release notes), re-run the installer to create its symlink:
-
-```bash
-./install.sh
-```
-
-Project-level config (`.devops-ai/project.md`, `infra.toml`) is never touched by upgrades.
+If a new skill was added, re-run `./install.sh` to create its symlink. Project-level config (`.devops-ai/project.md`, `infra.toml`) is never touched by upgrades.
 
 ## Getting Started
 
 ### Set up a new project
 
-The fastest way to onboard a project with Docker Compose:
+For projects with Docker Compose, use the onboarding skill:
 
 ```bash
 cd /path/to/your/project
@@ -141,10 +105,9 @@ cd /path/to/your/project
 
 This analyzes your project, previews changes, sets up `infra.toml`, parameterizes compose ports, rewires OTEL endpoints, and verifies everything. Use `--check` to just analyze without making changes.
 
-For manual setup or projects without Docker:
+For projects without Docker, create a config manually:
 
 ```bash
-cd /path/to/your/project
 mkdir -p .devops-ai
 cp ~/Documents/dev/devops-ai/templates/project-config.md .devops-ai/project.md
 # Edit with your project's test commands and paths
@@ -155,25 +118,81 @@ Or skip config entirely — skills ask for needed values on first use.
 ### Design and implement a feature
 
 ```bash
-# Design
-/kdesign feature: Add user authentication
-
-# Plan
-/kplan design: DESIGN.md arch: ARCHITECTURE.md
-
-# Implement
-/kbuild impl: M1_auth.md             # Run full milestone
-/kbuild impl: M1_auth.md task: 1.2   # Or run a single task
+/kdesign feature: Add user authentication      # Design + validate
+/kplan design: DESIGN.md arch: ARCHITECTURE.md  # Break into tasks
+/kbuild impl: M1_auth.md                        # Execute milestone
+/kbuild impl: M1_auth.md task: 1.2              # Or a single task
 ```
 
 ### Work in isolated environments
 
 ```bash
 kinfra init                          # One-time project setup (or use /kinfra-onboard)
-kinfra impl auth-M1                  # Worktree + sandbox for milestone 1
+kinfra impl auth/M1                  # Worktree + sandbox for milestone 1
 kinfra status                        # Check sandbox health and ports
-kinfra done devops-ai-impl-auth-M1   # Clean up worktree, sandbox, containers
+kinfra done auth-M1                  # Clean up worktree, sandbox, containers
 ```
+
+## Skills Reference
+
+### Design-to-implementation pipeline
+
+| Command | Purpose |
+|---------|---------|
+| `/kdesign` | Collaborative design and validation — produces DESIGN.md, ARCHITECTURE.md, and a milestone structure |
+| `/kplan` | Expand milestones into implementable tasks with architecture alignment and TDD requirements |
+| `/kbuild` | Execute tasks (TDD) or orchestrate full milestones from implementation plans |
+
+### Issue workflow
+
+| Command | Purpose |
+|---------|---------|
+| `/kissue <number>` | Implement a GitHub issue: fetch, branch, TDD, PR with `Closes #N` |
+| `/kreview` | Critically assess PR review comments — implement, push back, or discuss |
+
+### Infrastructure
+
+| Command | Purpose |
+|---------|---------|
+| `/kworktree` | Worktree and sandbox management via kinfra |
+| `/kinfra-onboard` | Onboard any project to kinfra's sandbox and observability ecosystem |
+
+## kinfra CLI Reference
+
+A Python CLI for managing isolated development environments across projects.
+
+### Commands
+
+| Command | What it does |
+|---------|-------------|
+| `kinfra init` | Inspect a project, parameterize compose ports, generate `infra.toml` |
+| `kinfra spec <feature>` | Create a spec worktree for design work |
+| `kinfra impl <feature/milestone>` | Create an impl worktree with optional Docker sandbox |
+| `kinfra done <worktree>` | Clean up worktree, sandbox slot, and Docker containers |
+| `kinfra worktrees` | List active worktrees for the project |
+| `kinfra status` | Show sandbox slot, ports, and container health |
+| `kinfra observability up\|down\|status` | Manage the shared Jaeger/Grafana/Prometheus stack |
+
+### Key capabilities
+
+**Git worktrees** — Isolated branches for spec and implementation work, following `spec/<feature>` and `impl/<feature>-<milestone>` conventions.
+
+**Docker sandbox slots** — Each `kinfra impl` allocates a numbered slot (1-100) with port isolation. Port formula: `base_port + slot_id`. Slots are tracked in a global registry at `~/.devops-ai/registry.json` so multiple projects never collide.
+
+**Shared observability** — A single Jaeger/Grafana/Prometheus stack on dedicated 4xxxx ports (Jaeger UI: 46686, OTLP: 44317, Prometheus: 49090, Grafana: 43000). All sandboxes auto-connect to the `devops-ai-observability` Docker network and export OTEL traces with project-specific namespacing.
+
+**Agent-deck integration** — Optional `--session` flag on `impl`/`done` for agent-deck session management, with graceful degradation when agent-deck isn't installed.
+
+### Onboarding a project
+
+The `/kinfra-onboard` skill provides intelligent, phased onboarding:
+
+1. **Analyze** — Reads compose files, app config, and git state. Reports what it found.
+2. **Propose** — Runs `kinfra init --dry-run` to preview changes, plans app-level OTEL rewiring.
+3. **Execute** — Runs `kinfra init --auto`, updates OTEL endpoints, modifies project docs.
+4. **Verify** — Confirms config validity, compose parsing, and consistency.
+
+`kinfra init` supports `--dry-run` (preview without writing), `--auto` (non-interactive), and `--health-endpoint` (custom health check URL) flags.
 
 ## Configuration
 
@@ -192,7 +211,7 @@ Without a config file, skills ask for essential values and skip optional section
 
 ## How It Works
 
-Skills are markdown prompts that instruct AI coding tools. Each skill reads `.devops-ai/project.md` to adapt to your project. kinfra is a real Python CLI that manages git and Docker state.
+Skills are markdown prompts that instruct AI coding tools. Each skill reads `.devops-ai/project.md` to adapt to your project. Shared principles (TDD, quality gates, handoffs) live in `rules/` and are auto-loaded into every conversation via `.claude/rules/` symlinks. kinfra is a real Python CLI that manages git and Docker state.
 
 ```
 devops-ai/                          ~/.claude/skills/ (symlinks)      your-project/
@@ -202,19 +221,20 @@ devops-ai/                          ~/.claude/skills/ (symlinks)      your-proje
 │   ├── kbuild/SKILL.md ──────────┤── kworktree/ →                  ├── docker-compose.yml
 │   ├── kworktree/SKILL.md ────────┤── kinfra-onboard/ →             └── ...
 │   └── ...                         └── ...
+├── rules/                          ~/.claude/rules/ (symlinks)
+│   ├── tdd.md ────────────────────── tdd.md →
+│   ├── quality-gates.md ──────────── quality-gates.md →
+│   └── ...                           ...
 ├── src/devops_ai/                  kinfra (global CLI via uv)
 │   ├── cli/                        └── manages worktrees, sandboxes,
 │   ├── compose.py                     ports, observability
-│   ├── config.py
-│   ├── ports.py
-│   ├── registry.py
 │   └── ...
 └── templates/
     ├── project-config.md
     └── observability/docker-compose.yml
 ```
 
-## Design Principles
+### Design principles
 
 1. **Skills are prompts, not code** — No runtime, no framework, just markdown
 2. **kinfra is deterministic** — The CLI handles mechanical work; skills provide the judgment layer
@@ -247,7 +267,7 @@ devops-ai/
 │   └── kinfra-onboard/     # Project onboarding skill
 ├── rules/                  # Shared principles (auto-loaded via .claude/rules/)
 ├── templates/              # Project config and observability templates
-├── tests/                  # 185 unit tests, 8 E2E tests
+├── tests/                  # Unit and E2E tests
 └── docs/designs/           # Design documents for devops-ai itself
 ```
 
@@ -260,11 +280,7 @@ devops-ai/
 | Skills not picking up config | Verify `.devops-ai/project.md` exists in your project root |
 | Port conflict on `kinfra impl` | Another slot is using that port range — check `kinfra status` |
 | Skills not updating after `git pull` | Check symlinks: `ls -la ~/.claude/skills/kdesign` should point to devops-ai |
-| Observability stack not starting | Ensure Docker is running, then `kinfra observability start` |
-
-## Status
-
-Active development. The core workflow skills and kinfra CLI are stable and used daily. Current test coverage: 185 unit tests, 8 E2E tests.
+| Observability stack not starting | Ensure Docker is running, then `kinfra observability up` |
 
 ## License
 
