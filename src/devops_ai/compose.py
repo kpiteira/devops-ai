@@ -129,9 +129,11 @@ def comment_out_services(
 def remove_depends_on(
     yaml_content: str, service_names: list[str]
 ) -> str:
-    """Remove depends_on list entries referencing obs service names.
+    """Remove depends_on entries referencing obs service names.
 
     Uses line-based approach to preserve original formatting.
+    Handles both short form (``- service``) and long form
+    (``service: {condition: ...}``) depends_on syntax.
     Removes the entire depends_on block if all entries are removed.
     """
     if not service_names:
@@ -149,7 +151,7 @@ def remove_depends_on(
             depends_indent = len(line) - len(line.lstrip())
             dep_lines: list[str] = []
             j = i + 1
-            # Collect all list items under depends_on
+            # Collect all lines under depends_on
             while j < len(lines):
                 dep_line = lines[j]
                 dep_stripped = dep_line.rstrip()
@@ -163,16 +165,56 @@ def remove_depends_on(
                 dep_lines.append(dep_line)
                 j += 1
 
-            # Filter out obs service references
-            kept = []
-            for dl in dep_lines:
-                ds = dl.strip().lstrip("- ").strip()
-                if ds not in service_names:
-                    kept.append(dl)
+            # Group lines into entries. Each entry is either:
+            # - Short form: single line like "- jaeger"
+            # - Long form: key line "jaeger:" + child lines
+            entry_indent = depends_indent + 2  # expected child indent
+            entries: list[tuple[str, list[str]]] = []
+            k = 0
+            while k < len(dep_lines):
+                dl = dep_lines[k]
+                dl_indent = len(dl) - len(dl.lstrip())
+                dl_stripped = dl.strip()
 
-            if kept:
+                if dl_indent == entry_indent:
+                    # Short form: "- service_name"
+                    if dl_stripped.startswith("- "):
+                        name = dl_stripped.lstrip("- ").strip()
+                        entries.append((name, [dl]))
+                        k += 1
+                    # Long form: "service_name:" with children
+                    elif dl_stripped.endswith(":"):
+                        name = dl_stripped[:-1]
+                        group = [dl]
+                        k += 1
+                        while k < len(dep_lines):
+                            child = dep_lines[k]
+                            child_indent = len(child) - len(
+                                child.lstrip()
+                            )
+                            if child_indent <= entry_indent:
+                                break
+                            group.append(child)
+                            k += 1
+                        entries.append((name, group))
+                    else:
+                        # Unknown format — keep it
+                        entries.append((dl_stripped, [dl]))
+                        k += 1
+                else:
+                    # Unexpected indent — keep the line
+                    entries.append((dl_stripped, [dl]))
+                    k += 1
+
+            # Filter out obs service references
+            kept_lines: list[str] = []
+            for name, group in entries:
+                if name not in service_names:
+                    kept_lines.extend(group)
+
+            if kept_lines:
                 result.append(line)
-                result.extend(kept)
+                result.extend(kept_lines)
             # else: drop entire depends_on block
             i = j
             continue

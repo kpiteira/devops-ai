@@ -120,6 +120,57 @@ class TestRemoveDependsOnObservability:
         # jaeger service definition still present (not removed)
         assert "jaeger:" in result
 
+    def test_removes_long_form_depends_on(self) -> None:
+        """Long-form depends_on uses service names as YAML keys."""
+        compose = """\
+services:
+  myapp:
+    build: .
+    ports:
+      - "8080:8080"
+    depends_on:
+      jaeger:
+        condition: service_started
+        required: false
+
+  jaeger:
+    image: jaegertracing/jaeger:latest
+    ports:
+      - "16686:16686"
+"""
+        obs = ["jaeger"]
+        result = remove_depends_on(compose, obs)
+        assert "depends_on" not in result
+        assert "condition:" not in result
+        assert "required:" not in result
+        assert "myapp:" in result
+
+    def test_keeps_non_obs_long_form_dep(self) -> None:
+        """Keep non-obs deps when removing obs deps in long form."""
+        compose = """\
+services:
+  myapp:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+        required: false
+
+  db:
+    image: postgres:16
+  jaeger:
+    image: jaegertracing/jaeger:latest
+"""
+        obs = ["jaeger"]
+        result = remove_depends_on(compose, obs)
+        assert "depends_on:" in result
+        assert "db:" in result
+        assert "condition: service_healthy" in result
+        # jaeger dep removed but service definition remains
+        assert "required: false" not in result
+
 
 class TestBackupCreated:
     def test_backup_file(self, tmp_path: Path) -> None:
