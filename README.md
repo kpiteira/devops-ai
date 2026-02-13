@@ -72,9 +72,14 @@ The `/kinfra-onboard` skill provides intelligent, phased onboarding for any proj
 
 `kinfra init` supports `--dry-run` (preview without writing), `--auto` (non-interactive), and `--health-endpoint` (custom health check URL) flags. The skill uses these to separate assessment from execution.
 
-## Quick Start
+## Prerequisites
 
-### 1. Install
+- [uv](https://docs.astral.sh/uv/) — Python package manager (for kinfra CLI)
+- [git](https://git-scm.com/) — Version control
+- [Docker](https://www.docker.com/) — Only needed for sandbox slots and observability (skills work without it)
+- An AI coding tool: [Claude Code](https://claude.ai/claude-code), [Codex CLI](https://github.com/openai/codex), or [GitHub Copilot CLI](https://docs.github.com/en/copilot)
+
+## Install
 
 ```bash
 git clone https://github.com/kpiteira/devops-ai.git ~/Documents/dev/devops-ai
@@ -83,41 +88,79 @@ cd ~/Documents/dev/devops-ai
 ```
 
 This does two things:
-- Installs the `kinfra` CLI globally via `uv tool install`
-- Symlinks all skills to `~/.claude/skills/`, `~/.codex/skills/`, `~/.copilot/skills/`
+- **kinfra CLI** — Installed globally via `uv tool install -e .` (editable mode)
+- **Skills** — Symlinked to `~/.claude/skills/`, `~/.codex/skills/`, `~/.copilot/skills/`
 
-Use `--target claude` to install for a single tool only.
+Use `--target claude` to install for a single tool only. Use `--force` to overwrite non-symlink files.
 
-### 2. Configure a project
+Verify:
+
+```bash
+kinfra --help              # CLI is on PATH
+ls ~/.claude/skills/       # Skills are symlinked
+```
+
+## Upgrade
+
+Skills are symlinks and kinfra is an editable install, so pulling new code is usually enough:
+
+```bash
+cd ~/Documents/dev/devops-ai
+git pull
+```
+
+If a new skill was added (check the release notes), re-run the installer to create its symlink:
+
+```bash
+./install.sh
+```
+
+Project-level config (`.devops-ai/project.md`, `infra.toml`) is never touched by upgrades.
+
+## Getting Started
+
+### Set up a new project
+
+The fastest way to onboard a project with Docker Compose:
+
+```bash
+cd /path/to/your/project
+/kinfra-onboard                      # Guided 4-phase onboarding
+```
+
+This analyzes your project, previews changes, sets up `infra.toml`, parameterizes compose ports, rewires OTEL endpoints, and verifies everything. Use `--check` to just analyze without making changes.
+
+For manual setup or projects without Docker:
 
 ```bash
 cd /path/to/your/project
 mkdir -p .devops-ai
 cp ~/Documents/dev/devops-ai/templates/project-config.md .devops-ai/project.md
-# Edit with your project's commands and paths
+# Edit with your project's test commands and paths
 ```
 
-Or skip this — skills ask for needed values and offer to create the config. `/kinfra-onboard` handles the full setup including infrastructure config.
+Or skip config entirely — skills ask for needed values on first use.
 
-### 3. Use
+### Design and implement a feature
 
 ```bash
-# Design workflow
+# Design
 /kdesign feature: Add user authentication
 /kdesign-validate design: DESIGN.md arch: ARCHITECTURE.md
 /kdesign-impl-plan design: DESIGN.md arch: ARCHITECTURE.md
-/kmilestone @M1_auth.md
-/ktask M1_auth.md 1.2
 
-# Infrastructure
-kinfra init                          # Set up kinfra in current project
+# Implement
+/kmilestone @M1_auth.md              # Runs each task via /ktask
+/ktask M1_auth.md 1.2                # Or run a single task directly
+```
+
+### Work in isolated environments
+
+```bash
+kinfra init                          # One-time project setup (or use /kinfra-onboard)
 kinfra impl auth-M1                  # Worktree + sandbox for milestone 1
-kinfra status                        # Check sandbox health
-kinfra done devops-ai-impl-auth-M1   # Clean up everything
-
-# Or let the skill handle onboarding
-/kinfra-onboard                      # Full 4-phase guided onboarding
-/kinfra-onboard --check              # Just analyze, no changes
+kinfra status                        # Check sandbox health and ports
+kinfra done devops-ai-impl-auth-M1   # Clean up worktree, sandbox, containers
 ```
 
 ## Configuration
