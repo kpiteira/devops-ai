@@ -346,7 +346,7 @@ def _format_dry_run_output(plan: InitPlan) -> str:
         lines.append(f"  - Comment out service: {obs_name}")
     if plan.obs_services:
         lines.append("  - Remove depends_on references to obs services")
-    if plan.services:
+    if plan.ports or plan.obs_services:
         lines.append("  - Add kinfra header comment")
         lines.append(
             f"  - Backup: {plan.compose_file}.bak"
