@@ -24,9 +24,25 @@ app.add_typer(observability_app, name="observability")
 
 
 @app.command()
-def init() -> None:
+def init(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Preview changes without writing"
+    ),
+    auto: bool = typer.Option(
+        False, "--auto", help="Accept defaults, no prompts"
+    ),
+    health_endpoint: str | None = typer.Option(
+        None,
+        "--health-endpoint",
+        help="Override health check endpoint",
+    ),
+) -> None:
     """Initialize kinfra for the current project."""
-    code = init_command()
+    code = init_command(
+        dry_run=dry_run,
+        auto=auto,
+        health_endpoint=health_endpoint,
+    )
     raise typer.Exit(code)
 
 
