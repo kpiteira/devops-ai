@@ -16,6 +16,19 @@
 | Recovery via sandbox start | Set `APP_SECRET`, ran `kinfra sandbox start` from worktree | PASSED — config.yaml copied, secret resolved, container started |
 | Artifact verification | Checked `.env.secrets`, `.env.sandbox`, container env vars | PASSED — all correct, secret value in container |
 
+## M2 Task 2.1 — Detection Functions
+
+- `detect_env_vars()` uses raw text regex `\$\{([A-Z_][A-Z0-9_]*)(?::-(.*?))?\}` to find `${VAR}` and `${VAR:-default}` patterns, then attributes to services via YAML parsing of `environment:` blocks.
+- `detect_gitignored_mounts()` parses volumes, skips named volumes (top-level `volumes:` keys), runs `git check-ignore -q` for gitignore interpretation.
+- **Gotcha:** `lstrip('./')` strips individual chars (`.`, `/`), not the prefix string. Use `removeprefix('./')` instead.
+
+## M2 Task 2.2 — Init Flow Integration
+
+- `generate_infra_toml()` extended with `env`, `secrets`, `files` params — appends `[sandbox.env]`, `[sandbox.secrets]`, `[sandbox.files]` sections.
+- `--check` flag: runs detection on already-onboarded project, reports gaps with suggested `infra.toml` additions.
+- `--auto` mode: calls `_resolve_provisioning_auto()` — env vars → `$VAR_NAME` secrets, file mounts → copy from main repo if source exists.
+- **Gotcha:** mypy flow-sensitive typing reuses loop variable type — use distinct names (`ec` for env, `fc` for file) when iterating different dataclass lists in same scope.
+
 ## Next Task Notes
 
-M2 (Discovery) needs to extend `detect_project()` with env var and volume mount detection. The existing `detect_services_from_compose()` parses YAML for ports/images — env var detection should use raw text regex (not YAML parser) to catch `${VAR}` in all contexts. Gitignore detection should use `git check-ignore -q <path>` subprocess.
+Task 2.3 (Validation) should verify the full flow: create a test project with env vars and gitignored mounts, run `kinfra init --auto`, confirm infra.toml has correct provisioning sections, run `kinfra init --check` and confirm gap reporting. Also test against khealth if it has relevant env vars.
