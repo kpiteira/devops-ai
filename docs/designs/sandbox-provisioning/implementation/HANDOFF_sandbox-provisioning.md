@@ -29,6 +29,15 @@
 - `--auto` mode: calls `_resolve_provisioning_auto()` — env vars → `$VAR_NAME` secrets, file mounts → copy from main repo if source exists.
 - **Gotcha:** mypy flow-sensitive typing reuses loop variable type — use distinct names (`ec` for env, `fc` for file) when iterating different dataclass lists in same scope.
 
-## Next Task Notes
+## M2 Task 2.3 — E2E Validation
 
-Task 2.3 (Validation) should verify the full flow: create a test project with env vars and gitignored mounts, run `kinfra init --auto`, confirm infra.toml has correct provisioning sections, run `kinfra init --check` and confirm gap reporting. Also test against khealth if it has relevant env vars.
+- **Bug found:** `--check` on parameterized compose reported all vars (port vars invisible after parameterization, declared secrets/files not excluded). Fixed by loading existing config in check mode — adds port vars to `known_vars`, filters out declared secrets/env/files.
+- `detect_project()` now accepts `extra_known_vars` parameter for this purpose.
+
+| Test | Steps | Result |
+|------|-------|--------|
+| Dry-run detection | `kinfra init --dry-run --auto` on test project | PASSED — APP_SECRET, LOG_LEVEL, config.yaml detected; named volume app-data excluded |
+| Auto init with provisioning | `kinfra init --auto` on test project | PASSED — infra.toml has [sandbox.secrets] and [sandbox.files] sections |
+| Check gap detection | Added NEW_API_KEY to compose, `kinfra init --check` | PASSED — only NEW_API_KEY reported, existing vars excluded |
+| Check no gaps | Removed NEW_API_KEY, `kinfra init --check` | PASSED — "All good — no gaps detected" |
+| khealth check | `kinfra init --check` on khealth project | PASSED — detects TELEGRAM_BOT_TOKEN and config.yaml as gaps |
