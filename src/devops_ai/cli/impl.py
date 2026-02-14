@@ -237,7 +237,7 @@ def _setup_sandbox(
         compose_file_copy=str(compose_copy),
         ports=ports,
         claimed_at=now,
-        status="running",
+        status="provisioning",
     )
     claim_slot(registry, slot_info)
 
@@ -262,8 +262,7 @@ def _setup_sandbox(
         file_errors + secret_errors  # type: ignore[operator]
     )
     if all_errors:
-        release_slot(registry, slot_id)
-        remove_slot_dir(slot_dir)
+        # Keep slot allocated so `kinfra sandbox start` can retry
         return 1, _format_provision_failure(all_errors, wt_path)
 
     if resolved_secrets:
