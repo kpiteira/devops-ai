@@ -42,6 +42,9 @@ class InfraConfig:
     shared_mount_targets: list[str] = field(default_factory=list)
     otel_endpoint_var: str = "OTEL_EXPORTER_OTLP_ENDPOINT"
     otel_namespace_var: str = "OTEL_RESOURCE_ATTRIBUTES"
+    env: dict[str, str] = field(default_factory=dict)
+    secrets: dict[str, str] = field(default_factory=dict)
+    files: dict[str, str] = field(default_factory=dict)
 
 
 def parse_mount(spec: str) -> MountEntry:
@@ -110,6 +113,21 @@ def load_config(project_root: Path) -> InfraConfig | None:
         "namespace_var", "OTEL_RESOURCE_ATTRIBUTES"
     )
 
+    # Provisioning sections
+    env = sandbox.get("env", {})
+    secrets = sandbox.get("secrets", {})
+    files = sandbox.get("files", {})
+    for section_name, section_val in [
+        ("env", env),
+        ("secrets", secrets),
+        ("files", files),
+    ]:
+        if not isinstance(section_val, dict):
+            raise ValueError(
+                f"[sandbox.{section_name}] must be a table, "
+                f"got {type(section_val).__name__}"
+            )
+
     return InfraConfig(
         project_name=name,
         prefix=prefix,
@@ -125,6 +143,9 @@ def load_config(project_root: Path) -> InfraConfig | None:
         shared_mount_targets=shared_mount_targets,
         otel_endpoint_var=otel_endpoint_var,
         otel_namespace_var=otel_namespace_var,
+        env=env,
+        secrets=secrets,
+        files=files,
     )
 
 

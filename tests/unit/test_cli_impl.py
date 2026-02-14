@@ -85,6 +85,7 @@ class TestImplWithConfig:
             patch("devops_ai.cli.impl.allocate_slot") as mock_alloc,
             patch("devops_ai.cli.impl.clean_stale_entries"),
             patch("devops_ai.cli.impl.claim_slot") as mock_claim,
+            patch("devops_ai.cli.impl.save_registry"),
             patch("devops_ai.cli.impl.create_slot_dir") as mock_sd,
             patch("devops_ai.cli.impl.copy_compose_to_slot") as mock_cc,
             patch("devops_ai.cli.impl.generate_env_file"),

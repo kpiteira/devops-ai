@@ -7,6 +7,8 @@ from pathlib import Path
 from devops_ai.config import InfraConfig, MountEntry, ServicePort
 from devops_ai.registry import SlotInfo
 from devops_ai.sandbox import (
+    _compose_cmd,
+    _env_files_for_slot,
     copy_compose_to_slot,
     create_slot_dir,
     generate_env_file,
@@ -291,3 +293,76 @@ class TestGenerateOverride:
         content = result.read_text()
         assert "- default" in content
         assert "- devops-ai-observability" in content
+
+
+class TestComposeCmdMultipleEnvFiles:
+    def test_single_env_file(self) -> None:
+        cmd = _compose_cmd(
+            "compose.yml", "override.yml",
+            ["/slot/.env.sandbox"], ["up", "-d"],
+        )
+        assert cmd == [
+            "docker", "compose",
+            "-f", "compose.yml",
+            "-f", "override.yml",
+            "--env-file", "/slot/.env.sandbox",
+            "up", "-d",
+        ]
+
+    def test_multiple_env_files(self) -> None:
+        cmd = _compose_cmd(
+            "compose.yml", "override.yml",
+            ["/slot/.env.sandbox", "/slot/.env.secrets"],
+            ["up", "-d"],
+        )
+        assert cmd == [
+            "docker", "compose",
+            "-f", "compose.yml",
+            "-f", "override.yml",
+            "--env-file", "/slot/.env.sandbox",
+            "--env-file", "/slot/.env.secrets",
+            "up", "-d",
+        ]
+
+
+class TestEnvFilesForSlot:
+    def test_only_sandbox_when_no_secrets(self, tmp_path: Path) -> None:
+        (tmp_path / ".env.sandbox").write_text("COMPOSE_PROJECT_NAME=test\n")
+        result = _env_files_for_slot(tmp_path)
+        assert result == [tmp_path / ".env.sandbox"]
+
+    def test_both_when_secrets_exists(self, tmp_path: Path) -> None:
+        (tmp_path / ".env.sandbox").write_text("COMPOSE_PROJECT_NAME=test\n")
+        (tmp_path / ".env.secrets").write_text("TOKEN=val\n")
+        result = _env_files_for_slot(tmp_path)
+        assert result == [
+            tmp_path / ".env.sandbox",
+            tmp_path / ".env.secrets",
+        ]
+
+
+class TestGenerateEnvFileWithEnv:
+    def test_includes_env_entries(self, tmp_path: Path) -> None:
+        config = _config()
+        config.env = {"APP_ENV": "sandbox", "LOG_LEVEL": "DEBUG"}
+        slot = _slot(slot_id=1, ports={"API_PORT": 8081})
+        slot_dir = tmp_path / "slot"
+        slot_dir.mkdir()
+        result = generate_env_file(config, slot, slot_dir)
+        content = result.read_text()
+        assert "APP_ENV=sandbox" in content
+        assert "LOG_LEVEL=DEBUG" in content
+        # Ports still present
+        assert "API_PORT=8081" in content
+        assert "COMPOSE_PROJECT_NAME=myproj-slot-1" in content
+
+    def test_empty_env_no_regression(self, tmp_path: Path) -> None:
+        config = _config()
+        slot = _slot(slot_id=1, ports={"API_PORT": 8081})
+        slot_dir = tmp_path / "slot"
+        slot_dir.mkdir()
+        result = generate_env_file(config, slot, slot_dir)
+        content = result.read_text()
+        lines = [x for x in content.strip().split("\n") if x]
+        # Only COMPOSE_PROJECT_NAME and port
+        assert len(lines) == 2

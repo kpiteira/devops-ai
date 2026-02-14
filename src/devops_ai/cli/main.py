@@ -6,6 +6,7 @@ from devops_ai.cli.done import done_command
 from devops_ai.cli.impl import impl_command
 from devops_ai.cli.init_cmd import init_command
 from devops_ai.cli.observability import _down_command, _status_command, _up_command
+from devops_ai.cli.sandbox_cmd import sandbox_start_command
 from devops_ai.cli.spec import spec_command
 from devops_ai.cli.status import status_command
 from devops_ai.cli.worktrees import worktrees_command
@@ -21,6 +22,12 @@ observability_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(observability_app, name="observability")
+
+sandbox_app = typer.Typer(
+    help="Manage sandbox containers for worktrees.",
+    no_args_is_help=True,
+)
+app.add_typer(sandbox_app, name="sandbox")
 
 
 @app.command()
@@ -118,6 +125,14 @@ def obs_down() -> None:
 def obs_status() -> None:
     """Show observability stack status."""
     code, msg = _status_command()
+    typer.echo(msg)
+    raise typer.Exit(code)
+
+
+@sandbox_app.command(name="start")
+def sandbox_start() -> None:
+    """Start sandbox for an existing worktree (re-runs provisioning)."""
+    code, msg = sandbox_start_command()
     typer.echo(msg)
     raise typer.Exit(code)
 
