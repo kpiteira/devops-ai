@@ -6,7 +6,7 @@ import json
 import re
 import subprocess
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,27 @@ OBSERVABILITY_PATTERNS = [
 
 
 @dataclass
+class EnvVarCandidate:
+    """An undeclared env var found in compose."""
+
+    name: str
+    services: list[str]
+    default: str | None = None
+
+
+@dataclass
+class FileMountCandidate:
+    """A gitignored bind mount found in compose."""
+
+    host_path: str
+    container_path: str
+    service: str
+    source_exists: bool = False
+    example_exists: bool = False
+    example_path: str | None = None
+
+
+@dataclass
 class InitPlan:
     """Structured result of project detection — no prompts, no file writes."""
 
@@ -40,6 +61,10 @@ class InitPlan:
     health_endpoint: str | None
     health_port_var: str | None
     toml_content: str = ""
+    env_var_candidates: list[EnvVarCandidate] = field(default_factory=list)
+    file_mount_candidates: list[FileMountCandidate] = field(
+        default_factory=list
+    )
 
 
 def detect_project(project_root: Path) -> InitPlan:
@@ -81,6 +106,21 @@ def detect_project(project_root: Path) -> InitPlan:
             if health_port_var is None and health_endpoint:
                 health_port_var = var_name
 
+    # Detect env vars and gitignored mounts
+    env_var_candidates: list[EnvVarCandidate] = []
+    file_mount_candidates: list[FileMountCandidate] = []
+    if compose_path.exists():
+        compose_text = compose_path.read_text()
+        known_vars = (
+            set(ports.keys())
+            | {"COMPOSE_PROJECT_NAME"}
+            | {"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_RESOURCE_ATTRIBUTES"}
+        )
+        env_var_candidates = detect_env_vars(compose_text, known_vars)
+        file_mount_candidates = detect_gitignored_mounts(
+            compose_text, project_root
+        )
+
     # Generate toml content
     toml_content = generate_infra_toml(
         project_name=project_name,
@@ -104,6 +144,8 @@ def detect_project(project_root: Path) -> InitPlan:
         health_endpoint=health_endpoint,
         health_port_var=health_port_var,
         toml_content=toml_content,
+        env_var_candidates=env_var_candidates,
+        file_mount_candidates=file_mount_candidates,
     )
 
 
@@ -165,6 +207,151 @@ def identify_observability_services(
                 obs_names.append(name)
                 break
     return obs_names
+
+
+def detect_env_vars(
+    compose_content: str,
+    known_vars: set[str],
+) -> list[EnvVarCandidate]:
+    """Find ${VAR} references in compose text, subtract known vars.
+
+    Returns candidates for [sandbox.secrets] or [sandbox.env].
+    Uses raw text regex to catch references in all contexts.
+    """
+    # Find all ${VAR} and ${VAR:-default} references
+    pattern = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)(?::-(.*?))?\}")
+    all_refs: dict[str, str | None] = {}
+    for match in pattern.finditer(compose_content):
+        name = match.group(1)
+        default = match.group(2)
+        if name not in known_vars:
+            # Keep first-seen default (don't overwrite with None)
+            if name not in all_refs:
+                all_refs[name] = default
+
+    if not all_refs:
+        return []
+
+    # Determine which services reference each var via YAML parsing
+    yml = YAML()
+    data = yml.load(compose_content)
+    services_map: dict[str, list[str]] = {name: [] for name in all_refs}
+
+    if data and "services" in data:
+        for svc_name, svc in data["services"].items():
+            env_block = svc.get("environment")
+            if not env_block:
+                continue
+            # environment can be a list or dict
+            env_text = ""
+            if isinstance(env_block, list):
+                env_text = "\n".join(str(e) for e in env_block)
+            elif isinstance(env_block, dict):
+                env_text = "\n".join(
+                    f"{k}={v}" for k, v in env_block.items()
+                )
+            for var_name in all_refs:
+                if f"${{{var_name}}}" in env_text or (
+                    f"${{{var_name}:-" in env_text
+                ):
+                    services_map[var_name].append(svc_name)
+
+    return [
+        EnvVarCandidate(
+            name=name,
+            services=services_map.get(name, []),
+            default=default,
+        )
+        for name, default in sorted(all_refs.items())
+    ]
+
+
+def detect_gitignored_mounts(
+    compose_content: str,
+    project_root: Path,
+) -> list[FileMountCandidate]:
+    """Find bind mounts to gitignored files.
+
+    Uses `git check-ignore` for correct gitignore interpretation.
+    Skips named volumes (no path separator in host part).
+    """
+    yml = YAML()
+    data = yml.load(compose_content)
+    if not data or "services" not in data:
+        return []
+
+    # Collect top-level named volumes
+    named_volumes = set(data.get("volumes", {}).keys()) if data.get(
+        "volumes"
+    ) else set()
+
+    candidates: list[FileMountCandidate] = []
+
+    for svc_name, svc in data["services"].items():
+        for vol in svc.get("volumes", []):
+            vol_str = str(vol)
+            parts = vol_str.split(":")
+            if len(parts) < 2:
+                continue
+
+            host_part = parts[0]
+            container_part = parts[1]
+
+            # Skip named volumes
+            if host_part in named_volumes:
+                continue
+            # Bind mounts start with ./ or / or contain /
+            if not (
+                host_part.startswith("./")
+                or host_part.startswith("/")
+                or "/" in host_part
+                or host_part.startswith(".")
+            ):
+                continue
+
+            # Normalize: strip leading ./
+            rel_path = host_part.removeprefix("./")
+
+            # Check if gitignored
+            try:
+                result = subprocess.run(
+                    ["git", "check-ignore", "-q", rel_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    cwd=project_root,
+                )
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+
+            if result.returncode != 0:
+                continue  # Not ignored
+
+            # Check source existence and .example variant
+            source_path = project_root / rel_path
+            source_exists = source_path.is_file()
+
+            example_path = None
+            example_exists = False
+            for suffix in [".example", ".sample", ".template"]:
+                candidate_example = project_root / f"{rel_path}{suffix}"
+                if candidate_example.is_file():
+                    example_exists = True
+                    example_path = f"{rel_path}{suffix}"
+                    break
+
+            candidates.append(
+                FileMountCandidate(
+                    host_path=rel_path,
+                    container_path=container_part,
+                    service=svc_name,
+                    source_exists=source_exists,
+                    example_exists=example_exists,
+                    example_path=example_path,
+                )
+            )
+
+    return candidates
 
 
 def detect_project_name(project_root: Path) -> str:
