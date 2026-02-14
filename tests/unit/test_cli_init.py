@@ -925,6 +925,118 @@ class TestCheckMode:
         assert "no gaps" in output.lower() or "all good" in output.lower()
 
 
+class TestCheckModeExcludesExisting:
+    def test_check_excludes_already_declared_secrets(
+        self, tmp_path: Path
+    ) -> None:
+        """--check doesn't report vars already in [sandbox.secrets]."""
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(COMPOSE_WITH_SECRET)
+
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "infra.toml").write_text(
+            '[project]\nname = "myapp"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n\n'
+            '[sandbox.secrets]\nAPP_SECRET = "$APP_SECRET"\n'
+        )
+
+        echo_calls: list[str] = []
+        with patch(
+            "devops_ai.cli.init_cmd.typer.echo",
+            side_effect=lambda msg="": echo_calls.append(str(msg)),
+        ):
+            code = init_command(project_root=tmp_path, check=True)
+
+        assert code == 0
+        output = "\n".join(echo_calls)
+        assert "APP_SECRET" not in output
+        assert "all good" in output.lower() or "no gaps" in output.lower()
+
+    def test_check_excludes_parameterized_port_vars(
+        self, tmp_path: Path
+    ) -> None:
+        """--check doesn't flag port vars from parameterized compose."""
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(
+            "services:\n  myapp:\n    build: .\n"
+            "    ports:\n"
+            '      - "${MYAPP_PORT:-8080}:8080"\n'
+            "    environment:\n"
+            "      - NEW_VAR=${NEW_VAR}\n"
+        )
+
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "infra.toml").write_text(
+            '[project]\nname = "myapp"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n\n'
+            '[sandbox.ports]\nMYAPP_PORT = 8080\n'
+        )
+
+        echo_calls: list[str] = []
+        with patch(
+            "devops_ai.cli.init_cmd.typer.echo",
+            side_effect=lambda msg="": echo_calls.append(str(msg)),
+        ):
+            code = init_command(project_root=tmp_path, check=True)
+
+        assert code == 0
+        output = "\n".join(echo_calls)
+        # Port var should NOT be flagged
+        assert "MYAPP_PORT" not in output
+        # NEW_VAR should be flagged
+        assert "NEW_VAR" in output
+
+    def test_check_excludes_already_declared_files(
+        self, tmp_path: Path
+    ) -> None:
+        """--check doesn't report files already in [sandbox.files]."""
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(COMPOSE_WITH_VOLUMES)
+
+        # Make config.yaml gitignored
+        def mock_check_ignore(cmd, capture_output, text, timeout, cwd):
+            from unittest.mock import MagicMock
+
+            path = cmd[-1]
+            result = MagicMock()
+            result.returncode = 0 if path == "config.yaml" else 1
+            return result
+
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "infra.toml").write_text(
+            '[project]\nname = "myapp"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n\n'
+            '[sandbox.files]\n"config.yaml" = "config.yaml"\n'
+        )
+
+        echo_calls: list[str] = []
+        with (
+            patch(
+                "devops_ai.cli.init_cmd.typer.echo",
+                side_effect=lambda msg="": echo_calls.append(str(msg)),
+            ),
+            patch(
+                "devops_ai.cli.init_cmd.subprocess.run",
+                mock_check_ignore,
+            ),
+        ):
+            code = init_command(project_root=tmp_path, check=True)
+
+        assert code == 0
+        output = "\n".join(echo_calls)
+        assert "config.yaml" not in output
+        assert "all good" in output.lower() or "no gaps" in output.lower()
+
+
 class TestDetectProjectPopulatesNewFields:
     def test_env_var_candidates_populated(self, tmp_path: Path) -> None:
         compose = (

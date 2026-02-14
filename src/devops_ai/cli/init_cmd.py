@@ -14,7 +14,7 @@ import typer
 from ruamel.yaml import YAML
 
 from devops_ai.compose import rewrite_compose
-from devops_ai.config import find_project_root
+from devops_ai.config import find_project_root, load_config
 
 # Image patterns that identify observability services
 OBSERVABILITY_PATTERNS = [
@@ -67,10 +67,15 @@ class InitPlan:
     )
 
 
-def detect_project(project_root: Path) -> InitPlan:
+def detect_project(
+    project_root: Path,
+    extra_known_vars: set[str] | None = None,
+) -> InitPlan:
     """Run the full detection pipeline and return a structured plan.
 
     Pure function — no prompts, no file writes.
+    extra_known_vars: additional var names to exclude from env var detection
+    (e.g., port vars from existing infra.toml when compose is parameterized).
     """
     # Find compose files
     compose_files = find_compose_files(project_root)
@@ -115,6 +120,7 @@ def detect_project(project_root: Path) -> InitPlan:
             set(ports.keys())
             | {"COMPOSE_PROJECT_NAME"}
             | {"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_RESOURCE_ATTRIBUTES"}
+            | (extra_known_vars or set())
         )
         env_var_candidates = detect_env_vars(compose_text, known_vars)
         file_mount_candidates = detect_gitignored_mounts(
@@ -686,7 +692,31 @@ def init_command(
 
     # --check mode: report gaps and exit
     if check:
-        plan = detect_project(project_root)
+        # Load existing config to know what's already declared
+        existing_config = load_config(project_root)
+        extra_known: set[str] = set()
+        if existing_config:
+            extra_known = {p.env_var for p in existing_config.ports}
+        plan = detect_project(
+            project_root, extra_known_vars=extra_known
+        )
+        # Filter out already-declared items
+        if existing_config:
+            declared_vars = (
+                set(existing_config.secrets.keys())
+                | set(existing_config.env.keys())
+            )
+            plan.env_var_candidates = [
+                c
+                for c in plan.env_var_candidates
+                if c.name not in declared_vars
+            ]
+            declared_files = set(existing_config.files.keys())
+            plan.file_mount_candidates = [
+                fc
+                for fc in plan.file_mount_candidates
+                if fc.host_path not in declared_files
+            ]
         typer.echo(_format_check_output(plan))
         return 0
 
