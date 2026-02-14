@@ -742,8 +742,25 @@ def init_command(
             "Init can proceed, but sandbox features need Docker."
         )
 
+    # Load existing config for re-init on parameterized compose
+    existing_config = load_config(project_root) if exists else None
+    config_port_vars: set[str] = set()
+    if existing_config:
+        config_port_vars = {p.env_var for p in existing_config.ports}
+
     # Run detection pipeline
-    plan = detect_project(project_root)
+    plan = detect_project(
+        project_root, extra_known_vars=config_port_vars
+    )
+
+    # Preserve ports from existing config when compose is parameterized
+    if existing_config and not plan.ports:
+        plan.ports = {
+            p.env_var: p.base_port
+            for p in existing_config.ports
+        }
+        if existing_config.health_port_var:
+            plan.health_port_var = existing_config.health_port_var
 
     # Apply --health-endpoint override
     if health_endpoint is not None:

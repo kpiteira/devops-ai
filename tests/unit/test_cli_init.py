@@ -1037,6 +1037,94 @@ class TestCheckModeExcludesExisting:
         assert "all good" in output.lower() or "no gaps" in output.lower()
 
 
+class TestAutoOnParameterizedCompose:
+    def test_auto_reinit_preserves_ports(self, tmp_path: Path) -> None:
+        """--auto on already-parameterized compose preserves [sandbox.ports]."""
+        from devops_ai.cli.init_cmd import init_command
+
+        # Compose already parameterized by previous init
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(
+            "services:\n  myapp:\n    build: .\n"
+            "    ports:\n"
+            '      - "${MYAPP_MYAPP_PORT:-8080}:8080"\n'
+            "    environment:\n"
+            "      - APP_SECRET=${APP_SECRET}\n"
+        )
+
+        # Existing config with ports
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "infra.toml").write_text(
+            '[project]\nname = "myapp"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n\n'
+            '[sandbox.ports]\nMYAPP_MYAPP_PORT = 8080\n'
+        )
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(project_root=tmp_path, auto=True)
+
+        assert code == 0
+        toml = (config_dir / "infra.toml").read_text()
+        # Ports should be preserved
+        assert "[sandbox.ports]" in toml
+        assert "MYAPP_MYAPP_PORT = 8080" in toml
+        # Port var should NOT appear in secrets
+        if "[sandbox.secrets]" in toml:
+            secrets_part = toml.split("[sandbox.secrets]")[1]
+            assert "MYAPP_MYAPP_PORT" not in secrets_part
+
+    def test_auto_reinit_excludes_port_vars_from_secrets(
+        self, tmp_path: Path,
+    ) -> None:
+        """--auto on parameterized compose doesn't put port vars in secrets."""
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(
+            "services:\n  myapp:\n    build: .\n"
+            "    ports:\n"
+            '      - "${MYAPP_MYAPP_PORT:-8080}:8080"\n'
+            "    environment:\n"
+            "      - APP_SECRET=${APP_SECRET}\n"
+        )
+
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "infra.toml").write_text(
+            '[project]\nname = "myapp"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n\n'
+            '[sandbox.ports]\nMYAPP_MYAPP_PORT = 8080\n'
+        )
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(project_root=tmp_path, auto=True)
+
+        assert code == 0
+        toml = (config_dir / "infra.toml").read_text()
+        # APP_SECRET should be in secrets
+        assert 'APP_SECRET = "$APP_SECRET"' in toml
+        # Port var should NOT be in secrets
+        secrets_section = ""
+        if "[sandbox.secrets]" in toml:
+            secrets_section = toml.split("[sandbox.secrets]")[1]
+            if "[sandbox." in secrets_section:
+                secrets_section = secrets_section.split("[sandbox.")[0]
+        assert "MYAPP_MYAPP_PORT" not in secrets_section
+
+
 class TestDetectProjectPopulatesNewFields:
     def test_env_var_candidates_populated(self, tmp_path: Path) -> None:
         compose = (
