@@ -9,6 +9,13 @@ from pathlib import Path
 from devops_ai import agent_deck
 from devops_ai.config import InfraConfig, find_project_root, load_config
 from devops_ai.observability import ObservabilityManager
+from devops_ai.provision import (
+    FileProvisionError,
+    SecretResolutionError,
+    generate_secrets_file,
+    provision_files,
+    resolve_all_secrets,
+)
 from devops_ai.registry import (
     SlotInfo,
     allocate_slot,
@@ -157,6 +164,26 @@ def impl_command(
     )
 
 
+def _format_provision_failure(
+    errors: list[SecretResolutionError | FileProvisionError],
+    wt_path: Path,
+) -> str:
+    """Format provisioning errors with actionable recovery instructions."""
+    lines = [
+        f"Created worktree: {wt_path}",
+        "",
+        "\u2717 Provisioning failed:",
+        "",
+    ]
+    for err in errors:
+        lines.append(f"  {err.message}")
+        lines.append("")
+
+    lines.append("Sandbox not started. After fixing, run:")
+    lines.append(f"  cd {wt_path} && kinfra sandbox start")
+    return "\n".join(lines)
+
+
 def _setup_session(
     feature: str,
     milestone: str,
@@ -218,6 +245,30 @@ def _setup_sandbox(
     generate_env_file(config, slot_info, slot_dir)
     generate_override(config, slot_info, wt_path, repo_root, slot_dir)
 
+    # Provision files and resolve secrets
+    file_errors: list[FileProvisionError] = []
+    provisioned_files: list[str] = []
+    if config.files:
+        provisioned_files, file_errors = provision_files(
+            config.files, repo_root, wt_path
+        )
+
+    secret_errors: list[SecretResolutionError] = []
+    resolved_secrets: dict[str, str] = {}
+    if config.secrets:
+        resolved_secrets, secret_errors = resolve_all_secrets(config.secrets)
+
+    all_errors: list[SecretResolutionError | FileProvisionError] = (
+        file_errors + secret_errors  # type: ignore[operator]
+    )
+    if all_errors:
+        release_slot(registry, slot_id)
+        remove_slot_dir(slot_dir)
+        return 1, _format_provision_failure(all_errors, wt_path)
+
+    if resolved_secrets:
+        generate_secrets_file(resolved_secrets, slot_dir)
+
     # Start sandbox
     try:
         start_sandbox(config, slot_info, wt_path)
@@ -241,6 +292,18 @@ def _setup_sandbox(
     ]
     for env_var, port in sorted(ports.items()):
         lines.append(f"  {env_var}: {port}")
+
+    if provisioned_files:
+        lines.append("Provisioned files:")
+        for fname in provisioned_files:
+            source = config.files.get(fname, fname)
+            lines.append(f"  {fname} \u2190 {source} \u2713")
+
+    if resolved_secrets:
+        lines.append("Resolved secrets:")
+        for var_name in sorted(resolved_secrets.keys()):
+            ref = config.secrets.get(var_name, "")
+            lines.append(f"  {var_name} \u2190 {ref} \u2713")
 
     if not healthy:
         lines.append(

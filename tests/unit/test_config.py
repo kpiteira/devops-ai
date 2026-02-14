@@ -232,3 +232,85 @@ class TestNoConfigFile:
         (tmp_path / ".devops-ai").mkdir()
         config = load_config(tmp_path)
         assert config is None
+
+
+# --- Provisioning sections ---
+
+PROVISIONING_CONFIG = """\
+[project]
+name = "myapp"
+prefix = "myapp"
+
+[sandbox]
+compose_file = "docker-compose.yml"
+
+[sandbox.ports]
+MYAPP_PORT = 8080
+
+[sandbox.env]
+APP_ENV = "sandbox"
+LOG_LEVEL = "DEBUG"
+
+[sandbox.secrets]
+TELEGRAM_BOT_TOKEN = "$TELEGRAM_BOT_TOKEN"
+API_KEY = "op://dev-vault/myapp/api-key"
+DB_PASSWORD = "localdev"
+
+[sandbox.files]
+"config.yaml" = "config.yaml"
+".env" = ".env.example"
+"""
+
+
+class TestParseProvisioningEnv:
+    def test_env_parsed(self, tmp_path: Path) -> None:
+        root = _write_config(tmp_path, PROVISIONING_CONFIG)
+        config = load_config(root)
+        assert config is not None
+        assert config.env == {"APP_ENV": "sandbox", "LOG_LEVEL": "DEBUG"}
+
+
+class TestParseProvisioningSecrets:
+    def test_secrets_parsed(self, tmp_path: Path) -> None:
+        root = _write_config(tmp_path, PROVISIONING_CONFIG)
+        config = load_config(root)
+        assert config is not None
+        assert config.secrets == {
+            "TELEGRAM_BOT_TOKEN": "$TELEGRAM_BOT_TOKEN",
+            "API_KEY": "op://dev-vault/myapp/api-key",
+            "DB_PASSWORD": "localdev",
+        }
+
+
+class TestParseProvisioningFiles:
+    def test_files_parsed(self, tmp_path: Path) -> None:
+        root = _write_config(tmp_path, PROVISIONING_CONFIG)
+        config = load_config(root)
+        assert config is not None
+        assert config.files == {
+            "config.yaml": "config.yaml",
+            ".env": ".env.example",
+        }
+
+
+class TestProvisioningSectionsMissing:
+    def test_defaults_to_empty_dicts(self, tmp_path: Path) -> None:
+        root = _write_config(tmp_path, SIMPLE_CONFIG)
+        config = load_config(root)
+        assert config is not None
+        assert config.env == {}
+        assert config.secrets == {}
+        assert config.files == {}
+
+
+class TestAllProvisioningSectionsTogether:
+    def test_all_three_coexist(self, tmp_path: Path) -> None:
+        root = _write_config(tmp_path, PROVISIONING_CONFIG)
+        config = load_config(root)
+        assert config is not None
+        assert len(config.env) == 2
+        assert len(config.secrets) == 3
+        assert len(config.files) == 2
+        # Existing fields still work
+        assert config.project_name == "myapp"
+        assert len(config.ports) == 1

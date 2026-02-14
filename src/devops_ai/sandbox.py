@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import time
 import urllib.request
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -49,12 +50,14 @@ def generate_env_file(
     slot: SlotInfo,
     slot_dir: Path,
 ) -> Path:
-    """Write .env.sandbox with COMPOSE_PROJECT_NAME and offset ports."""
+    """Write .env.sandbox with COMPOSE_PROJECT_NAME, offset ports, and env vars."""
     lines = [
         f"COMPOSE_PROJECT_NAME={config.project_name}-slot-{slot.slot_id}",
     ]
     for env_var, port in sorted(slot.ports.items()):
         lines.append(f"{env_var}={port}")
+    for key, value in sorted(config.env.items()):
+        lines.append(f"{key}={value}")
 
     env_path = slot_dir / ".env.sandbox"
     env_path.write_text("\n".join(lines) + "\n")
@@ -149,24 +152,34 @@ def generate_override(
 # ---------------------------------------------------------------------------
 
 
+def _env_files_for_slot(slot_dir: Path) -> list[Path]:
+    """Return env files for a slot: .env.sandbox + .env.secrets if it exists."""
+    files = [slot_dir / ".env.sandbox"]
+    secrets = slot_dir / ".env.secrets"
+    if secrets.exists():
+        files.append(secrets)
+    return files
+
+
 def _compose_cmd(
     compose_file: str | Path,
     override_file: str | Path,
-    env_file: str | Path,
+    env_files: Sequence[str | Path],
     action: list[str],
 ) -> list[str]:
     """Build a docker compose command with absolute paths."""
-    return [
+    cmd = [
         "docker",
         "compose",
         "-f",
         str(compose_file),
         "-f",
         str(override_file),
-        "--env-file",
-        str(env_file),
-        *action,
     ]
+    for ef in env_files:
+        cmd.extend(["--env-file", str(ef)])
+    cmd.extend(action)
+    return cmd
 
 
 def start_sandbox(
@@ -181,9 +194,9 @@ def start_sandbox(
     slot_dir = Path(slot.slot_dir)
     compose_file = worktree_path / config.compose_file
     override_file = slot_dir / "docker-compose.override.yml"
-    env_file = slot_dir / ".env.sandbox"
+    env_files = _env_files_for_slot(slot_dir)
 
-    cmd = _compose_cmd(compose_file, override_file, env_file, ["up", "-d"])
+    cmd = _compose_cmd(compose_file, override_file, env_files, ["up", "-d"])
     logger.info("Starting sandbox: %s", " ".join(cmd))
 
     try:
@@ -197,7 +210,7 @@ def start_sandbox(
         logger.error("Sandbox start failed: %s", result.stderr)
         # Cleanup partial containers
         down_cmd = _compose_cmd(
-            compose_file, override_file, env_file, ["down"]
+            compose_file, override_file, env_files, ["down"]
         )
         subprocess.run(down_cmd, capture_output=True, text=True)
         raise RuntimeError(
@@ -214,9 +227,9 @@ def stop_sandbox(slot: SlotInfo) -> None:
     slot_dir = Path(slot.slot_dir)
     compose_file = slot.compose_file_copy
     override_file = slot_dir / "docker-compose.override.yml"
-    env_file = slot_dir / ".env.sandbox"
+    env_files = _env_files_for_slot(slot_dir)
 
-    cmd = _compose_cmd(compose_file, override_file, env_file, ["down"])
+    cmd = _compose_cmd(compose_file, override_file, env_files, ["down"])
     logger.info("Stopping sandbox: %s", " ".join(cmd))
 
     try:
