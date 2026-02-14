@@ -23,6 +23,7 @@ from devops_ai.registry import (
     clean_stale_entries,
     load_registry,
     release_slot,
+    save_registry,
 )
 from devops_ai.sandbox import (
     copy_compose_to_slot,
@@ -279,6 +280,10 @@ def _setup_sandbox(
             f"Sandbox failed to start: {e}\n"
             f"  Worktree preserved at {wt_path}"
         )
+
+    # Mark slot as running now that containers are up
+    slot_info.status = "running"
+    save_registry(registry)
 
     # Health gate
     healthy = run_health_gate(config, slot_info)

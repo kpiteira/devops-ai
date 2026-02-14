@@ -117,6 +117,16 @@ def load_config(project_root: Path) -> InfraConfig | None:
     env = sandbox.get("env", {})
     secrets = sandbox.get("secrets", {})
     files = sandbox.get("files", {})
+    for section_name, section_val in [
+        ("env", env),
+        ("secrets", secrets),
+        ("files", files),
+    ]:
+        if not isinstance(section_val, dict):
+            raise ValueError(
+                f"[sandbox.{section_name}] must be a table, "
+                f"got {type(section_val).__name__}"
+            )
 
     return InfraConfig(
         project_name=name,

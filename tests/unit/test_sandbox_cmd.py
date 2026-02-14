@@ -40,3 +40,22 @@ class TestSandboxStartNotWorktree:
             code, msg = sandbox_start_command(worktree_path=tmp_path / "unknown")
         assert code == 1
         assert "not a kinfra worktree" in msg.lower() or "not allocated" in msg.lower()
+
+
+class TestSandboxStartFromSubdirectory:
+    def test_finds_slot_from_subdirectory(self, tmp_path: Path) -> None:
+        """sandbox start from a subdirectory of the registered worktree."""
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        subdir = wt_path / "src" / "app"
+        subdir.mkdir(parents=True)
+
+        registry_path = _setup_registry(tmp_path, str(wt_path))
+
+        with patch("devops_ai.cli.sandbox_cmd.REGISTRY_PATH", registry_path):
+            # Will still fail due to missing config, but should get past the
+            # "not a kinfra worktree" check
+            code, msg = sandbox_start_command(worktree_path=subdir)
+
+        # Should NOT get "not a kinfra worktree" error — it found the slot
+        assert "not a kinfra worktree" not in msg.lower()

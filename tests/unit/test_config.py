@@ -314,3 +314,27 @@ class TestAllProvisioningSectionsTogether:
         # Existing fields still work
         assert config.project_name == "myapp"
         assert len(config.ports) == 1
+
+
+class TestProvisioningSectionTypeValidation:
+    def test_env_not_a_table_raises(self, tmp_path: Path) -> None:
+        bad_toml = (
+            '[project]\nname = "test"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n'
+            'env = "not-a-table"\n'
+        )
+        root = _write_config(tmp_path, bad_toml)
+        with pytest.raises(ValueError, match="sandbox.env.*must be a table"):
+            load_config(root)
+
+    def test_secrets_not_a_table_raises(self, tmp_path: Path) -> None:
+        bad_toml = (
+            '[project]\nname = "test"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n'
+            'secrets = ["a", "b"]\n'
+        )
+        root = _write_config(tmp_path, bad_toml)
+        with pytest.raises(
+            ValueError, match="sandbox.secrets.*must be a table"
+        ):
+            load_config(root)

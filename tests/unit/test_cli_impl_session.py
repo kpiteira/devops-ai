@@ -102,6 +102,7 @@ class TestSessionFlagWithAgentDeck:
             ),
             patch("devops_ai.cli.impl.clean_stale_entries"),
             patch("devops_ai.cli.impl.claim_slot"),
+            patch("devops_ai.cli.impl.save_registry"),
             patch(
                 "devops_ai.cli.impl.create_slot_dir",
                 return_value=tmp_path / "slot",
@@ -171,6 +172,7 @@ class TestSessionFlagWithoutAgentDeck:
             ),
             patch("devops_ai.cli.impl.clean_stale_entries"),
             patch("devops_ai.cli.impl.claim_slot"),
+            patch("devops_ai.cli.impl.save_registry"),
             patch(
                 "devops_ai.cli.impl.create_slot_dir",
                 return_value=tmp_path / "slot",
@@ -232,6 +234,7 @@ class TestSessionSendDelay:
             ),
             patch("devops_ai.cli.impl.clean_stale_entries"),
             patch("devops_ai.cli.impl.claim_slot"),
+            patch("devops_ai.cli.impl.save_registry"),
             patch(
                 "devops_ai.cli.impl.create_slot_dir",
                 return_value=tmp_path / "slot",
@@ -295,6 +298,7 @@ class TestSessionSendCorrectCommand:
             ),
             patch("devops_ai.cli.impl.clean_stale_entries"),
             patch("devops_ai.cli.impl.claim_slot"),
+            patch("devops_ai.cli.impl.save_registry"),
             patch(
                 "devops_ai.cli.impl.create_slot_dir",
                 return_value=tmp_path / "slot",

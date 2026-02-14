@@ -143,8 +143,38 @@ def provision_files(
     errors: list[FileProvisionError] = []
 
     for dest_rel, source_rel in sorted(files.items()):
-        source = main_repo_root / source_rel
-        dest = worktree_path / dest_rel
+        source = (main_repo_root / source_rel).resolve()
+        dest = (worktree_path / dest_rel).resolve()
+
+        # Path traversal protection
+        try:
+            source.relative_to(main_repo_root.resolve())
+        except ValueError:
+            errors.append(
+                FileProvisionError(
+                    dest=dest_rel,
+                    source=source_rel,
+                    message=(
+                        f"{dest_rel}: Source path escapes project root: "
+                        f"{source_rel}"
+                    ),
+                )
+            )
+            continue
+        try:
+            dest.relative_to(worktree_path.resolve())
+        except ValueError:
+            errors.append(
+                FileProvisionError(
+                    dest=dest_rel,
+                    source=source_rel,
+                    message=(
+                        f"{dest_rel}: Destination path escapes worktree: "
+                        f"{dest_rel}"
+                    ),
+                )
+            )
+            continue
 
         if not source.is_file():
             hint = ""
@@ -174,7 +204,17 @@ def generate_secrets_file(
     resolved_secrets: dict[str, str],
     slot_dir: Path,
 ) -> Path:
-    """Write .env.secrets to slot directory. Returns path."""
+    """Write .env.secrets to slot directory. Returns path.
+
+    Raises ValueError if any key or value contains newlines or null bytes.
+    """
+    for key, value in resolved_secrets.items():
+        for label, text in [("key", key), ("value", value)]:
+            if "\n" in text or "\r" in text or "\0" in text:
+                raise ValueError(
+                    f"Secret {label} for '{key}' contains "
+                    f"invalid characters (newline or null byte)"
+                )
     lines = [
         f"{key}={value}" for key, value in sorted(resolved_secrets.items())
     ]

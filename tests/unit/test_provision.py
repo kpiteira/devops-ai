@@ -223,3 +223,42 @@ class TestGenerateSecretsFile:
     def test_empty_secrets(self, tmp_path: Path) -> None:
         path = generate_secrets_file({}, tmp_path)
         assert path.read_text() == "\n"
+
+    def test_rejects_newline_in_value(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="invalid characters"):
+            generate_secrets_file({"KEY": "val\nEVIL=injected"}, tmp_path)
+
+    def test_rejects_carriage_return_in_value(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="invalid characters"):
+            generate_secrets_file({"KEY": "val\rEVIL"}, tmp_path)
+
+    def test_rejects_null_byte_in_key(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="invalid characters"):
+            generate_secrets_file({"KEY\0EVIL": "val"}, tmp_path)
+
+
+class TestProvisionFilesPathTraversal:
+    def test_source_path_traversal_blocked(self, tmp_path: Path) -> None:
+        main_repo = tmp_path / "main"
+        main_repo.mkdir()
+        worktree = tmp_path / "worktree"
+        worktree.mkdir()
+
+        _, errors = provision_files(
+            {"config.yaml": "../../../etc/passwd"}, main_repo, worktree
+        )
+        assert len(errors) == 1
+        assert "escapes project root" in errors[0].message
+
+    def test_dest_path_traversal_blocked(self, tmp_path: Path) -> None:
+        main_repo = tmp_path / "main"
+        main_repo.mkdir()
+        (main_repo / "config.yaml").write_text("data")
+        worktree = tmp_path / "worktree"
+        worktree.mkdir()
+
+        _, errors = provision_files(
+            {"../evil.yaml": "config.yaml"}, main_repo, worktree
+        )
+        assert len(errors) == 1
+        assert "escapes worktree" in errors[0].message

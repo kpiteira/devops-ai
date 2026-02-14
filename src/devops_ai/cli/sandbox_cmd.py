@@ -18,6 +18,7 @@ from devops_ai.registry import (
     DEFAULT_REGISTRY_PATH,
     get_slot_for_worktree,
     load_registry,
+    save_registry,
 )
 from devops_ai.sandbox import run_health_gate, start_sandbox
 
@@ -52,11 +53,21 @@ def sandbox_start_command(
 
     Re-runs provisioning (files + secrets) before starting containers.
     """
-    wt_path = (worktree_path or Path.cwd()).resolve()
+    cwd = (worktree_path or Path.cwd()).resolve()
 
-    # Find slot from registry
+    # Walk up to find the worktree root (registered path)
+    wt_path = cwd
     registry = load_registry(REGISTRY_PATH)
     slot_info = get_slot_for_worktree(registry, wt_path)
+    if slot_info is None:
+        # Try parent directories (user may be in a subdirectory)
+        candidate = wt_path.parent
+        while candidate != candidate.parent:
+            slot_info = get_slot_for_worktree(registry, candidate)
+            if slot_info is not None:
+                wt_path = candidate
+                break
+            candidate = candidate.parent
     if slot_info is None:
         return 1, (
             "Not a kinfra worktree, or sandbox not allocated.\n"
@@ -113,6 +124,10 @@ def sandbox_start_command(
         start_sandbox(config, slot_info, wt_path)
     except RuntimeError as e:
         return 1, f"Sandbox failed to start: {e}"
+
+    # Mark slot as running
+    slot_info.status = "running"
+    save_registry(registry)
 
     # Health gate
     healthy = run_health_gate(config, slot_info)
