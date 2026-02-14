@@ -56,12 +56,16 @@ class TestImplWithoutConfig:
         _setup_git_repo(tmp_path)
         _setup_milestone(tmp_path, "my-feature", "M1")
 
-        with patch(
-            "devops_ai.cli.impl.create_impl_worktree"
-        ) as mock_create:
+        with (
+            patch(
+                "devops_ai.cli.impl.create_impl_worktree"
+            ) as mock_create,
+            patch("devops_ai.cli.impl.agent_deck") as mock_ad,
+        ):
             mock_create.return_value = (
                 tmp_path.parent / f"{tmp_path.name}-impl-my-feature-M1"
             )
+            mock_ad.is_available.return_value = False
             code, msg = impl_command(
                 "my-feature/M1", repo_root=tmp_path
             )
@@ -92,6 +96,7 @@ class TestImplWithConfig:
             patch("devops_ai.cli.impl.generate_override"),
             patch("devops_ai.cli.impl.start_sandbox"),
             patch("devops_ai.cli.impl.run_health_gate", return_value=True),
+            patch("devops_ai.cli.impl.agent_deck") as mock_ad,
         ):
             mock_wt.return_value = (
                 tmp_path.parent / f"{tmp_path.name}-impl-my-feature-M1"
@@ -100,6 +105,7 @@ class TestImplWithConfig:
             mock_alloc.return_value = (1, {"API_PORT": 8081})
             mock_sd.return_value = tmp_path / "slot"
             mock_cc.return_value = tmp_path / "slot" / "docker-compose.yml"
+            mock_ad.is_available.return_value = False
 
             code, msg = impl_command(
                 "my-feature/M1", repo_root=tmp_path

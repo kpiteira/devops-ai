@@ -77,7 +77,7 @@ def _find_milestone_file(
 def impl_command(
     arg: str,
     repo_root: Path | None = None,
-    session: bool = False,
+    session: bool = True,
 ) -> tuple[int, str]:
     """Create an impl worktree with optional sandbox.
 

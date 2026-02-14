@@ -90,8 +90,8 @@ def impl_cmd(
         help="Feature/milestone (e.g., my-feature/M1)"
     ),
     session: bool = typer.Option(
-        False,
-        "--session",
+        True,
+        "--session/--no-session",
         help="Create an agent-deck session with Claude",
     ),
 ) -> None:

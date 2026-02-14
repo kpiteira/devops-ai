@@ -51,18 +51,18 @@ kinfra spec wellness-reminders
 # Design dir: docs/designs/wellness-reminders/
 ```
 
-### `kinfra impl <feature>/<milestone> [--session]`
+### `kinfra impl <feature>/<milestone> [--no-session]`
 
-Create an implementation worktree with sandbox.
+Create an implementation worktree with sandbox. Automatically creates an agent-deck session and launches Claude with `/kbuild`.
 
 ```bash
 kinfra impl wellness-reminders/M1
 # Creates worktree + claims slot + starts Docker sandbox
+# Starts agent-deck session + launches Claude with /kbuild
 # Output includes: slot ID, port mappings
 
-kinfra impl wellness-reminders/M1 --session
-# Same as above + creates agent-deck session with Claude
-# Sends: /kbuild wellness-reminders/M1
+kinfra impl wellness-reminders/M1 --no-session
+# Same as above but skips agent-deck session
 ```
 
 ### `kinfra done <name> [--force]`
@@ -112,9 +112,9 @@ kinfra observability status  # Show service health and endpoints
 
 **Design (spec):** `kinfra spec <feature>` → work → `kinfra done <feature>`
 
-**Implementation (impl):** `kinfra impl <feature>/<milestone>` → work with sandbox → `kinfra done <feature>-<milestone>`
+**Implementation (impl):** `kinfra impl <feature>/<milestone>` → sandbox + Claude session with `/kbuild` → `kinfra done <feature>-<milestone>`
 
-**With agent-deck:** `kinfra impl <feature>/<milestone> --session` → Claude launches with `/kbuild` → `kinfra done <feature>-<milestone>`
+**Without agent-deck:** `kinfra impl <feature>/<milestone> --no-session` → sandbox only, no Claude session
 
 ---
 
@@ -165,7 +165,7 @@ Filter traces by namespace in Jaeger UI:
 | Health check timeout | Services may still be starting — check logs |
 | Dirty worktree on done | Commit or stash changes, or use `--force` |
 | Port conflict | kinfra auto-selects next available slot |
-| agent-deck not installed | `--session` prints warning, impl still works |
+| agent-deck not installed | Session skipped with warning, impl still works |
 
 ---
 
