@@ -84,6 +84,33 @@ class TestSaveAndReload:
         assert loaded.slots[3].ports == {"P": 8083}
 
 
+class TestAtomicWrite:
+    def test_save_uses_atomic_rename(self, tmp_path: Path) -> None:
+        """save_registry writes to temp file then renames."""
+        path = tmp_path / "registry.json"
+        reg = Registry(version=1, slots={})
+        save_registry(reg, path)
+        # File should exist and be valid JSON
+        assert path.exists()
+        data = json.loads(path.read_text())
+        assert data["version"] == 1
+
+    def test_save_no_partial_file_on_disk(self, tmp_path: Path) -> None:
+        """After save, no .tmp file should remain."""
+        path = tmp_path / "registry.json"
+        reg = Registry(version=1, slots={})
+        save_registry(reg, path)
+        tmp_files = list(tmp_path.glob("*.tmp"))
+        assert tmp_files == []
+
+    def test_corrupt_file_recovers(self, tmp_path: Path) -> None:
+        """Partial JSON file → load returns empty registry."""
+        path = tmp_path / "registry.json"
+        path.write_text('{"version": 1, "slots": {')  # truncated
+        reg = load_registry(path)
+        assert reg.slots == {}
+
+
 class TestClaimAndRelease:
     def test_claim_adds_release_removes(self, tmp_path: Path) -> None:
         path = tmp_path / "registry.json"

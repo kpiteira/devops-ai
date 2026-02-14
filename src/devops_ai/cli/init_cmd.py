@@ -412,6 +412,8 @@ def generate_infra_toml(
     code_mount_targets: list[str] | None = None,
     shared_mounts: list[str] | None = None,
     shared_mount_targets: list[str] | None = None,
+    otel_endpoint_var: str | None = None,
+    otel_namespace_var: str | None = None,
     env: dict[str, str] | None = None,
     secrets: dict[str, str] | None = None,
     files: dict[str, str] | None = None,
@@ -458,6 +460,32 @@ def generate_infra_toml(
                 f'"{t}"' for t in shared_mount_targets
             )
             lines.append(f"shared_targets = [{items}]")
+
+    # Non-default OTEL var names
+    has_custom_otel = (
+        otel_endpoint_var
+        and otel_endpoint_var != "OTEL_EXPORTER_OTLP_ENDPOINT"
+    ) or (
+        otel_namespace_var
+        and otel_namespace_var != "OTEL_RESOURCE_ATTRIBUTES"
+    )
+    if has_custom_otel:
+        lines.append("")
+        lines.append("[sandbox.otel]")
+        if (
+            otel_endpoint_var
+            and otel_endpoint_var != "OTEL_EXPORTER_OTLP_ENDPOINT"
+        ):
+            lines.append(
+                f'endpoint_var = "{otel_endpoint_var}"'
+            )
+        if (
+            otel_namespace_var
+            and otel_namespace_var != "OTEL_RESOURCE_ATTRIBUTES"
+        ):
+            lines.append(
+                f'namespace_var = "{otel_namespace_var}"'
+            )
 
     if env:
         lines.append("")
@@ -753,14 +781,45 @@ def init_command(
         project_root, extra_known_vars=config_port_vars
     )
 
-    # Preserve ports from existing config when compose is parameterized
-    if existing_config and not plan.ports:
-        plan.ports = {
-            p.env_var: p.base_port
-            for p in existing_config.ports
-        }
-        if existing_config.health_port_var:
+    # Preserve values from existing config that detection can't rediscover
+    preserved_timeout = 60
+    preserved_otel_endpoint: str | None = None
+    preserved_otel_namespace: str | None = None
+    preserved_code_mounts: list[str] | None = None
+    preserved_code_targets: list[str] | None = None
+    preserved_shared_mounts: list[str] | None = None
+    preserved_shared_targets: list[str] | None = None
+
+    if existing_config:
+        # Ports: compose is parameterized, can't re-detect
+        if not plan.ports:
+            plan.ports = {
+                p.env_var: p.base_port
+                for p in existing_config.ports
+            }
+        if not plan.health_port_var and existing_config.health_port_var:
             plan.health_port_var = existing_config.health_port_var
+        preserved_timeout = existing_config.health_timeout
+        preserved_otel_endpoint = existing_config.otel_endpoint_var
+        preserved_otel_namespace = existing_config.otel_namespace_var
+        if existing_config.code_mounts:
+            preserved_code_mounts = [
+                f"{m.host}:{m.container}"
+                + (":ro" if m.readonly else "")
+                for m in existing_config.code_mounts
+            ]
+            preserved_code_targets = (
+                existing_config.code_mount_targets or None
+            )
+        if existing_config.shared_mounts:
+            preserved_shared_mounts = [
+                f"{m.host}:{m.container}"
+                + (":ro" if m.readonly else "")
+                for m in existing_config.shared_mounts
+            ]
+            preserved_shared_targets = (
+                existing_config.shared_mount_targets or None
+            )
 
     # Apply --health-endpoint override
     if health_endpoint is not None:
@@ -769,7 +828,7 @@ def init_command(
     # Auto-resolve provisioning candidates
     auto_secrets, auto_files = _resolve_provisioning_auto(plan)
 
-    # Regenerate toml with provisioning sections
+    # Regenerate toml with provisioning sections + preserved values
     plan.toml_content = generate_infra_toml(
         project_name=plan.project_name,
         prefix=plan.prefix,
@@ -777,6 +836,13 @@ def init_command(
         ports=plan.ports,
         health_endpoint=plan.health_endpoint,
         health_port_var=plan.health_port_var,
+        health_timeout=preserved_timeout,
+        code_mounts=preserved_code_mounts,
+        code_mount_targets=preserved_code_targets,
+        shared_mounts=preserved_shared_mounts,
+        shared_mount_targets=preserved_shared_targets,
+        otel_endpoint_var=preserved_otel_endpoint,
+        otel_namespace_var=preserved_otel_namespace,
         secrets=auto_secrets or None,
         files=auto_files or None,
     )

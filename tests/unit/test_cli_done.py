@@ -73,6 +73,46 @@ class TestDoneForceIgnoresDirty:
         assert not wt.exists()
 
 
+class TestDonePartialMatch:
+    def test_finds_impl_worktree_by_feature_name(
+        self, git_repo: Path,
+    ) -> None:
+        """done finds impl worktree by feature name (without milestone)."""
+        from devops_ai.cli.done import done_command
+        from devops_ai.worktree import create_impl_worktree
+
+        prefix = git_repo.name
+        wt = create_impl_worktree(
+            git_repo, prefix, "my-feature", "M1"
+        )
+
+        # User says "my-feature-M1" — partial match should work
+        exit_code, msg = done_command(
+            "my-feature-M1", git_repo, force=True
+        )
+        assert exit_code == 0
+        assert not wt.exists()
+
+    def test_finds_worktree_by_full_dir_name(
+        self, git_repo: Path,
+    ) -> None:
+        """done finds worktree by full directory name."""
+        from devops_ai.cli.done import done_command
+        from devops_ai.worktree import create_impl_worktree
+
+        prefix = git_repo.name
+        wt = create_impl_worktree(
+            git_repo, prefix, "my-feat", "M1"
+        )
+
+        # User passes the full directory name
+        exit_code, msg = done_command(
+            wt.name, git_repo, force=True
+        )
+        assert exit_code == 0
+        assert not wt.exists()
+
+
 class TestDoneAmbiguousMatch:
     def test_exits_with_error(self, git_repo: Path) -> None:
         from devops_ai.cli.done import done_command

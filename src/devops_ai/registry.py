@@ -9,6 +9,8 @@ from __future__ import annotations
 import fcntl
 import json
 import logging
+import os
+import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -75,7 +77,11 @@ def load_registry(path: Path | None = None) -> Registry:
 
 
 def save_registry(registry: Registry, path: Path | None = None) -> None:
-    """Write registry to JSON with file locking."""
+    """Write registry to JSON atomically.
+
+    Writes to a temp file in the same directory, then renames. This
+    prevents partial reads from seeing truncated JSON.
+    """
     path = path or DEFAULT_REGISTRY_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -84,13 +90,28 @@ def save_registry(registry: Registry, path: Path | None = None) -> None:
         "slots": {str(k): asdict(v) for k, v in registry.slots.items()},
     }
 
-    with open(path, "w") as f:
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+    # Write to temp file, then atomic rename
+    fd, tmp_path = tempfile.mkstemp(
+        dir=path.parent, suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                json.dump(data, f, indent=2)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        os.replace(tmp_path, path)
+    except BaseException:
+        # Clean up temp file on any error
         try:
-            json.dump(data, f, indent=2)
-            f.write("\n")
-        finally:
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def allocate_slot(

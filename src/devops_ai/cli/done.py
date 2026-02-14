@@ -70,12 +70,16 @@ def done_command(
     all_wts = list_worktrees(repo_root, prefix)
     managed = [w for w in all_wts if w.wt_type in ("spec", "impl")]
 
-    # Try exact match first, then partial
+    # Try exact feature match first, then partial, then directory name
     exact = [w for w in managed if w.feature == name]
     if len(exact) == 1:
         matches = exact
     else:
         matches = [w for w in managed if name in w.feature]
+
+    # Fallback: match by directory name (handles full worktree dir names)
+    if not matches:
+        matches = [w for w in managed if w.path.name == name]
 
     if not matches:
         return 1, f"No worktree found matching '{name}'"

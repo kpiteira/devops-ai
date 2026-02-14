@@ -1037,6 +1037,121 @@ class TestCheckModeExcludesExisting:
         assert "all good" in output.lower() or "no gaps" in output.lower()
 
 
+class TestReinitPreservesConfig:
+    def test_reinit_preserves_health_timeout(
+        self, tmp_path: Path,
+    ) -> None:
+        """Re-init preserves custom health_timeout."""
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(
+            "services:\n  myapp:\n    build: .\n"
+            "    ports:\n"
+            '      - "${MYAPP_MYAPP_PORT:-8080}:8080"\n'
+        )
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "infra.toml").write_text(
+            '[project]\nname = "myapp"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n\n'
+            '[sandbox.health]\n'
+            'endpoint = "/health"\n'
+            'port_var = "MYAPP_MYAPP_PORT"\n'
+            "timeout = 120\n\n"
+            "[sandbox.ports]\nMYAPP_MYAPP_PORT = 8080\n"
+        )
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(project_root=tmp_path, auto=True)
+
+        assert code == 0
+        toml = (config_dir / "infra.toml").read_text()
+        assert "timeout = 120" in toml
+
+    def test_reinit_preserves_otel_vars(
+        self, tmp_path: Path,
+    ) -> None:
+        """Re-init preserves custom [sandbox.otel] vars."""
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(
+            "services:\n  myapp:\n    build: .\n"
+            "    ports:\n"
+            '      - "${MYAPP_MYAPP_PORT:-8080}:8080"\n'
+        )
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "infra.toml").write_text(
+            '[project]\nname = "myapp"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n\n'
+            "[sandbox.ports]\nMYAPP_MYAPP_PORT = 8080\n\n"
+            "[sandbox.otel]\n"
+            'endpoint_var = "MY_OTEL_ENDPOINT"\n'
+            'namespace_var = "MY_OTEL_NS"\n'
+        )
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(project_root=tmp_path, auto=True)
+
+        assert code == 0
+        toml = (config_dir / "infra.toml").read_text()
+        assert "[sandbox.otel]" in toml
+        assert 'endpoint_var = "MY_OTEL_ENDPOINT"' in toml
+        assert 'namespace_var = "MY_OTEL_NS"' in toml
+
+    def test_reinit_preserves_mounts(
+        self, tmp_path: Path,
+    ) -> None:
+        """Re-init preserves [sandbox.mounts]."""
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(
+            "services:\n  myapp:\n    build: .\n"
+            "    ports:\n"
+            '      - "${MYAPP_MYAPP_PORT:-8080}:8080"\n'
+        )
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "infra.toml").write_text(
+            '[project]\nname = "myapp"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n\n'
+            "[sandbox.ports]\nMYAPP_MYAPP_PORT = 8080\n\n"
+            "[sandbox.mounts]\n"
+            'code = ["src/:/app/src"]\n'
+            'code_targets = ["myapp"]\n'
+        )
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(project_root=tmp_path, auto=True)
+
+        assert code == 0
+        toml = (config_dir / "infra.toml").read_text()
+        assert "[sandbox.mounts]" in toml
+        assert '"src/:/app/src"' in toml
+        assert '"myapp"' in toml
+
+
 class TestAutoOnParameterizedCompose:
     def test_auto_reinit_preserves_ports(self, tmp_path: Path) -> None:
         """--auto on already-parameterized compose preserves [sandbox.ports]."""
