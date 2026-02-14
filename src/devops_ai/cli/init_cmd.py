@@ -406,6 +406,9 @@ def generate_infra_toml(
     code_mount_targets: list[str] | None = None,
     shared_mounts: list[str] | None = None,
     shared_mount_targets: list[str] | None = None,
+    env: dict[str, str] | None = None,
+    secrets: dict[str, str] | None = None,
+    files: dict[str, str] | None = None,
 ) -> str:
     """Generate infra.toml content as a string."""
     lines = [
@@ -449,6 +452,24 @@ def generate_infra_toml(
                 f'"{t}"' for t in shared_mount_targets
             )
             lines.append(f"shared_targets = [{items}]")
+
+    if env:
+        lines.append("")
+        lines.append("[sandbox.env]")
+        for key, val in sorted(env.items()):
+            lines.append(f'{key} = "{val}"')
+
+    if secrets:
+        lines.append("")
+        lines.append("[sandbox.secrets]")
+        for key, val in sorted(secrets.items()):
+            lines.append(f'{key} = "{val}"')
+
+    if files:
+        lines.append("")
+        lines.append("[sandbox.files]")
+        for dest, src in sorted(files.items()):
+            lines.append(f'"{dest}" = "{src}"')
 
     lines.append("")
     return "\n".join(lines)
@@ -539,8 +560,104 @@ def _format_dry_run_output(plan: InitPlan) -> str:
             f"  - Backup: {plan.compose_file}.bak"
         )
 
+    if plan.env_var_candidates:
+        lines.append("")
+        lines.append("Environment variables (provisioning):")
+        for c in plan.env_var_candidates:
+            default_info = f" (default: {c.default})" if c.default else ""
+            lines.append(f"  {c.name} \u2192 ${c.name}{default_info}")
+
+    if plan.file_mount_candidates:
+        lines.append("")
+        lines.append("Config files (provisioning):")
+        for fc in plan.file_mount_candidates:
+            lines.append(f"  {fc.host_path} \u2190 {fc.host_path}")
+
     lines.append("")
     lines.append("No files written (dry run).")
+    return "\n".join(lines)
+
+
+def _resolve_provisioning_auto(
+    plan: InitPlan,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Auto-resolve provisioning candidates.
+
+    Env vars → $VAR_NAME (host environment) as secrets.
+    Gitignored mounts → copy from main repo if source exists.
+
+    Returns (secrets, files).
+    """
+    secrets: dict[str, str] = {}
+    files: dict[str, str] = {}
+
+    for ec in plan.env_var_candidates:
+        secrets[ec.name] = f"${ec.name}"
+
+    for fc in plan.file_mount_candidates:
+        if fc.source_exists:
+            files[fc.host_path] = fc.host_path
+        elif fc.example_exists and fc.example_path:
+            files[fc.host_path] = fc.example_path
+
+    return secrets, files
+
+
+def _format_check_output(plan: InitPlan) -> str:
+    """Format --check output for an already-onboarded project."""
+    lines = [f"Project: {plan.project_name} (already onboarded)"]
+
+    has_gaps = False
+
+    if plan.env_var_candidates:
+        has_gaps = True
+        lines.append("")
+        lines.append(
+            "\u26a0 Undeclared environment variables in compose:"
+        )
+        for c in plan.env_var_candidates:
+            svc_info = (
+                f" ({', '.join(c.services)})"
+                if c.services
+                else ""
+            )
+            lines.append(f"  {c.name}{svc_info}")
+
+    if plan.file_mount_candidates:
+        has_gaps = True
+        lines.append("")
+        lines.append(
+            "\u26a0 Gitignored volume mounts without [sandbox.files]:"
+        )
+        for fc in plan.file_mount_candidates:
+            lines.append(
+                f"  {fc.host_path} \u2192 {fc.service} "
+                f"(./{fc.host_path}:{fc.container_path})"
+            )
+
+    if has_gaps:
+        lines.append("")
+        lines.append("Suggested additions to .devops-ai/infra.toml:")
+        if plan.env_var_candidates:
+            lines.append("")
+            lines.append("  [sandbox.secrets]")
+            for ec in plan.env_var_candidates:
+                lines.append(
+                    f'  {ec.name} = "${ec.name}"'
+                    f"   # or op://vault/item/field"
+                )
+        if plan.file_mount_candidates:
+            lines.append("")
+            lines.append("  [sandbox.files]")
+            for fc in plan.file_mount_candidates:
+                source = fc.host_path
+                if not fc.source_exists and fc.example_path:
+                    source = fc.example_path
+                lines.append(f'  "{fc.host_path}" = "{source}"')
+    else:
+        lines.append("")
+        lines.append("All good \u2014 no gaps detected.")
+
     return "\n".join(lines)
 
 
@@ -549,6 +666,7 @@ def init_command(
     dry_run: bool = False,
     auto: bool = False,
     health_endpoint: str | None = None,
+    check: bool = False,
 ) -> int:
     """Run the init flow. Returns exit code.
 
@@ -556,6 +674,7 @@ def init_command(
     With --auto: accept all detected defaults, no prompts.
     With --dry-run: preview changes without writing files.
     With --health-endpoint: override the default health endpoint.
+    With --check: report provisioning gaps on already-onboarded project.
     """
     if project_root is None:
         project_root = (
@@ -564,6 +683,13 @@ def init_command(
 
     # Check for existing config
     exists, existing_name = check_existing_config(project_root)
+
+    # --check mode: report gaps and exit
+    if check:
+        plan = detect_project(project_root)
+        typer.echo(_format_check_output(plan))
+        return 0
+
     if exists:
         if auto:
             typer.echo(
@@ -592,15 +718,21 @@ def init_command(
     # Apply --health-endpoint override
     if health_endpoint is not None:
         plan.health_endpoint = health_endpoint
-        # Regenerate toml with overridden endpoint
-        plan.toml_content = generate_infra_toml(
-            project_name=plan.project_name,
-            prefix=plan.prefix,
-            compose_file=plan.compose_file,
-            ports=plan.ports,
-            health_endpoint=plan.health_endpoint,
-            health_port_var=plan.health_port_var,
-        )
+
+    # Auto-resolve provisioning candidates
+    auto_secrets, auto_files = _resolve_provisioning_auto(plan)
+
+    # Regenerate toml with provisioning sections
+    plan.toml_content = generate_infra_toml(
+        project_name=plan.project_name,
+        prefix=plan.prefix,
+        compose_file=plan.compose_file,
+        ports=plan.ports,
+        health_endpoint=plan.health_endpoint,
+        health_port_var=plan.health_port_var,
+        secrets=auto_secrets or None,
+        files=auto_files or None,
+    )
 
     if auto:
         # Use detected defaults directly — no prompts

@@ -43,12 +43,16 @@ def init(
         "--health-endpoint",
         help="Override health check endpoint",
     ),
+    check: bool = typer.Option(
+        False, "--check", help="Report provisioning gaps"
+    ),
 ) -> None:
     """Initialize kinfra for the current project."""
     code = init_command(
         dry_run=dry_run,
         auto=auto,
         health_endpoint=health_endpoint,
+        check=check,
     )
     raise typer.Exit(code)
 

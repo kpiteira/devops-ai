@@ -716,6 +716,215 @@ class TestDetectGitignoredMounts:
         assert candidates == []
 
 
+class TestGenerateInfraTomlWithProvisioning:
+    def test_appends_secrets_section(self) -> None:
+        toml = generate_infra_toml(
+            project_name="myapp",
+            prefix="myapp",
+            compose_file="docker-compose.yml",
+            ports={"MYAPP_PORT": 8080},
+            secrets={"TOKEN": "$TOKEN", "DB_PASS": "localdev"},
+        )
+        assert "[sandbox.secrets]" in toml
+        assert 'TOKEN = "$TOKEN"' in toml
+        assert 'DB_PASS = "localdev"' in toml
+
+    def test_appends_files_section(self) -> None:
+        toml = generate_infra_toml(
+            project_name="myapp",
+            prefix="myapp",
+            compose_file="docker-compose.yml",
+            ports={},
+            files={"config.yaml": "config.yaml"},
+        )
+        assert "[sandbox.files]" in toml
+        assert '"config.yaml" = "config.yaml"' in toml
+
+    def test_appends_env_section(self) -> None:
+        toml = generate_infra_toml(
+            project_name="myapp",
+            prefix="myapp",
+            compose_file="docker-compose.yml",
+            ports={},
+            env={"LOG_LEVEL": "debug"},
+        )
+        assert "[sandbox.env]" in toml
+        assert 'LOG_LEVEL = "debug"' in toml
+
+    def test_all_provisioning_sections_parseable(
+        self, tmp_path: Path
+    ) -> None:
+        toml = generate_infra_toml(
+            project_name="myapp",
+            prefix="myapp",
+            compose_file="docker-compose.yml",
+            ports={"MYAPP_PORT": 8080},
+            env={"APP_ENV": "sandbox"},
+            secrets={"TOKEN": "$TOKEN"},
+            files={"config.yaml": "config.yaml"},
+        )
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "infra.toml").write_text(toml)
+        config = load_config(tmp_path)
+        assert config is not None
+        assert config.env == {"APP_ENV": "sandbox"}
+        assert config.secrets == {"TOKEN": "$TOKEN"}
+        assert config.files == {"config.yaml": "config.yaml"}
+
+    def test_empty_provisioning_omits_sections(self) -> None:
+        toml = generate_infra_toml(
+            project_name="myapp",
+            prefix="myapp",
+            compose_file="docker-compose.yml",
+            ports={},
+        )
+        assert "[sandbox.secrets]" not in toml
+        assert "[sandbox.files]" not in toml
+        assert "[sandbox.env]" not in toml
+
+
+COMPOSE_WITH_SECRET = """\
+services:
+  myapp:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - APP_SECRET=${APP_SECRET}
+"""
+
+
+class TestAutoIncludesProvisioning:
+    def test_auto_generates_secrets_section(
+        self, tmp_path: Path
+    ) -> None:
+        """--auto detects env vars and includes [sandbox.secrets]."""
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(COMPOSE_WITH_SECRET)
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(project_root=tmp_path, auto=True)
+
+        assert code == 0
+        toml = (tmp_path / ".devops-ai" / "infra.toml").read_text()
+        assert "[sandbox.secrets]" in toml
+        assert 'APP_SECRET = "$APP_SECRET"' in toml
+
+
+class TestDryRunShowsProvisioning:
+    def test_dry_run_shows_detected_vars(
+        self, tmp_path: Path
+    ) -> None:
+        """--dry-run --auto shows provisioning candidates."""
+        from devops_ai.cli.init_cmd import init_command
+
+        (tmp_path / "docker-compose.yml").write_text(COMPOSE_WITH_SECRET)
+
+        echo_calls: list[str] = []
+        with (
+            patch(
+                "devops_ai.cli.init_cmd.typer.echo",
+                side_effect=lambda msg="": echo_calls.append(str(msg)),
+            ),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(
+                project_root=tmp_path, dry_run=True, auto=True
+            )
+
+        assert code == 0
+        output = "\n".join(echo_calls)
+        assert "APP_SECRET" in output
+
+
+class TestCheckMode:
+    def test_check_reports_undeclared_env_vars(
+        self, tmp_path: Path
+    ) -> None:
+        """--check on onboarded project reports gaps."""
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(COMPOSE_WITH_SECRET)
+
+        # Pre-existing config without secrets
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "infra.toml").write_text(
+            '[project]\nname = "myapp"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n'
+        )
+
+        echo_calls: list[str] = []
+        with (
+            patch(
+                "devops_ai.cli.init_cmd.typer.echo",
+                side_effect=lambda msg="": echo_calls.append(str(msg)),
+            ),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(
+                project_root=tmp_path, check=True
+            )
+
+        assert code == 0
+        output = "\n".join(echo_calls)
+        assert "APP_SECRET" in output
+
+    def test_check_no_gaps_reports_ok(
+        self, tmp_path: Path
+    ) -> None:
+        """--check with no gaps reports all good."""
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(
+            "services:\n  myapp:\n    build: .\n"
+            "    ports:\n      - \"8080:8080\"\n"
+        )
+
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "infra.toml").write_text(
+            '[project]\nname = "myapp"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n'
+        )
+
+        echo_calls: list[str] = []
+        with (
+            patch(
+                "devops_ai.cli.init_cmd.typer.echo",
+                side_effect=lambda msg="": echo_calls.append(str(msg)),
+            ),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(
+                project_root=tmp_path, check=True
+            )
+
+        assert code == 0
+        output = "\n".join(echo_calls)
+        assert "no gaps" in output.lower() or "all good" in output.lower()
+
+
 class TestDetectProjectPopulatesNewFields:
     def test_env_var_candidates_populated(self, tmp_path: Path) -> None:
         compose = (
