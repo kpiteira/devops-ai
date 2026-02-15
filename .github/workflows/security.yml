@@ -13,6 +13,7 @@ permissions:
   contents: read
   security-events: write
   pull-requests: write
+  id-token: write
 
 jobs:
   codeql:
@@ -34,7 +35,7 @@ jobs:
       - uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          prompt: |
+          direct_prompt: |
             Security review this PR. Check for:
             1. Credentials or secrets in code
             2. Injection vulnerabilities (SQL, command, XSS)

@@ -29,7 +29,11 @@ def _run_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
 
     Never raises — all failures are logged and returned.
     """
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        logger.warning("agent-deck not found on PATH")
+        return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="")
     if result.returncode != 0 and result.stderr:
         logger.warning(
             "agent-deck command failed: %s — %s",
