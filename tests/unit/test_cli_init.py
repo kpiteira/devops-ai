@@ -1152,6 +1152,143 @@ class TestReinitPreservesConfig:
         assert '"myapp"' in toml
 
 
+class TestReinitPreservesProvisioning:
+    """Re-init preserves existing secrets, files, and env."""
+
+    def test_custom_secret_preserved_new_added(
+        self, tmp_path: Path,
+    ) -> None:
+        """Re-init keeps custom secret references and adds new ones."""
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(
+            "services:\n  myapp:\n    build: .\n"
+            "    ports:\n"
+            '      - "${MYAPP_MYAPP_PORT:-8080}:8080"\n'
+            "    environment:\n"
+            "      - DB_PASS=${DB_PASS}\n"
+            "      - NEW_SECRET=${NEW_SECRET}\n"
+        )
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "infra.toml").write_text(
+            '[project]\nname = "myapp"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n\n'
+            "[sandbox.ports]\nMYAPP_MYAPP_PORT = 8080\n\n"
+            "[sandbox.secrets]\n"
+            'DB_PASS = "op://vault/db/password"\n'
+        )
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(
+                project_root=tmp_path, auto=True, no_quality=True,
+            )
+
+        assert code == 0
+        toml = (config_dir / "infra.toml").read_text()
+        # Custom secret reference preserved (not overwritten with $DB_PASS)
+        assert 'DB_PASS = "op://vault/db/password"' in toml
+        # New secret auto-detected
+        assert 'NEW_SECRET = "$NEW_SECRET"' in toml
+
+    def test_custom_files_preserved(
+        self, tmp_path: Path,
+    ) -> None:
+        """Re-init keeps custom file mappings."""
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(
+            "services:\n  myapp:\n    build: .\n"
+            "    ports:\n"
+            '      - "${MYAPP_MYAPP_PORT:-8080}:8080"\n'
+            "    volumes:\n"
+            "      - ./config.yaml:/app/config.yaml\n"
+        )
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "infra.toml").write_text(
+            '[project]\nname = "myapp"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n\n'
+            "[sandbox.ports]\nMYAPP_MYAPP_PORT = 8080\n\n"
+            '[sandbox.files]\n"config.yaml" = "config.yaml.template"\n'
+        )
+
+        # config.yaml is gitignored
+        def mock_check_ignore(cmd, capture_output, text, timeout, cwd):
+            from unittest.mock import MagicMock
+
+            path = cmd[-1]
+            result = MagicMock()
+            result.returncode = 0 if path == "config.yaml" else 1
+            return result
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+            patch(
+                "devops_ai.cli.init_cmd.subprocess.run",
+                mock_check_ignore,
+            ),
+        ):
+            code = init_command(
+                project_root=tmp_path, auto=True, no_quality=True,
+            )
+
+        assert code == 0
+        toml = (config_dir / "infra.toml").read_text()
+        # Custom file mapping preserved
+        assert '"config.yaml" = "config.yaml.template"' in toml
+
+    def test_env_preserved(
+        self, tmp_path: Path,
+    ) -> None:
+        """Re-init preserves [sandbox.env] entries."""
+        from devops_ai.cli.init_cmd import init_command
+
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text(
+            "services:\n  myapp:\n    build: .\n"
+            "    ports:\n"
+            '      - "${MYAPP_MYAPP_PORT:-8080}:8080"\n'
+        )
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "infra.toml").write_text(
+            '[project]\nname = "myapp"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n\n'
+            "[sandbox.ports]\nMYAPP_MYAPP_PORT = 8080\n\n"
+            "[sandbox.env]\n"
+            'LOG_LEVEL = "debug"\n'
+        )
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(
+                project_root=tmp_path, auto=True, no_quality=True,
+            )
+
+        assert code == 0
+        toml = (config_dir / "infra.toml").read_text()
+        assert "[sandbox.env]" in toml
+        assert 'LOG_LEVEL = "debug"' in toml
+
+
 class TestAutoOnParameterizedCompose:
     def test_auto_reinit_preserves_ports(self, tmp_path: Path) -> None:
         """--auto on already-parameterized compose preserves [sandbox.ports]."""
@@ -1257,3 +1394,176 @@ class TestDetectProjectPopulatesNewFields:
         # Port vars should be excluded
         for c in plan.env_var_candidates:
             assert c.name not in plan.ports
+
+
+# --- Quality infrastructure integration ---
+
+
+class TestInitQualityArtifacts:
+    """Tests for quality artifact generation during kinfra init."""
+
+    def _setup_project(self, tmp_path: Path) -> None:
+        """Create a minimal project with compose + project.md."""
+        (tmp_path / "docker-compose.yml").write_text(COMPOSE_APP_ONLY)
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "project.md").write_text(
+            "## Project\n\n"
+            "- **Name:** myapp\n"
+            "- **Language:** Python\n"
+            "- **Runner:** uv\n\n"
+            "## Testing\n\n"
+            "- **Unit tests:** uv run pytest tests/unit\n"
+            "- **Quality checks:** uv run ruff check src/ && uv run mypy src/\n"
+        )
+
+    def test_auto_writes_quality_artifacts(self, tmp_path: Path) -> None:
+        """--auto generates Justfile, Makefile, pre-commit, CI, security, hooks."""
+        from devops_ai.cli.init_cmd import init_command
+
+        self._setup_project(tmp_path)
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(project_root=tmp_path, auto=True)
+
+        assert code == 0
+        assert (tmp_path / "Justfile").exists()
+        assert (tmp_path / "Makefile").exists()
+        assert (tmp_path / ".githooks" / "pre-commit").exists()
+        assert (tmp_path / ".github" / "workflows" / "ci.yml").exists()
+        assert (
+            tmp_path / ".github" / "workflows" / "security.yml"
+        ).exists()
+        assert (tmp_path / ".claude" / "settings.json").exists()
+
+    def test_skips_existing_artifacts(self, tmp_path: Path) -> None:
+        """Doesn't overwrite existing Makefile/Justfile."""
+        from devops_ai.cli.init_cmd import init_command
+
+        self._setup_project(tmp_path)
+        (tmp_path / "Makefile").write_text("# custom makefile\n")
+        (tmp_path / "Justfile").write_text("# custom justfile\n")
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(project_root=tmp_path, auto=True)
+
+        assert code == 0
+        assert (tmp_path / "Makefile").read_text() == "# custom makefile\n"
+        assert (tmp_path / "Justfile").read_text() == "# custom justfile\n"
+
+    def test_dry_run_shows_quality_artifacts(self, tmp_path: Path) -> None:
+        """--dry-run --auto previews quality artifacts."""
+        from devops_ai.cli.init_cmd import init_command
+
+        self._setup_project(tmp_path)
+
+        echo_calls: list[str] = []
+        with (
+            patch(
+                "devops_ai.cli.init_cmd.typer.echo",
+                side_effect=lambda msg="": echo_calls.append(str(msg)),
+            ),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(
+                project_root=tmp_path, dry_run=True, auto=True
+            )
+
+        assert code == 0
+        output = "\n".join(echo_calls)
+        assert "Justfile" in output
+        assert "Makefile" in output
+        # No files written
+        assert not (tmp_path / "Justfile").exists()
+
+    def test_no_quality_flag_skips(self, tmp_path: Path) -> None:
+        """--no-quality skips quality artifact generation."""
+        from devops_ai.cli.init_cmd import init_command
+
+        self._setup_project(tmp_path)
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(
+                project_root=tmp_path, auto=True, no_quality=True
+            )
+
+        assert code == 0
+        # infra.toml should exist
+        assert (tmp_path / ".devops-ai" / "infra.toml").exists()
+        # Quality artifacts should NOT exist
+        assert not (tmp_path / "Justfile").exists()
+        assert not (tmp_path / "Makefile").exists()
+
+    def test_check_reports_missing_quality(self, tmp_path: Path) -> None:
+        """--check reports missing quality artifacts."""
+        from devops_ai.cli.init_cmd import init_command
+
+        self._setup_project(tmp_path)
+        # Config exists (already onboarded) but no quality artifacts
+        (tmp_path / ".devops-ai" / "infra.toml").write_text(
+            '[project]\nname = "myapp"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n'
+        )
+
+        echo_calls: list[str] = []
+        with patch(
+            "devops_ai.cli.init_cmd.typer.echo",
+            side_effect=lambda msg="": echo_calls.append(str(msg)),
+        ):
+            code = init_command(project_root=tmp_path, check=True)
+
+        assert code == 0
+        output = "\n".join(echo_calls)
+        assert "Makefile" in output or "quality" in output.lower()
+
+    def test_claude_hooks_merges_existing(self, tmp_path: Path) -> None:
+        """Merges hooks into existing .claude/settings.json."""
+        from devops_ai.cli.init_cmd import init_command
+
+        self._setup_project(tmp_path)
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "settings.json").write_text(
+            '{"permissions": {"allow": ["Bash(make *)"]}}\n'
+        )
+
+        with (
+            patch("devops_ai.cli.init_cmd.typer.echo"),
+            patch(
+                "devops_ai.cli.init_cmd.check_docker_running",
+                return_value=False,
+            ),
+        ):
+            code = init_command(project_root=tmp_path, auto=True)
+
+        assert code == 0
+        import json
+
+        settings = json.loads(
+            (claude_dir / "settings.json").read_text()
+        )
+        # Original settings preserved
+        assert "permissions" in settings
+        # Hooks added
+        assert "hooks" in settings

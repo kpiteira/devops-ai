@@ -13,6 +13,18 @@ from typing import Any
 import typer
 from ruamel.yaml import YAML
 
+from devops_ai.cli.quality import (
+    QualityPlan,
+    detect_quality_config,
+    generate_ci_workflow,
+    generate_claude_hooks,
+    generate_conftest,
+    generate_justfile,
+    generate_makefile,
+    generate_pre_commit_hook,
+    generate_security_workflow,
+    should_generate_conftest,
+)
 from devops_ai.compose import rewrite_compose
 from devops_ai.config import find_project_root, load_config
 
@@ -695,12 +707,162 @@ def _format_check_output(plan: InitPlan) -> str:
     return "\n".join(lines)
 
 
+def _write_quality_artifacts(
+    project_root: Path,
+    quality_plan: QualityPlan,
+) -> None:
+    """Write quality infrastructure artifacts (skip if exists)."""
+    artifacts: list[tuple[Path, str]] = [
+        (project_root / "Justfile", generate_justfile(quality_plan)),
+        (project_root / "Makefile", generate_makefile(quality_plan)),
+        (
+            project_root / ".githooks" / "pre-commit",
+            generate_pre_commit_hook(),
+        ),
+        (
+            project_root / ".github" / "workflows" / "ci.yml",
+            generate_ci_workflow(quality_plan),
+        ),
+        (
+            project_root / ".github" / "workflows" / "security.yml",
+            generate_security_workflow(quality_plan),
+        ),
+    ]
+
+    for path, content in artifacts:
+        if path.exists():
+            typer.echo(f"  skipped: {path.name} (exists)")
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        typer.echo(f"  wrote: {path.relative_to(project_root)}")
+
+    # Pre-commit hook needs +x
+    hook = project_root / ".githooks" / "pre-commit"
+    if hook.exists():
+        hook.chmod(hook.stat().st_mode | 0o111)
+
+    # Conftest guardrails for Python unit tests
+    if (
+        quality_plan.language == "python"
+        and should_generate_conftest(project_root)
+    ):
+        conftest_path = project_root / "tests" / "unit" / "conftest.py"
+        conftest_path.write_text(generate_conftest())
+        typer.echo(
+            f"  wrote: {conftest_path.relative_to(project_root)}"
+        )
+
+    # Claude hooks: merge into existing settings.json
+    _merge_claude_hooks(project_root, quality_plan)
+
+    # Configure git hooks path
+    import subprocess
+
+    try:
+        subprocess.run(
+            ["git", "config", "core.hooksPath", ".githooks"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=project_root,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+
+def _merge_claude_hooks(
+    project_root: Path,
+    quality_plan: QualityPlan,
+) -> None:
+    """Merge hooks into .claude/settings.json (preserving other settings)."""
+    import json
+
+    hooks_json = generate_claude_hooks(quality_plan)
+    hooks_data = json.loads(hooks_json)
+
+    settings_path = project_root / ".claude" / "settings.json"
+    if settings_path.exists():
+        try:
+            existing = json.loads(settings_path.read_text())
+        except json.JSONDecodeError:
+            typer.echo(
+                f"  warning: {settings_path} contains invalid JSON, overwriting"
+            )
+            existing = {}
+        existing["hooks"] = hooks_data["hooks"]
+        merged = existing
+    else:
+        merged = hooks_data
+
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(merged, indent=2) + "\n")
+    typer.echo(
+        f"  wrote: {settings_path.relative_to(project_root)}"
+    )
+
+
+def _format_quality_dry_run(
+    project_root: Path,
+    quality_plan: QualityPlan,
+) -> str:
+    """Format quality artifact preview for dry-run output."""
+    artifacts = [
+        "Justfile",
+        "Makefile",
+        ".githooks/pre-commit",
+        ".github/workflows/ci.yml",
+        ".github/workflows/security.yml",
+        ".claude/settings.json",
+    ]
+
+    lines = ["Quality infrastructure:"]
+    for name in artifacts:
+        path = project_root / name
+        if path.exists():
+            lines.append(f"  {name}: exists (skip)")
+        else:
+            lines.append(f"  {name}: will create")
+    return "\n".join(lines)
+
+
+def _format_quality_check(
+    project_root: Path,
+    quality_plan: QualityPlan,
+) -> str | None:
+    """Format quality artifact check output. Returns None if all present."""
+    artifacts = [
+        "Justfile",
+        "Makefile",
+        ".githooks/pre-commit",
+        ".github/workflows/ci.yml",
+        ".github/workflows/security.yml",
+        ".claude/settings.json",
+    ]
+
+    missing = [
+        name for name in artifacts
+        if not (project_root / name).exists()
+    ]
+
+    if not missing:
+        return None
+
+    lines = ["\u26a0 Missing quality artifacts:"]
+    for name in missing:
+        lines.append(f"  {name}")
+    lines.append("")
+    lines.append("Run `kinfra init --auto` to generate them.")
+    return "\n".join(lines)
+
+
 def init_command(
     project_root: Path | None = None,
     dry_run: bool = False,
     auto: bool = False,
     health_endpoint: str | None = None,
     check: bool = False,
+    no_quality: bool = False,
 ) -> int:
     """Run the init flow. Returns exit code.
 
@@ -709,6 +871,7 @@ def init_command(
     With --dry-run: preview changes without writing files.
     With --health-endpoint: override the default health endpoint.
     With --check: report provisioning gaps on already-onboarded project.
+    With --no-quality: skip quality artifact generation.
     """
     if project_root is None:
         project_root = (
@@ -745,7 +908,16 @@ def init_command(
                 for fc in plan.file_mount_candidates
                 if fc.host_path not in declared_files
             ]
-        typer.echo(_format_check_output(plan))
+        check_output = _format_check_output(plan)
+        if not no_quality:
+            quality_plan = detect_quality_config(project_root)
+            if quality_plan:
+                quality_output = _format_quality_check(
+                    project_root, quality_plan,
+                )
+                if quality_output:
+                    check_output += "\n\n" + quality_output
+        typer.echo(check_output)
         return 0
 
     if exists:
@@ -828,6 +1000,16 @@ def init_command(
     # Auto-resolve provisioning candidates
     auto_secrets, auto_files = _resolve_provisioning_auto(plan)
 
+    # Merge with existing config — existing values take precedence
+    auto_env: dict[str, str] | None = None
+    if existing_config:
+        for key, val in existing_config.secrets.items():
+            auto_secrets[key] = val  # existing overrides auto-detected
+        for key, val in existing_config.files.items():
+            auto_files[key] = val  # existing overrides auto-detected
+        if existing_config.env:
+            auto_env = dict(existing_config.env)
+
     # Regenerate toml with provisioning sections + preserved values
     plan.toml_content = generate_infra_toml(
         project_name=plan.project_name,
@@ -843,14 +1025,25 @@ def init_command(
         shared_mount_targets=preserved_shared_targets,
         otel_endpoint_var=preserved_otel_endpoint,
         otel_namespace_var=preserved_otel_namespace,
+        env=auto_env,
         secrets=auto_secrets or None,
         files=auto_files or None,
     )
 
+    # Quality infrastructure
+    quality_plan = None
+    if not no_quality:
+        quality_plan = detect_quality_config(project_root)
+
     if auto:
         # Use detected defaults directly — no prompts
         if dry_run:
-            typer.echo(_format_dry_run_output(plan))
+            output = _format_dry_run_output(plan)
+            if quality_plan:
+                output += "\n\n" + _format_quality_dry_run(
+                    project_root, quality_plan,
+                )
+            typer.echo(output)
             return 0
 
         # Write config and rewrite compose
@@ -868,6 +1061,11 @@ def init_command(
             typer.echo(
                 f"Compose file updated: {plan.compose_file}"
             )
+
+        # Write quality artifacts
+        if quality_plan:
+            _write_quality_artifacts(project_root, quality_plan)
+
         return 0
 
     # Interactive mode — prompt for overrides

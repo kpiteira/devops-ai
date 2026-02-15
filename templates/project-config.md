@@ -13,6 +13,7 @@ to adapt workflows to this project's specific tooling and conventions.
 
 - **Unit tests:** [command, e.g., "uv run pytest tests/unit"]
 - **Quality checks:** [command, e.g., "uv run ruff check . && uv run mypy ."]
+- **Lint (fast):** [fast lint only, e.g., "uv run ruff check ."]
 - **Integration tests:** [command, or "Not configured"]
 
 ## Infrastructure
