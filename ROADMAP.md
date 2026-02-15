@@ -1,6 +1,6 @@
 # devops-ai Roadmap
 
-Last updated: 2026-02-13
+Last updated: 2026-02-15
 
 ## Completed
 
@@ -25,6 +25,15 @@ Last updated: 2026-02-13
 - Shifted from prescriptive recipes to principled briefs
 - Added kreview and kissue skills
 - install.sh gains stale cleanup, rules distribution, `--rules` flag
+
+### v0.4 — Quality Infrastructure Standard
+- `kinfra init` generates quality artifacts: Justfile, Makefile, pre-commit hook, CI/security workflows, Claude hooks
+- Graduated enforcement: Claude hooks (~2s lint), pre-commit (~30s quality+tests), CI (~2min full+AI review)
+- Testing taxonomy rule (unit/integration/E2E classification)
+- Pytest conftest guardrails block socket.connect in unit tests
+- AI code review and security review in GitHub Actions
+- Re-init preserves custom secrets, files, and env values
+- 299 unit tests
 
 ## Backlog
 

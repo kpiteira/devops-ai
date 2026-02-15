@@ -488,3 +488,34 @@ class TestGenerateClaudeHooks:
         content = generate_claude_hooks(plan)
 
         assert "make lint" in content
+
+
+# --- Conftest guardrails ---
+
+
+class TestGenerateConftest:
+    def test_blocks_socket_connect(self) -> None:
+        from devops_ai.cli.quality import generate_conftest
+
+        content = generate_conftest()
+
+        assert "socket" in content
+        assert "connect" in content
+        assert "RuntimeError" in content or "pytest.fail" in content
+
+    def test_existing_conftest_preserved(self, tmp_path: Path) -> None:
+        """Don't generate if conftest already exists."""
+        from devops_ai.cli.quality import should_generate_conftest
+
+        unit_dir = tmp_path / "tests" / "unit"
+        unit_dir.mkdir(parents=True)
+        (unit_dir / "conftest.py").write_text("# custom\n")
+
+        assert should_generate_conftest(tmp_path) is False
+
+    def test_non_python_skipped(self, tmp_path: Path) -> None:
+        """Don't generate conftest for non-Python projects."""
+        from devops_ai.cli.quality import should_generate_conftest
+
+        # No tests/unit/ directory
+        assert should_generate_conftest(tmp_path) is False

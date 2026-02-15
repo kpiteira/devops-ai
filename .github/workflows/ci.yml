@@ -38,6 +38,8 @@ jobs:
           prompt: |
             Review this PR. Check:
             1. Code quality and correctness
-            2. Test coverage for new features
-            3. Security concerns
-            4. Breaking changes
+            2. New features covered by unit tests in tests/unit/?
+            3. Unit tests avoid real I/O? (no network, subprocess, Docker)
+            4. For significant features: what E2E scenarios should cover this?
+            5. Security concerns and breaking changes
+            If test coverage is clearly inadequate, request changes.

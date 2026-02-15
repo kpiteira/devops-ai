@@ -192,7 +192,22 @@ The `/kinfra-onboard` skill provides intelligent, phased onboarding:
 3. **Execute** — Runs `kinfra init --auto`, updates OTEL endpoints, modifies project docs.
 4. **Verify** — Confirms config validity, compose parsing, and consistency.
 
-`kinfra init` supports `--dry-run` (preview without writing), `--auto` (non-interactive), and `--health-endpoint` (custom health check URL) flags.
+`kinfra init` supports `--dry-run` (preview without writing), `--auto` (non-interactive), `--health-endpoint` (custom health check URL), `--no-quality` (skip quality artifacts), and `--check` (report gaps without changes) flags.
+
+### Quality infrastructure
+
+`kinfra init` also generates quality enforcement artifacts alongside sandbox config:
+
+| Artifact | Purpose | Speed |
+|----------|---------|-------|
+| `Justfile` / `Makefile` | Task runner with `lint`, `quality`, `test-unit`, `check`, `fix`, `setup` targets | — |
+| `.githooks/pre-commit` | Runs `make check` before every commit | ~30s |
+| `.github/workflows/ci.yml` | Quality + tests + AI code review on PRs | ~2min |
+| `.github/workflows/security.yml` | CodeQL + AI security review | ~2min |
+| `.claude/settings.json` | `TaskCompleted` hook runs `make lint` (~2s) | ~2s |
+| `tests/unit/conftest.py` | Blocks `socket.connect` in unit tests (Python only) | — |
+
+Existing files are never overwritten. Use `--no-quality` to skip quality artifact generation.
 
 ## Configuration
 

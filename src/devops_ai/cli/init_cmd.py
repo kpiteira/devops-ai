@@ -18,10 +18,12 @@ from devops_ai.cli.quality import (
     detect_quality_config,
     generate_ci_workflow,
     generate_claude_hooks,
+    generate_conftest,
     generate_justfile,
     generate_makefile,
     generate_pre_commit_hook,
     generate_security_workflow,
+    should_generate_conftest,
 )
 from devops_ai.compose import rewrite_compose
 from devops_ai.config import find_project_root, load_config
@@ -739,6 +741,17 @@ def _write_quality_artifacts(
     hook = project_root / ".githooks" / "pre-commit"
     if hook.exists():
         hook.chmod(hook.stat().st_mode | 0o111)
+
+    # Conftest guardrails for Python unit tests
+    if (
+        quality_plan.language == "python"
+        and should_generate_conftest(project_root)
+    ):
+        conftest_path = project_root / "tests" / "unit" / "conftest.py"
+        conftest_path.write_text(generate_conftest())
+        typer.echo(
+            f"  wrote: {conftest_path.relative_to(project_root)}"
+        )
 
     # Claude hooks: merge into existing settings.json
     _merge_claude_hooks(project_root, quality_plan)
