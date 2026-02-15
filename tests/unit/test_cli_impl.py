@@ -169,6 +169,14 @@ def _setup_git_repo(path: Path) -> None:
         ["git", "init"], cwd=path, capture_output=True, check=True
     )
     subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=path, check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=path, check=True, capture_output=True,
+    )
+    subprocess.run(
         ["git", "commit", "--allow-empty", "-m", "init"],
         cwd=path,
         capture_output=True,

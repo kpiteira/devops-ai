@@ -54,10 +54,12 @@ class TestCheckPortsAvailable:
         assert conflicts == []
 
     def test_conflict_detected(self) -> None:
-        # Bind a port, then check it
+        # Bind + listen so port is truly occupied (SO_REUSEADDR on Linux
+        # allows rebinding without listen)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("127.0.0.1", 59873))
+        sock.listen(1)
         try:
             ports = {"BUSY_PORT": 59873, "FREE_PORT": 59874}
             conflicts = check_ports_available(ports)
