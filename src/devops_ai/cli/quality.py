@@ -53,7 +53,7 @@ def detect_quality_config(project_root: Path) -> QualityPlan | None:
     # Normalize language
     lang = (language or "").lower().strip()
     if lang in ("typescript", "javascript", "ts", "js"):
-        lang = "typescript" if "typescript" in lang or "ts" in lang else "javascript"
+        lang = "typescript" if lang in ("typescript", "ts") else "javascript"
     elif lang in ("python", "py"):
         lang = "python"
     elif not lang:

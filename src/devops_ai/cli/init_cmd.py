@@ -783,7 +783,13 @@ def _merge_claude_hooks(
 
     settings_path = project_root / ".claude" / "settings.json"
     if settings_path.exists():
-        existing = json.loads(settings_path.read_text())
+        try:
+            existing = json.loads(settings_path.read_text())
+        except json.JSONDecodeError:
+            typer.echo(
+                f"  warning: {settings_path} contains invalid JSON, overwriting"
+            )
+            existing = {}
         existing["hooks"] = hooks_data["hooks"]
         merged = existing
     else:
