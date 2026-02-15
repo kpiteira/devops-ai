@@ -34,7 +34,8 @@ If either check fails, stop and report the error with remediation instructions.
 Read-only assessment of the project's current state. No files are changed.
 
 1. **Read project configuration:**
-   - Read `.devops-ai/project.md` — extract project name if present
+   - Read `.devops-ai/project.md` — extract project name, test commands, quality commands, lint command
+   - If project.md is missing or lacks **Unit tests** / **Quality checks** fields, flag for auto-detection in Phase 3
    - Read `.devops-ai/infra.toml` — if exists, project is already onboarded
 
 2. **Find and read compose file:**
@@ -72,6 +73,7 @@ Present findings:
 - **OTEL config:** <file> → endpoint: "<current value>"
 - **kinfra status:** Not onboarded | Already onboarded (infra.toml exists)
 - **Quality infra:** Makefile ✓/✗, Justfile ✓/✗, pre-commit ✓/✗, CI ✓/✗
+- **Quality config:** project.md has Unit tests ✓/✗, Quality checks ✓/✗, Lint (fast) ✓/✗
 ```
 
 ### Blockers
@@ -101,9 +103,11 @@ Preview all changes and get user approval before modifying anything.
    - If found: plan to change endpoint to `http://localhost:44317`
    - If only in Python source: recommend config-based override rather than source editing
 
-3. **Plan project.md update:** Add/update `## Infrastructure` section with kinfra commands.
+3. **Plan project.md quality fields:** If project.md is missing Unit tests / Quality checks / Lint (fast), show what will be auto-detected and added.
 
-4. **Plan docs/skills updates:** Search for old local Jaeger ports (`14686`, `14317`, `16686`, `4317`) in non-compose config files. Plan to update to shared stack ports.
+4. **Plan project.md update:** Add/update `## Infrastructure` section with kinfra commands.
+
+5. **Plan docs/skills updates:** Search for old local Jaeger ports (`14686`, `14317`, `16686`, `4317`) in non-compose config files. Plan to update to shared stack ports.
 
 ### Present Plan
 
@@ -115,15 +119,26 @@ Show the full change plan. Wait for explicit user approval before proceeding to 
 
 Make all changes. Track every file modified for the commit.
 
-1. **Run kinfra init:**
+1. **Ensure project.md has quality fields:**
+   If project.md is missing or lacks **Unit tests** / **Quality checks**, auto-detect from the project root:
+   - `pyproject.toml` → Python: look for pytest config, ruff config, extract project name
+   - `package.json` → Node/TypeScript: extract name, scripts.test, scripts.lint
+   - `go.mod` → Go: extract module name, use `go test ./...`, `golangci-lint run`
+   - `Cargo.toml` → Rust: extract name, use `cargo test`, `cargo clippy`
+
+   Create `.devops-ai/project.md` from `templates/project-config.md` if it doesn't exist, or update the missing fields. Derive **Lint (fast)** from the quality command (e.g., extract ruff-only from `ruff check && mypy`). Show the draft and confirm with the user before writing.
+
+   This step is essential — `kinfra init` uses project.md to generate quality infrastructure (Makefile, CI, hooks). Without test/quality commands, quality artifacts are silently skipped.
+
+2. **Run kinfra init:**
    ```bash
    kinfra init --auto [--health-endpoint <detected-path>]
    ```
-   Creates `.devops-ai/infra.toml` and rewrites the compose file (`.bak` backup created automatically).
+   Creates `.devops-ai/infra.toml`, rewrites the compose file (`.bak` backup), and generates quality infrastructure (Makefile, Justfile, pre-commit hook, CI/security workflows, Claude hooks).
 
-2. **Update OTEL config:** If identified in Phase 1, change endpoint to `http://localhost:44317`. If not found, skip.
+3. **Update OTEL config:** If identified in Phase 1, change endpoint to `http://localhost:44317`. If not found, skip.
 
-3. **Update project.md:** Add or replace `## Infrastructure` section:
+4. **Update project.md:** Add or replace `## Infrastructure` section:
    ```markdown
    ## Infrastructure
 
@@ -133,7 +148,7 @@ Make all changes. Track every file modified for the commit.
    - **Status:** kinfra status
    ```
 
-4. **Update docs/skills with old obs references:** Change old local Jaeger ports to shared stack ports. If none found, skip.
+5. **Update docs/skills with old obs references:** Change old local Jaeger ports to shared stack ports. If none found, skip.
 
 Report all files changed.
 
