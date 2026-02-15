@@ -46,6 +46,9 @@ def init(
     check: bool = typer.Option(
         False, "--check", help="Report provisioning gaps"
     ),
+    no_quality: bool = typer.Option(
+        False, "--no-quality", help="Skip quality artifact generation"
+    ),
 ) -> None:
     """Initialize kinfra for the current project."""
     code = init_command(
@@ -53,6 +56,7 @@ def init(
         auto=auto,
         health_endpoint=health_endpoint,
         check=check,
+        no_quality=no_quality,
     )
     raise typer.Exit(code)
 

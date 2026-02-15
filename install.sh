@@ -161,4 +161,13 @@ echo "Rules (devops-ai):"
 install_rules "$SCRIPT_DIR"
 echo ""
 
+# Configure git hooks path for devops-ai itself
+if [ -d "$SCRIPT_DIR/.githooks" ]; then
+    echo "Git hooks:"
+    git -C "$SCRIPT_DIR" config core.hooksPath .githooks 2>/dev/null && \
+        echo "  → core.hooksPath set to .githooks" || \
+        echo "  SKIP: not a git repository"
+    echo ""
+fi
+
 echo "Done. Run 'git pull' in devops-ai to update all skills."

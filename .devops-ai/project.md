@@ -13,6 +13,7 @@ to adapt workflows to this project's specific tooling and conventions.
 
 - **Unit tests:** uv run pytest tests/unit
 - **Quality checks:** uv run ruff check src/ tests/ && uv run mypy src/
+- **Lint (fast):** uv run ruff check src/ tests/
 - **Integration tests:** uv run pytest tests/integration
 
 ## Infrastructure
