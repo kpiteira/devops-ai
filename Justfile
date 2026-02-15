@@ -12,6 +12,10 @@ quality:
 test-unit:
     uv run pytest tests/unit
 
+# Integration tests (requires git, sockets — no external services)
+test-integration:
+    uv run pytest tests/integration
+
 # E2E tests (requires running infrastructure)
 test-e2e:
     uv run pytest tests/e2e
