@@ -790,7 +790,13 @@ def _merge_claude_hooks(
                 f"  warning: {settings_path} contains invalid JSON, overwriting"
             )
             existing = {}
-        existing["hooks"] = hooks_data["hooks"]
+        # Merge hook events into existing hooks (event-keyed dict)
+        existing_hooks = existing.get("hooks", {})
+        if not isinstance(existing_hooks, dict):
+            existing_hooks = {}  # Discard old array format
+        for event, rules in hooks_data["hooks"].items():
+            existing_hooks[event] = rules
+        existing["hooks"] = existing_hooks
         merged = existing
     else:
         merged = hooks_data

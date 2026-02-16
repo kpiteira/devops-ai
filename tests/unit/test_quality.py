@@ -463,13 +463,16 @@ class TestGenerateClaudeHooks:
 
         content = generate_claude_hooks(plan)
 
-        # Should be valid JSON
+        # Should be valid JSON with event-keyed hooks
         import json
         data = json.loads(content)
         assert "hooks" in data
-        # Should have a TaskCompleted hook
-        hooks = data["hooks"]
-        assert any(h.get("event") == "TaskCompleted" for h in hooks)
+        assert isinstance(data["hooks"], dict)
+        # Should have a Stop hook
+        assert "Stop" in data["hooks"]
+        stop_rules = data["hooks"]["Stop"]
+        assert len(stop_rules) == 1
+        assert stop_rules[0]["hooks"][0]["type"] == "command"
 
     def test_runs_make_lint(self) -> None:
         plan = QualityPlan(

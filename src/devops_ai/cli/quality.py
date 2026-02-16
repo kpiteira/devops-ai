@@ -412,15 +412,21 @@ def should_generate_conftest(project_root: Path) -> bool:
 
 
 def generate_claude_hooks(plan: QualityPlan) -> str:
-    """Generate Claude Code settings.json with TaskCompleted hook."""
+    """Generate Claude Code settings.json with Stop hook for lint."""
     data = {
-        "hooks": [
-            {
-                "event": "TaskCompleted",
-                "command": "make lint",
-                "description": f"Run fast lint ({plan.lint_cmd})",
-            },
-        ],
+        "hooks": {
+            "Stop": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "make lint",
+                            "timeout": 120,
+                        },
+                    ],
+                },
+            ],
+        },
     }
     return json.dumps(data, indent=2) + "\n"
 
