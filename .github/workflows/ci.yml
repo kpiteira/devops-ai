@@ -9,8 +9,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
-  id-token: write
 
 jobs:
   check:
@@ -25,22 +23,3 @@ jobs:
         run: uv sync --all-groups --all-extras
       - name: Quality + tests
         run: make check
-
-  ai-review:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: anthropics/claude-code-action@beta
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          direct_prompt: |
-            Review this PR. Check:
-            1. Code quality and correctness
-            2. New features covered by unit tests in tests/unit/?
-            3. Unit tests avoid real I/O? (no network, subprocess, Docker)
-            4. For significant features: what E2E scenarios should cover this?
-            5. Security concerns and breaking changes
-            If test coverage is clearly inadequate, request changes.

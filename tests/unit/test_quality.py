@@ -10,6 +10,7 @@ from devops_ai.cli.quality import (
     generate_justfile,
     generate_makefile,
     generate_pre_commit_hook,
+    generate_review_workflow,
     generate_security_workflow,
 )
 
@@ -387,7 +388,8 @@ class TestGenerateCiWorkflow:
         assert "make check" in content
         assert "python" in content.lower() or "uv" in content.lower()
 
-    def test_includes_ai_review(self) -> None:
+    def test_no_ai_review_in_ci(self) -> None:
+        """CI workflow should NOT include AI review (separate workflow)."""
         plan = QualityPlan(
             project_root=Path("/tmp/test"),
             project_name="myapp",
@@ -403,7 +405,8 @@ class TestGenerateCiWorkflow:
 
         content = generate_ci_workflow(plan)
 
-        assert "claude" in content.lower() or "anthropic" in content.lower()
+        assert "anthropic" not in content.lower()
+        assert "ai-review" not in content
 
     def test_js_workflow(self) -> None:
         plan = QualityPlan(
@@ -464,7 +467,8 @@ class TestGenerateSecurityWorkflow:
 
         assert "actions: read" in content
 
-    def test_has_ai_security_review(self) -> None:
+    def test_no_ai_review_in_security(self) -> None:
+        """Security workflow should NOT include AI review."""
         plan = QualityPlan(
             project_root=Path("/tmp/test"),
             project_name="myapp",
@@ -480,7 +484,29 @@ class TestGenerateSecurityWorkflow:
 
         content = generate_security_workflow(plan)
 
-        assert "security" in content.lower()
+        assert "anthropic" not in content.lower()
+        assert "ai-security-review" not in content
+
+
+# --- Review workflow generator ---
+
+
+class TestGenerateReviewWorkflow:
+    def test_uses_stable_action(self) -> None:
+        content = generate_review_workflow()
+
+        assert "claude-code-action@v1" in content
+        assert "@beta" not in content
+
+    def test_has_timeout(self) -> None:
+        content = generate_review_workflow()
+
+        assert "timeout-minutes: 10" in content
+
+    def test_has_oidc_permission(self) -> None:
+        content = generate_review_workflow()
+
+        assert "id-token: write" in content
 
 
 # --- Claude hooks generator ---

@@ -22,6 +22,7 @@ from devops_ai.cli.quality import (
     generate_justfile,
     generate_makefile,
     generate_pre_commit_hook,
+    generate_review_workflow,
     generate_security_workflow,
     should_generate_conftest,
 )
@@ -737,6 +738,27 @@ def _write_quality_artifacts(
         path.write_text(content)
         typer.echo(f"  wrote: {path.relative_to(project_root)}")
 
+    # Claude code review: skip if any claude review workflow already exists
+    review_path = (
+        project_root / ".github" / "workflows" / "claude-code-review.yml"
+    )
+    workflows_dir = project_root / ".github" / "workflows"
+    has_claude_review = workflows_dir.is_dir() and any(
+        "claude" in f.name.lower() and f.name.endswith((".yml", ".yaml"))
+        for f in workflows_dir.iterdir()
+        if f.is_file() and f.name != "ci.yml" and f.name != "security.yml"
+    )
+    if has_claude_review:
+        typer.echo("  skipped: claude review (existing workflow found)")
+    elif not review_path.exists():
+        review_path.parent.mkdir(parents=True, exist_ok=True)
+        review_path.write_text(generate_review_workflow())
+        typer.echo(
+            f"  wrote: {review_path.relative_to(project_root)}"
+        )
+    else:
+        typer.echo(f"  skipped: {review_path.name} (exists)")
+
     # Pre-commit hook needs +x
     hook = project_root / ".githooks" / "pre-commit"
     if hook.exists():
@@ -819,6 +841,7 @@ def _format_quality_dry_run(
         ".githooks/pre-commit",
         ".github/workflows/ci.yml",
         ".github/workflows/security.yml",
+        ".github/workflows/claude-code-review.yml",
         ".claude/settings.json",
     ]
 
@@ -843,6 +866,7 @@ def _format_quality_check(
         ".githooks/pre-commit",
         ".github/workflows/ci.yml",
         ".github/workflows/security.yml",
+        ".github/workflows/claude-code-review.yml",
         ".claude/settings.json",
     ]
 
