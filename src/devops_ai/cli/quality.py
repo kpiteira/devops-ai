@@ -64,7 +64,16 @@ def detect_quality_config(project_root: Path) -> QualityPlan | None:
     if not run:
         run = "uv" if lang == "python" else "npm"
 
-    # Derive lint command
+    # Normalize commands for portability (e.g., .venv/bin/ruff → uv run ruff)
+    if run == "uv":
+        quality_checks = _normalize_uv_cmd(quality_checks)
+        unit_tests = _normalize_uv_cmd(unit_tests)
+        if lint_fast:
+            lint_fast = _normalize_uv_cmd(lint_fast)
+        if e2e_cmd:
+            e2e_cmd = _normalize_uv_cmd(e2e_cmd)
+
+    # Derive lint command (after normalization so fix_cmd inherits clean paths)
     lint_cmd = lint_fast or _derive_lint_cmd(quality_checks, lang)
 
     # Derive fix command
@@ -72,14 +81,6 @@ def detect_quality_config(project_root: Path) -> QualityPlan | None:
 
     # Derive setup command
     setup_cmd = _derive_setup_cmd(run)
-
-    # Normalize commands for portability (e.g., .venv/bin/ruff → uv run ruff)
-    if run == "uv":
-        lint_cmd = _normalize_uv_cmd(lint_cmd)
-        quality_checks = _normalize_uv_cmd(quality_checks)
-        unit_tests = _normalize_uv_cmd(unit_tests)
-        if e2e_cmd:
-            e2e_cmd = _normalize_uv_cmd(e2e_cmd)
 
     return QualityPlan(
         project_root=project_root,
