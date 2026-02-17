@@ -79,7 +79,7 @@ class TestDetectQualityConfig:
         assert plan.fix_cmd == "uv run ruff check --fix src/ tests/"
 
     def test_derives_setup_cmd_for_uv(self, tmp_path: Path) -> None:
-        """Derives 'uv sync --group dev' for uv runner."""
+        """Derives robust uv sync command for uv runner."""
         config_dir = tmp_path / ".devops-ai"
         config_dir.mkdir()
         (config_dir / "project.md").write_text(
@@ -95,7 +95,29 @@ class TestDetectQualityConfig:
         plan = detect_quality_config(tmp_path)
 
         assert plan is not None
-        assert plan.setup_cmd == "uv sync --group dev"
+        assert plan.setup_cmd == "uv sync --all-groups --all-extras"
+
+    def test_normalizes_venv_bin_to_uv_run(self, tmp_path: Path) -> None:
+        """Normalizes .venv/bin/X to uv run X for portability."""
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "project.md").write_text(
+            "## Project\n\n"
+            "- **Name:** myapp\n"
+            "- **Language:** Python\n"
+            "- **Runner:** uv\n\n"
+            "## Testing\n\n"
+            "- **Unit tests:** .venv/bin/pytest tests/unit\n"
+            "- **Quality checks:** .venv/bin/ruff check src/ && .venv/bin/mypy src/\n"
+            "- **Lint (fast):** .venv/bin/ruff check src/\n"
+        )
+
+        plan = detect_quality_config(tmp_path)
+
+        assert plan is not None
+        assert plan.test_unit_cmd == "uv run pytest tests/unit"
+        assert plan.quality_cmd == "uv run ruff check src/ && uv run mypy src/"
+        assert plan.lint_cmd == "uv run ruff check src/"
 
     def test_js_project(self, tmp_path: Path) -> None:
         """Detects JS/TS project from project.md."""
@@ -212,7 +234,7 @@ class TestGenerateJustfile:
             test_unit_cmd="uv run pytest tests/unit",
             test_e2e_cmd="uv run pytest tests/e2e",
             fix_cmd="uv run ruff check --fix src/ tests/",
-            setup_cmd="uv sync --group dev",
+            setup_cmd="uv sync --all-groups --all-extras",
         )
 
         content = generate_justfile(plan)
@@ -236,7 +258,7 @@ class TestGenerateJustfile:
             test_unit_cmd="uv run pytest tests/unit",
             test_e2e_cmd=None,
             fix_cmd=None,
-            setup_cmd="uv sync --group dev",
+            setup_cmd="uv sync --all-groups --all-extras",
         )
 
         content = generate_justfile(plan)
@@ -255,7 +277,7 @@ class TestGenerateJustfile:
             test_unit_cmd="uv run pytest tests/unit",
             test_e2e_cmd=None,
             fix_cmd=None,
-            setup_cmd="uv sync --group dev",
+            setup_cmd="uv sync --all-groups --all-extras",
         )
 
         content = generate_justfile(plan)
@@ -273,7 +295,7 @@ class TestGenerateJustfile:
             test_unit_cmd="uv run pytest tests/unit",
             test_e2e_cmd=None,
             fix_cmd=None,
-            setup_cmd="uv sync --group dev",
+            setup_cmd="uv sync --all-groups --all-extras",
         )
 
         content = generate_justfile(plan)
@@ -296,7 +318,7 @@ class TestGenerateMakefile:
             test_unit_cmd="uv run pytest tests/unit",
             test_e2e_cmd=None,
             fix_cmd=None,
-            setup_cmd="uv sync --group dev",
+            setup_cmd="uv sync --all-groups --all-extras",
         )
 
         content = generate_makefile(plan)
@@ -316,7 +338,7 @@ class TestGenerateMakefile:
             test_unit_cmd="uv run pytest tests/unit",
             test_e2e_cmd=None,
             fix_cmd=None,
-            setup_cmd="uv sync --group dev",
+            setup_cmd="uv sync --all-groups --all-extras",
         )
 
         content = generate_makefile(plan)
@@ -355,7 +377,7 @@ class TestGenerateCiWorkflow:
             test_unit_cmd="uv run pytest tests/unit",
             test_e2e_cmd=None,
             fix_cmd=None,
-            setup_cmd="uv sync --group dev",
+            setup_cmd="uv sync --all-groups --all-extras",
         )
 
         content = generate_ci_workflow(plan)
@@ -376,12 +398,30 @@ class TestGenerateCiWorkflow:
             test_unit_cmd="uv run pytest tests/unit",
             test_e2e_cmd=None,
             fix_cmd=None,
-            setup_cmd="uv sync --group dev",
+            setup_cmd="uv sync --all-groups --all-extras",
         )
 
         content = generate_ci_workflow(plan)
 
         assert "claude" in content.lower() or "anthropic" in content.lower()
+
+    def test_ai_review_gated_on_secret(self) -> None:
+        plan = QualityPlan(
+            project_root=Path("/tmp/test"),
+            project_name="myapp",
+            language="python",
+            runner="uv",
+            lint_cmd="uv run ruff check src/",
+            quality_cmd="uv run ruff check src/",
+            test_unit_cmd="uv run pytest tests/unit",
+            test_e2e_cmd=None,
+            fix_cmd=None,
+            setup_cmd="uv sync --all-groups --all-extras",
+        )
+
+        content = generate_ci_workflow(plan)
+
+        assert "secrets.ANTHROPIC_API_KEY != ''" in content
 
     def test_js_workflow(self) -> None:
         plan = QualityPlan(
@@ -417,12 +457,48 @@ class TestGenerateSecurityWorkflow:
             test_unit_cmd="uv run pytest tests/unit",
             test_e2e_cmd=None,
             fix_cmd=None,
-            setup_cmd="uv sync --group dev",
+            setup_cmd="uv sync --all-groups --all-extras",
         )
 
         content = generate_security_workflow(plan)
 
         assert "codeql" in content.lower() or "CodeQL" in content
+
+    def test_has_actions_read_permission(self) -> None:
+        plan = QualityPlan(
+            project_root=Path("/tmp/test"),
+            project_name="myapp",
+            language="python",
+            runner="uv",
+            lint_cmd="uv run ruff check src/",
+            quality_cmd="uv run ruff check src/",
+            test_unit_cmd="uv run pytest tests/unit",
+            test_e2e_cmd=None,
+            fix_cmd=None,
+            setup_cmd="uv sync --all-groups --all-extras",
+        )
+
+        content = generate_security_workflow(plan)
+
+        assert "actions: read" in content
+
+    def test_ai_security_review_gated_on_secret(self) -> None:
+        plan = QualityPlan(
+            project_root=Path("/tmp/test"),
+            project_name="myapp",
+            language="python",
+            runner="uv",
+            lint_cmd="uv run ruff check src/",
+            quality_cmd="uv run ruff check src/",
+            test_unit_cmd="uv run pytest tests/unit",
+            test_e2e_cmd=None,
+            fix_cmd=None,
+            setup_cmd="uv sync --all-groups --all-extras",
+        )
+
+        content = generate_security_workflow(plan)
+
+        assert "secrets.ANTHROPIC_API_KEY != ''" in content
 
     def test_has_ai_security_review(self) -> None:
         plan = QualityPlan(
@@ -435,7 +511,7 @@ class TestGenerateSecurityWorkflow:
             test_unit_cmd="uv run pytest tests/unit",
             test_e2e_cmd=None,
             fix_cmd=None,
-            setup_cmd="uv sync --group dev",
+            setup_cmd="uv sync --all-groups --all-extras",
         )
 
         content = generate_security_workflow(plan)
@@ -458,7 +534,7 @@ class TestGenerateClaudeHooks:
             test_unit_cmd="uv run pytest tests/unit",
             test_e2e_cmd=None,
             fix_cmd=None,
-            setup_cmd="uv sync --group dev",
+            setup_cmd="uv sync --all-groups --all-extras",
         )
 
         content = generate_claude_hooks(plan)
@@ -485,7 +561,7 @@ class TestGenerateClaudeHooks:
             test_unit_cmd="uv run pytest tests/unit",
             test_e2e_cmd=None,
             fix_cmd=None,
-            setup_cmd="uv sync --group dev",
+            setup_cmd="uv sync --all-groups --all-extras",
         )
 
         content = generate_claude_hooks(plan)

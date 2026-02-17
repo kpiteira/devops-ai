@@ -23,4 +23,4 @@ fix:
 	uv run ruff check --fix src/ tests/
 
 setup:
-	uv sync --group dev
+	uv sync --all-groups --all-extras

@@ -73,6 +73,14 @@ def detect_quality_config(project_root: Path) -> QualityPlan | None:
     # Derive setup command
     setup_cmd = _derive_setup_cmd(run)
 
+    # Normalize commands for portability (e.g., .venv/bin/ruff → uv run ruff)
+    if run == "uv":
+        lint_cmd = _normalize_uv_cmd(lint_cmd)
+        quality_checks = _normalize_uv_cmd(quality_checks)
+        unit_tests = _normalize_uv_cmd(unit_tests)
+        if e2e_cmd:
+            e2e_cmd = _normalize_uv_cmd(e2e_cmd)
+
     return QualityPlan(
         project_root=project_root,
         project_name=name or project_root.name,
@@ -133,10 +141,18 @@ def _derive_fix_cmd(lint_cmd: str, language: str) -> str | None:
     return None
 
 
+def _normalize_uv_cmd(cmd: str) -> str:
+    """Normalize .venv/bin/X to uv run X for portability.
+
+    Handles chained commands like '.venv/bin/ruff check && .venv/bin/mypy'.
+    """
+    return re.sub(r"\.venv/bin/", "uv run ", cmd)
+
+
 def _derive_setup_cmd(runner: str) -> str:
     """Derive setup command from runner."""
     if runner == "uv":
-        return "uv sync --group dev"
+        return "uv sync --all-groups --all-extras"
     if runner in ("npm", "npx"):
         return "npm install"
     if runner == "pnpm":
@@ -305,7 +321,8 @@ def generate_ci_workflow(plan: QualityPlan) -> str:
         "        run: make check\n"
         "\n"
         "  ai-review:\n"
-        "    if: github.event_name == 'pull_request'\n"
+        "    if: github.event_name == 'pull_request'"
+        " && secrets.ANTHROPIC_API_KEY != ''\n"
         "    runs-on: ubuntu-latest\n"
         "    steps:\n"
         "      - uses: actions/checkout@v4\n"
@@ -343,6 +360,7 @@ def generate_security_workflow(plan: QualityPlan) -> str:
         "    - cron: '0 6 * * 1'  # Weekly Monday 6am UTC\n"
         "\n"
         "permissions:\n"
+        "  actions: read\n"
         "  contents: read\n"
         "  security-events: write\n"
         "  pull-requests: write\n"
@@ -359,7 +377,8 @@ def generate_security_workflow(plan: QualityPlan) -> str:
         "      - uses: github/codeql-action/analyze@v3\n"
         "\n"
         "  ai-security-review:\n"
-        "    if: github.event_name == 'pull_request'\n"
+        "    if: github.event_name == 'pull_request'"
+        " && secrets.ANTHROPIC_API_KEY != ''\n"
         "    runs-on: ubuntu-latest\n"
         "    steps:\n"
         "      - uses: actions/checkout@v4\n"

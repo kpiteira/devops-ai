@@ -29,4 +29,4 @@ fix:
 
 # Install/update dependencies
 setup:
-    uv sync --group dev
+    uv sync --all-groups --all-extras
