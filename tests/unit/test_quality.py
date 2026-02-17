@@ -10,7 +10,6 @@ from devops_ai.cli.quality import (
     generate_justfile,
     generate_makefile,
     generate_pre_commit_hook,
-    generate_review_workflow,
     generate_security_workflow,
 )
 
@@ -486,27 +485,6 @@ class TestGenerateSecurityWorkflow:
 
         assert "anthropic" not in content.lower()
         assert "ai-security-review" not in content
-
-
-# --- Review workflow generator ---
-
-
-class TestGenerateReviewWorkflow:
-    def test_uses_stable_action(self) -> None:
-        content = generate_review_workflow()
-
-        assert "claude-code-action@v1" in content
-        assert "@beta" not in content
-
-    def test_has_timeout(self) -> None:
-        content = generate_review_workflow()
-
-        assert "timeout-minutes: 10" in content
-
-    def test_has_oidc_permission(self) -> None:
-        content = generate_review_workflow()
-
-        assert "id-token: write" in content
 
 
 # --- Claude hooks generator ---
