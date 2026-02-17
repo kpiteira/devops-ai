@@ -1438,7 +1438,7 @@ class TestInitQualityArtifacts:
         assert (tmp_path / ".githooks" / "pre-commit").exists()
         assert (tmp_path / ".github" / "workflows" / "ci.yml").exists()
         assert (
-            tmp_path / ".github" / "workflows" / "security.yml"
+            tmp_path / ".github" / "workflows" / "claude-code-review.yml"
         ).exists()
         assert (tmp_path / ".claude" / "settings.json").exists()
 

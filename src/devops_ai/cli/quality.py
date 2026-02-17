@@ -447,7 +447,7 @@ def _python_setup_steps(plan: QualityPlan) -> str:
         "      - uses: actions/setup-python@v5\n"
         "        with:\n"
         "          python-version: '3.12'\n"
-        "      - uses: astral-sh/setup-uv@v4\n"
+        "      - uses: astral-sh/setup-uv@v5\n"
         "      - name: Install dependencies\n"
         f"        run: {plan.setup_cmd}\n"
     )
@@ -466,8 +466,14 @@ def _node_setup_steps(plan: QualityPlan) -> str:
 
 
 def _generic_setup_steps(plan: QualityPlan) -> str:
-    """Generic setup steps."""
+    """Generic setup steps (adds setup-uv if runner is uv)."""
+    uv_step = (
+        "      - uses: astral-sh/setup-uv@v5\n"
+        if plan.runner == "uv"
+        else ""
+    )
     return (
+        f"{uv_step}"
         "      - name: Install dependencies\n"
         f"        run: {plan.setup_cmd}\n"
     )

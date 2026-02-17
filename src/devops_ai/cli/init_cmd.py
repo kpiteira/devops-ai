@@ -23,7 +23,6 @@ from devops_ai.cli.quality import (
     generate_makefile,
     generate_pre_commit_hook,
     generate_review_workflow,
-    generate_security_workflow,
     should_generate_conftest,
 )
 from devops_ai.compose import rewrite_compose
@@ -736,10 +735,6 @@ def _write_quality_artifacts(
             project_root / ".github" / "workflows" / "ci.yml",
             generate_ci_workflow(quality_plan),
         ),
-        (
-            project_root / ".github" / "workflows" / "security.yml",
-            generate_security_workflow(quality_plan),
-        ),
     ]
 
     for path, content in artifacts:
@@ -858,7 +853,6 @@ def _format_quality_dry_run(
         "Makefile",
         ".githooks/pre-commit",
         ".github/workflows/ci.yml",
-        ".github/workflows/security.yml",
         ".github/workflows/claude-code-review.yml",
         ".claude/settings.json",
     ]
@@ -867,7 +861,10 @@ def _format_quality_dry_run(
     for name in artifacts:
         path = project_root / name
         if path.exists():
-            lines.append(f"  {name}: exists (skip)")
+            if _is_kinfra_generated(path):
+                lines.append(f"  {name}: will update (kinfra-managed)")
+            else:
+                lines.append(f"  {name}: exists (user-managed, skip)")
         else:
             lines.append(f"  {name}: will create")
     return "\n".join(lines)
@@ -883,7 +880,6 @@ def _format_quality_check(
         "Makefile",
         ".githooks/pre-commit",
         ".github/workflows/ci.yml",
-        ".github/workflows/security.yml",
         ".github/workflows/claude-code-review.yml",
         ".claude/settings.json",
     ]
