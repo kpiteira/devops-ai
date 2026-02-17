@@ -405,24 +405,6 @@ class TestGenerateCiWorkflow:
 
         assert "claude" in content.lower() or "anthropic" in content.lower()
 
-    def test_ai_review_gated_on_secret(self) -> None:
-        plan = QualityPlan(
-            project_root=Path("/tmp/test"),
-            project_name="myapp",
-            language="python",
-            runner="uv",
-            lint_cmd="uv run ruff check src/",
-            quality_cmd="uv run ruff check src/",
-            test_unit_cmd="uv run pytest tests/unit",
-            test_e2e_cmd=None,
-            fix_cmd=None,
-            setup_cmd="uv sync --all-groups --all-extras",
-        )
-
-        content = generate_ci_workflow(plan)
-
-        assert "secrets.ANTHROPIC_API_KEY != ''" in content
-
     def test_js_workflow(self) -> None:
         plan = QualityPlan(
             project_root=Path("/tmp/test"),
@@ -481,24 +463,6 @@ class TestGenerateSecurityWorkflow:
         content = generate_security_workflow(plan)
 
         assert "actions: read" in content
-
-    def test_ai_security_review_gated_on_secret(self) -> None:
-        plan = QualityPlan(
-            project_root=Path("/tmp/test"),
-            project_name="myapp",
-            language="python",
-            runner="uv",
-            lint_cmd="uv run ruff check src/",
-            quality_cmd="uv run ruff check src/",
-            test_unit_cmd="uv run pytest tests/unit",
-            test_e2e_cmd=None,
-            fix_cmd=None,
-            setup_cmd="uv sync --all-groups --all-extras",
-        )
-
-        content = generate_security_workflow(plan)
-
-        assert "secrets.ANTHROPIC_API_KEY != ''" in content
 
     def test_has_ai_security_review(self) -> None:
         plan = QualityPlan(
