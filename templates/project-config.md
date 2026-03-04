@@ -32,8 +32,8 @@ Not configured.
 Not configured.
 
 <!-- If your project uses E2E testing, replace above with:
-- **System:** [agent / manual / framework-name]
-- **Test catalog:** [path to test catalog]
+- **E2E tests:** [start command, e.g., "kinfra sandbox start"]
+- **Test catalog:** .claude/skills/ke2e/tests/
 -->
 
 ## Paths

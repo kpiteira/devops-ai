@@ -1,10 +1,11 @@
 #!/bin/bash
-# install.sh — Symlink devops-ai skills and rules to AI tool directories
+# install.sh — Symlink devops-ai skills, agents, and rules to AI tool directories
 #
 # Usage: ./install.sh [--force] [--target claude|codex|copilot|all] [--rules <project-path>]
 #
 # Creates directory symlinks from ~/.<tool>/skills/<name>/ → devops-ai/skills/<name>/
-# so that AI tools discover and invoke devops-ai skills natively.
+# and file symlinks from ~/.<tool>/agents/<name>.md → devops-ai/agents/<name>.md
+# so that AI tools discover and invoke devops-ai skills and agents natively.
 #
 # Running 'git pull' in devops-ai updates all symlinked skills globally.
 
@@ -12,6 +13,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_DIR="$SCRIPT_DIR/skills"
+AGENTS_DIR="$SCRIPT_DIR/agents"
 RULES_DIR="$SCRIPT_DIR/rules"
 FORCE=false
 TARGET="all"
@@ -101,6 +103,45 @@ install_rules() {
     echo "  → $count rules installed to $rules_target"
 }
 
+install_agents() {
+    local target_dir="$1"
+    local tool_name="$2"
+    [ -d "$AGENTS_DIR" ] || return 0
+    mkdir -p "$target_dir"
+
+    # Clean stale agent symlinks
+    for link in "$target_dir"/*.md; do
+        [ -L "$link" ] || continue
+        if [ ! -e "$link" ]; then
+            echo "  CLEAN: $(basename "$link") (stale symlink)"
+            rm -f "$link"
+        fi
+    done
+
+    local count=0
+    for agent in "$AGENTS_DIR"/*.md; do
+        [ -f "$agent" ] || continue
+        local name
+        name=$(basename "$agent")
+        local target="$target_dir/$name"
+
+        if [ -e "$target" ] && [ ! -L "$target" ]; then
+            if [ "$FORCE" = true ]; then
+                rm -f "$target"
+            else
+                echo "  SKIP: $name (non-symlink exists, use --force to overwrite)"
+                continue
+            fi
+        fi
+
+        ln -sfn "$agent" "$target"
+        echo "  OK: $name"
+        count=$((count + 1))
+    done
+
+    echo "  → $count agents installed for $tool_name"
+}
+
 # Handle --rules mode
 if [ -n "$RULES_PROJECT" ]; then
     if [ ! -d "$RULES_PROJECT" ]; then
@@ -137,8 +178,10 @@ echo ""
 
 # Claude Code
 if [ "$TARGET" = "all" ] || [ "$TARGET" = "claude" ]; then
-    echo "Claude Code:"
+    echo "Claude Code (skills):"
     install_skills "$HOME/.claude/skills" "Claude Code"
+    echo "Claude Code (agents):"
+    install_agents "$HOME/.claude/agents" "Claude Code"
     echo ""
 fi
 

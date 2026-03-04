@@ -95,9 +95,15 @@ For tasks touching multiple categories (persistence, wiring, state machines, etc
 
 Every milestone ends with a VALIDATION task. This is a structural requirement, not optional.
 
-The VALIDATION task exercises the real system end-to-end to verify the milestone works as designed. The `e2e-testing` rule defines what "real E2E" means and what makes a valid validation.
+The VALIDATION task must include these instructions in its description — they will be read by `/kbuild` at execution time:
 
-A validation that only checks "does it start" is insufficient. Valid tests exercise real operational flows with verifiable outcomes.
+1. **Load the `ke2e` skill** before designing any validation
+2. **Invoke ke2e-test-scout** with the milestone's validation requirements — the scout searches the test catalog and returns matching recipes or hands off to ke2e-test-designer
+3. **Invoke ke2e-test-runner** with the identified test recipes — the runner executes pre-flight checks, runs steps against the real sandbox, and reports PASS/FAIL with evidence
+4. **Tests must exercise real running infrastructure** — real API calls to real containers, real state changes, observable outcomes
+5. **Tests that use mocks or seeded data without real external calls are integration tests, not E2E** — write those too if useful, but they do not satisfy the validation requirement
+
+A validation that only checks "does it start" is insufficient. A validation that seeds data and checks logic without real external calls is an integration test, not E2E. Valid E2E tests exercise real operational flows through real external systems with verifiable outcomes.
 
 ---
 
