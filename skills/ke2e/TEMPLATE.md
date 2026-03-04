@@ -35,7 +35,7 @@
 
 **Command:**
 ```bash
-curl -s -X POST http://localhost:${PORT_VAR}/endpoint \
+curl -s -X POST http://localhost:${API_PORT}/endpoint \
   -H "Content-Type: application/json" \
   -d '{"key": "value"}'
 ```

@@ -1,7 +1,7 @@
 ---
 name: ke2e-test-runner
 description: Use this agent to execute E2E tests and get detailed PASS/FAIL reports. Invoke after milestone implementation to validate the feature works. The agent runs pre-flight checks, executes test steps, and reports results with evidence.
-tools: Bash, Read, Grep, Write, Glob
+tools: Bash, Read, Grep, Glob
 model: sonnet
 color: green
 permissionMode: bypassPermissions
@@ -201,7 +201,9 @@ Before running any tests, detect the environment:
 # Example for a project with API_PORT:
 API_PORT=${API_PORT:-8000}
 if [ "$API_PORT" = "8000" ]; then
-  echo "WARNING: Using default port — may be production. Set port var from kinfra status."
+  echo "FATAL: API_PORT is using the default (8000) which may point at production."
+  echo "       Refusing to run tests. Set API_PORT from 'kinfra status' to a sandbox port."
+  exit 1
 fi
 CONTAINER=$(docker ps --filter "name=${PROJECT}-slot" --format "{{.Names}}" | head -1)
 ```

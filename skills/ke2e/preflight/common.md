@@ -181,8 +181,9 @@ fi
 ```bash
 # Find sandbox port from kinfra
 kinfra status
-# Look for the port var and export it:
-# export PORT_VAR=<sandbox_port>
+# Using the port variable name from [sandbox.health].port_var in infra.toml,
+# export the actual env var with the sandbox port, for example:
+# export API_PORT=<sandbox_port>
 ```
 
 **Max Retries:** 1 (config issue — if this doesn't work, human must intervene)
