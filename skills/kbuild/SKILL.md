@@ -66,7 +66,11 @@ Implementation plans contain code samples that show patterns and wiring — not 
 - **CODING** — TDD required. Write tests first, then implementation, then refactor.
 - **RESEARCH** — Investigation, analysis, documentation. No TDD.
 - **MIXED** — Research first, then TDD for the implementation portion.
-- **VALIDATION** — E2E test execution. Exercise real system flows, report results with evidence. See the `e2e-testing` rule for what "real E2E" means.
+- **VALIDATION** — Real E2E tests required against the running sandbox. Follow this sequence:
+  1. Invoke the **ke2e-test-scout** agent with the milestone's validation requirements. The scout searches the ke2e test catalog (`.claude/skills/ke2e/tests/`) and returns matching recipes or hands off to **ke2e-test-designer** for new recipe creation.
+  2. Invoke the **ke2e-test-runner** agent with the identified test recipes. The runner executes pre-flight checks, runs test steps against the sandbox, and reports PASS/FAIL with evidence and failure categorization.
+  3. Do NOT write pytest code for E2E validation — use catalog recipes executed by the runner agent.
+  4. If you catch yourself writing `@pytest.mark.mock` or seeding data instead of calling real services, stop: that is an integration test, not E2E.
 
 ---
 
@@ -92,6 +96,13 @@ This is the single most consistently useful artifact across sessions. Create `HA
 
 When all tasks in a milestone are done, produce this summary. This is an interface contract used for PR creation — do not skip it.
 
+**Before writing the report**, verify the E2E table by answering these questions for each test listed:
+1. Did this test make real external calls (API, database, container)?
+2. Did you actually run it with real credentials and see it pass?
+3. If it uses `@pytest.mark.mock`, seeded data, or mocked externals — it is NOT E2E. Classify it as integration.
+
+Tests that don't make real external calls MUST NOT appear in the E2E table. Put them in a separate "Integration Tests" section. Misclassifying integration tests as E2E is an untruthful report.
+
 ```markdown
 ## Milestone Complete: [Name]
 
@@ -99,10 +110,18 @@ When all tasks in a milestone are done, produce this summary. This is an interfa
 **Quality gates:** All passed
 
 ### E2E Tests Performed
+<!-- Every test here MUST have made real external calls -->
+<!-- If a test uses mocks or seeded data, move it to Integration Tests -->
 
-| Test | Steps | Result |
-|------|-------|--------|
-| [test-name] | N | PASSED/FAILED |
+| Test | What it exercises (real calls to...) | Result |
+|------|--------------------------------------|--------|
+| [test-name] | [e.g. "real Anthropic API via op run"] | PASSED/FAILED |
+
+### Integration Tests
+
+| Test | Result |
+|------|--------|
+| [test-name] | PASSED/FAILED |
 
 ### Challenges & Solutions
 
@@ -115,9 +134,24 @@ When all tasks in a milestone are done, produce this summary. This is an interfa
 | Test | Failure | Status |
 |------|---------|--------|
 | [test] | [description] | Pre-existing / Flaky |
+
+### E2E Catalog Tests Executed
+<!-- Recipes from .claude/skills/ke2e/tests/ executed by ke2e-test-runner -->
+
+| Recipe | Result | Category (if failed) |
+|--------|--------|---------------------|
+| [category/name] | PASSED/FAILED | [ENVIRONMENT/CONFIGURATION/CODE_BUG/TEST_ISSUE] |
+
+### E2E Gate
+<!-- This section is REQUIRED. If empty, the milestone is NOT complete. -->
+- [ ] ke2e-test-scout invoked with milestone validation requirements
+- [ ] ke2e-test-runner invoked with test recipes
+- [ ] All recipes PASSED or failures categorized with remediation
+- [ ] No ENVIRONMENT failures remaining (environment must be stable)
 ```
 
-If no E2E tests in the milestone, state "No E2E tests in this milestone."
+If no catalog recipes exist for this milestone's changes, invoke ke2e-test-scout to confirm and document the gap — do NOT simply state "No E2E tests."
+If no integration tests, omit that section.
 If no challenges, state "No significant challenges encountered."
 If all test failures addressed, state "All test failures were addressed."
 

@@ -33,7 +33,9 @@ E2E test results should include concrete evidence: API responses, log excerpts, 
 
 ## Per-project test catalog
 
-Projects with recurring E2E patterns should maintain a test catalog (location defined in project config). Before designing a new E2E test, check the catalog — reuse existing tests where they apply. When designing a new reusable test, add it to the catalog for future use.
+The `/ke2e` skill and agents (ke2e-test-scout, ke2e-test-designer, ke2e-test-runner) provide the full E2E testing workflow. Test recipes live at `.claude/skills/ke2e/tests/` per project and grow organically as milestones are validated.
+
+Before designing a new E2E test, the scout agent searches the catalog for existing recipes. When no match exists, the designer agent creates a new recipe. The runner agent executes recipes against the real sandbox and reports PASS/FAIL with evidence and failure categorization.
 
 ## Integration with milestones
 
