@@ -112,9 +112,27 @@ kinfra observability status  # Show service health and endpoints
 
 **Design (spec):** `kinfra spec <feature>` → work → `kinfra done <feature>`
 
-**Implementation (impl):** `kinfra impl <feature>/<milestone>` → sandbox + Claude session with `/kbuild` → `kinfra done <feature>-<milestone>`
+**Implementation (impl):** `kinfra impl <feature>/<milestone>` → fetches latest `origin/main`, branches from it → sandbox + Claude session with `/kbuild` → `kinfra done <feature>-<milestone>`
 
 **Without agent-deck:** `kinfra impl <feature>/<milestone> --no-session` → sandbox only, no Claude session
+
+### Manual Session Creation
+
+When `--no-session` is used and you need to create the agent-deck session manually, **always link it as a sub-session of the current session**:
+
+```bash
+# 1. Detect current session
+agent-deck session current
+# → Session: khealth (or whatever the parent is)
+
+# 2. Create session with --parent
+agent-deck add -t "<feature>/<milestone>" -c claude --parent <current-session-id> <worktree-path>
+
+# 3. Start it
+agent-deck session start <feature>/<milestone>
+```
+
+Never create standalone sessions from within an existing session — the parent-child relationship is how agent-deck tracks which sessions spawned which.
 
 ---
 
