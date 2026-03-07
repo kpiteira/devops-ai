@@ -116,11 +116,17 @@ def done_command(
     registry = load_registry()
     slot = get_slot_for_worktree(registry, wt.path)
 
+    sandbox_warning = ""
     if slot is not None:
         # Sandbox cleanup: stop → remove slot dir → release
         slot_dir = Path(slot.slot_dir)
         if slot_dir.exists():
-            stop_sandbox(slot)
+            clean = stop_sandbox(slot)
+            if not clean:
+                sandbox_warning = (
+                    "  Warning: compose down failed; "
+                    "attempted fallback cleanup"
+                )
             remove_slot_dir(slot_dir)
         else:
             logger.warning(
@@ -138,4 +144,6 @@ def done_command(
     parts = [f"Removed worktree: {wt.feature} ({wt.path})"]
     if slot is not None:
         parts.append(f"  Released slot {slot.slot_id}")
+    if sandbox_warning:
+        parts.append(sandbox_warning)
     return 0, "\n".join(parts)

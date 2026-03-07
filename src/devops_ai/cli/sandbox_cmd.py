@@ -1,4 +1,4 @@
-"""kinfra sandbox — start/stop sandbox for existing worktrees."""
+"""kinfra sandbox — start/stop/rebuild sandbox for existing worktrees."""
 
 from __future__ import annotations
 
@@ -46,14 +46,19 @@ def _find_main_repo_root(worktree_path: Path) -> Path | None:
     return None
 
 
-def sandbox_start_command(
+def _sandbox_up(
     worktree_path: Path | None = None,
+    *,
+    build: bool = False,
 ) -> tuple[int, str]:
-    """Start sandbox for an existing worktree. Returns (exit_code, message).
+    """Shared logic for sandbox start and rebuild.
 
     Re-runs provisioning (files + secrets) before starting containers.
+    If ``build`` is True, rebuilds images from source.
     """
     cwd = (worktree_path or Path.cwd()).resolve()
+    verb = "rebuilt" if build else "started"
+    retry_cmd = "kinfra sandbox rebuild" if build else "kinfra sandbox start"
 
     # Walk up to find the worktree root (registered path)
     wt_path = cwd
@@ -112,7 +117,7 @@ def sandbox_start_command(
         for err in all_errors:
             lines.append(f"  {err.message}")
             lines.append("")
-        lines.append("Fix the issues above and retry: kinfra sandbox start")
+        lines.append(f"Fix the issues above and retry: {retry_cmd}")
         return 1, "\n".join(lines)
 
     # Write secrets file
@@ -121,9 +126,9 @@ def sandbox_start_command(
 
     # Start sandbox
     try:
-        start_sandbox(config, slot_info, wt_path)
+        start_sandbox(config, slot_info, wt_path, build=build)
     except RuntimeError as e:
-        return 1, f"Sandbox failed to start: {e}"
+        return 1, f"Sandbox failed to {verb}: {e}"
 
     # Mark slot as running
     slot_info.status = "running"
@@ -134,7 +139,7 @@ def sandbox_start_command(
 
     # Report
     lines = [
-        f"Sandbox started for: {wt_path}",
+        f"Sandbox {verb} for: {wt_path}",
         f"  Slot: {slot_info.slot_id}",
     ]
 
@@ -157,3 +162,20 @@ def sandbox_start_command(
         )
 
     return 0, "\n".join(lines)
+
+
+def sandbox_start_command(
+    worktree_path: Path | None = None,
+) -> tuple[int, str]:
+    """Start sandbox for an existing worktree. Returns (exit_code, message)."""
+    return _sandbox_up(worktree_path, build=False)
+
+
+def sandbox_rebuild_command(
+    worktree_path: Path | None = None,
+) -> tuple[int, str]:
+    """Rebuild sandbox for an existing worktree. Returns (exit_code, message).
+
+    Like start, but rebuilds Docker images from source code.
+    """
+    return _sandbox_up(worktree_path, build=True)

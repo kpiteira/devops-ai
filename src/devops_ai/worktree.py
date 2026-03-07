@@ -78,6 +78,20 @@ def _run_git(
     )
 
 
+def _fetch_and_resolve_start_point(repo_root: Path) -> str | None:
+    """Fetch origin/main and return it as a start point, or None to use HEAD."""
+    _run_git(["fetch", "origin", "main"], cwd=repo_root, check=False)
+    # Verify origin/main exists (fetch may have failed — no remote, offline, etc.)
+    result = _run_git(
+        ["rev-parse", "--verify", "origin/main"],
+        cwd=repo_root,
+        check=False,
+    )
+    if result.returncode == 0:
+        return "origin/main"
+    return None
+
+
 def create_spec_worktree(
     repo_root: Path, prefix: str, feature: str
 ) -> Path:
@@ -86,10 +100,12 @@ def create_spec_worktree(
     wt_path = spec_worktree_path(repo_root, prefix, feature)
     branch = spec_branch_name(feature)
 
-    _run_git(
-        ["worktree", "add", "-b", branch, str(wt_path)],
-        cwd=repo_root,
-    )
+    start_point = _fetch_and_resolve_start_point(repo_root)
+    cmd = ["worktree", "add", "-b", branch, str(wt_path)]
+    if start_point:
+        cmd.append(start_point)
+
+    _run_git(cmd, cwd=repo_root)
 
     # Create design directory in the worktree
     design_dir = wt_path / "docs" / "designs" / feature
@@ -101,17 +117,19 @@ def create_spec_worktree(
 def create_impl_worktree(
     repo_root: Path, prefix: str, feature: str, milestone: str
 ) -> Path:
-    """Create an impl worktree."""
+    """Create an impl worktree based on latest origin/main."""
     validate_feature_name(feature)
     wt_path = impl_worktree_path(
         repo_root, prefix, feature, milestone
     )
     branch = impl_branch_name(feature, milestone)
 
-    _run_git(
-        ["worktree", "add", "-b", branch, str(wt_path)],
-        cwd=repo_root,
-    )
+    start_point = _fetch_and_resolve_start_point(repo_root)
+    cmd = ["worktree", "add", "-b", branch, str(wt_path)]
+    if start_point:
+        cmd.append(start_point)
+
+    _run_git(cmd, cwd=repo_root)
 
     return wt_path
 

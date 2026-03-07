@@ -95,7 +95,7 @@ Generate a comparison table showing overlap, unique concerns per reviewer, and c
 
 ## Reviewer Tendencies
 
-**Copilot** tends to suggest combining intentionally separate code, flag "redundancy" that's actually clarity, and miss project-specific patterns.
+**Copilot** has improved significantly — recent reviews consistently catch real bugs (logic errors, race conditions), valid architectural issues (blocking async, unused dependencies), and legitimate consistency problems. Assess each comment on its merits rather than discounting by reviewer.
 
 **LLM-based reviewers** can be over-thorough, suggest documentation where code is self-documenting, and sometimes provide positive feedback that shouldn't be taken as comprehensive validation.
 

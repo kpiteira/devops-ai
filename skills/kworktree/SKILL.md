@@ -2,7 +2,7 @@
 name: kworktree
 description: Worktree and sandbox management via kinfra CLI commands.
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # kworktree — Worktree & Sandbox Management
@@ -96,25 +96,95 @@ kinfra status
 # Shows: project, slot ID, status, ports
 ```
 
+### `kinfra sandbox start`
+
+Restart sandbox for an existing worktree (re-provisions secrets and files).
+
+### `kinfra sandbox rebuild`
+
+Rebuild sandbox with latest code changes. Re-provisions secrets/files AND rebuilds Docker images from source. **Use this after code changes** — `start` only restarts existing images.
+
 ### `kinfra observability up|down|status`
 
 Manage the shared observability stack.
-
-```bash
-kinfra observability up      # Start Jaeger + Grafana + Prometheus
-kinfra observability down    # Stop the stack
-kinfra observability status  # Show service health and endpoints
-```
 
 ---
 
 ## Workflows
 
-**Design (spec):** `kinfra spec <feature>` → work → `kinfra done <feature>`
+### Implementation (the main workflow)
 
-**Implementation (impl):** `kinfra impl <feature>/<milestone>` → sandbox + Claude session with `/kbuild` → `kinfra done <feature>-<milestone>`
+Every `kinfra impl` MUST produce three things: worktree + sandbox + agent-deck child session.
 
-**Without agent-deck:** `kinfra impl <feature>/<milestone> --no-session` → sandbox only, no Claude session
+**Step 1: Create worktree**
+```bash
+kinfra impl <feature>/<milestone> --no-session
+```
+
+**Step 2: Create agent-deck child session (MANDATORY)**
+
+This is NOT optional. After every `kinfra impl`, immediately create the session:
+
+```bash
+# Get current session name
+agent-deck session current
+
+# Create child session (substitute actual values)
+agent-deck add -t "<feature>/<milestone>" -c claude --parent <current-session-name> <worktree-path>
+
+# Example:
+agent-deck add -t "health-advisor/M2" -c claude --parent khealth /Users/karl/Documents/dev/wellness-agent-impl-health-advisor-M2
+```
+
+The `--parent` flag links the child to the current session — this is how agent-deck tracks which sessions spawned which.
+
+**Step 3: Report to user**
+Tell the user the session is ready and how to start it:
+```
+agent-deck session start <feature>/<milestone>
+```
+
+### Design (spec)
+
+`kinfra spec <feature>` → work → `kinfra done <feature>`
+
+### Cleanup
+
+`kinfra done <feature>-<milestone>` — also removes the agent-deck session automatically.
+
+---
+
+## Sandbox Operations
+
+### After code changes: rebuild
+
+Source code is COPY'd into Docker images at build time. There is NO hot reload. After changing code, you MUST rebuild:
+
+```bash
+# From the worktree directory:
+kinfra sandbox rebuild
+# Re-provisions secrets/files, then runs docker compose up --build -d
+```
+
+Do NOT run raw `docker compose` commands. `kinfra sandbox rebuild` handles compose files, override files, env files, and secrets correctly.
+
+### Restarting without rebuild
+
+```bash
+kinfra sandbox start
+# Re-provisions secrets/files, restarts containers with existing images
+```
+
+### Discovering the sandbox
+
+Before any E2E or sandbox interaction, always discover the sandbox state:
+
+```bash
+kinfra status
+# Shows: slot ID, ports, whether sandbox is running
+```
+
+Port formula: `actual_port = base_port + slot_id`. The `.env.sandbox` file in the slot directory contains all port mappings as environment variables.
 
 ---
 
@@ -130,8 +200,6 @@ url = "http://localhost:8080/api/v1/health"
 # Check: kinfra status → API_PORT: 8081
 url = "http://localhost:8081/api/v1/health"
 ```
-
-Port formula: `actual_port = base_port + slot_id`. The `.env.sandbox` file in the slot directory contains all port mappings as environment variables.
 
 For OTEL configuration in sandbox services:
 - Exporter endpoint: `http://devops-ai-jaeger:4317` (container network)
@@ -164,8 +232,9 @@ Filter traces by namespace in Jaeger UI:
 | Sandbox fails to start | Check `docker compose logs` in the slot directory |
 | Health check timeout | Services may still be starting — check logs |
 | Dirty worktree on done | Commit or stash changes, or use `--force` |
-| Port conflict | kinfra auto-selects next available slot |
-| agent-deck not installed | Session skipped with warning, impl still works |
+| Port conflict | `kinfra done` the old worktree first, or kinfra auto-selects next slot |
+| Orphaned containers after done | `docker ps` to find them, `docker rm -f` to clean up |
+| Code changes not reflected | Run `kinfra sandbox rebuild` (not `start`) |
 
 ---
 
