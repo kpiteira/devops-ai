@@ -186,9 +186,12 @@ def start_sandbox(
     config: InfraConfig,
     slot: SlotInfo,
     worktree_path: Path,
+    *,
+    build: bool = False,
 ) -> None:
     """Start sandbox containers using worktree's compose file.
 
+    If ``build`` is True, passes ``--build`` to rebuild images from source.
     On failure, runs compose down to clean partial containers, then raises.
     """
     slot_dir = Path(slot.slot_dir)
@@ -196,7 +199,8 @@ def start_sandbox(
     override_file = slot_dir / "docker-compose.override.yml"
     env_files = _env_files_for_slot(slot_dir)
 
-    cmd = _compose_cmd(compose_file, override_file, env_files, ["up", "-d"])
+    action = ["up", "--build", "-d"] if build else ["up", "-d"]
+    cmd = _compose_cmd(compose_file, override_file, env_files, action)
     logger.info("Starting sandbox: %s", " ".join(cmd))
 
     try:
@@ -218,11 +222,42 @@ def start_sandbox(
         )
 
 
-def stop_sandbox(slot: SlotInfo) -> None:
+def _force_remove_containers(project_name: str) -> bool:
+    """Fall back to docker rm -f for containers matching project name.
+
+    Used when compose down fails but containers are still running.
+    Returns True if any containers were removed.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-a", "--filter",
+             f"label=com.docker.compose.project={project_name}",
+             "--format", "{{.ID}}"],
+            capture_output=True, text=True,
+        )
+        container_ids = result.stdout.strip().split()
+        if not container_ids or container_ids == [""]:
+            return False
+
+        logger.warning(
+            "Force-removing %d orphaned containers for %s",
+            len(container_ids), project_name,
+        )
+        subprocess.run(
+            ["docker", "rm", "-f", *container_ids],
+            capture_output=True, text=True,
+        )
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def stop_sandbox(slot: SlotInfo) -> bool:
     """Stop sandbox containers using slot dir's compose copy.
 
     Uses the compose copy (not worktree) because the worktree might
-    already be removed. Errors are ignored (best-effort cleanup).
+    already be removed. Falls back to force-removing containers if
+    compose down fails. Returns True if cleanup succeeded.
     """
     slot_dir = Path(slot.slot_dir)
     compose_file = slot.compose_file_copy
@@ -233,9 +268,22 @@ def stop_sandbox(slot: SlotInfo) -> None:
     logger.info("Stopping sandbox: %s", " ".join(cmd))
 
     try:
-        subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)
     except FileNotFoundError:
         logger.warning("Docker not found, cannot stop sandbox")
+        return False
+
+    if result.returncode != 0:
+        logger.warning(
+            "compose down failed (rc=%d): %s",
+            result.returncode, result.stderr.strip(),
+        )
+        # Fall back: force-remove containers by project label
+        project_name = f"{slot.project}-slot-{slot.slot_id}"
+        _force_remove_containers(project_name)
+        return False
+
+    return True
 
 
 def run_health_gate(config: InfraConfig, slot: SlotInfo) -> bool:

@@ -67,6 +67,7 @@ Implementation plans contain code samples that show patterns and wiring — not 
 - **RESEARCH** — Investigation, analysis, documentation. No TDD.
 - **MIXED** — Research first, then TDD for the implementation portion.
 - **VALIDATION** — Real E2E tests required against the running sandbox. Follow this sequence:
+  0. **Discover the sandbox** — Run `kinfra status` to find the sandbox port and slot. If the sandbox is not running, run `kinfra sandbox start`. If code has changed since the sandbox was last built, run `kinfra sandbox rebuild` to update the container image. Do NOT skip this step or assume the sandbox is unavailable.
   1. Invoke the **ke2e-test-scout** agent with the milestone's validation requirements. The scout searches the ke2e test catalog (`.claude/skills/ke2e/tests/`) and returns matching recipes or hands off to **ke2e-test-designer** for new recipe creation.
   2. Invoke the **ke2e-test-runner** agent with the identified test recipes. The runner executes pre-flight checks, runs test steps against the sandbox, and reports PASS/FAIL with evidence and failure categorization.
   3. Do NOT write pytest code for E2E validation — use catalog recipes executed by the runner agent.

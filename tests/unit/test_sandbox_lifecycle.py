@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from devops_ai.config import InfraConfig, ServicePort
 from devops_ai.registry import SlotInfo
 from devops_ai.sandbox import (
+    _force_remove_containers,
     run_health_gate,
     start_sandbox,
     stop_sandbox,
@@ -146,13 +147,84 @@ class TestStopSandbox:
             "devops_ai.sandbox.subprocess.run",
             return_value=mock_result,
         ) as mock_run:
-            stop_sandbox(slot)
+            result = stop_sandbox(slot)
 
+        assert result is True
         cmd = mock_run.call_args[0][0]
         assert "down" in cmd
         # Uses slot compose copy (not worktree)
         f_idx = cmd.index("-f")
         assert str(slot_compose) in cmd[f_idx + 1]
+
+    def test_returns_false_on_compose_down_failure(self, tmp_path: Path) -> None:
+        """compose down fails → falls back to force-remove, returns False."""
+        slot_dir = tmp_path / "slot"
+        slot_dir.mkdir()
+        env_file = slot_dir / ".env.sandbox"
+        env_file.write_text("COMPOSE_PROJECT_NAME=myproj-slot-1\n")
+
+        slot = _slot(slot_dir=str(slot_dir))
+
+        fail_result = MagicMock()
+        fail_result.returncode = 1
+        fail_result.stderr = "no such service"
+
+        with (
+            patch(
+                "devops_ai.sandbox.subprocess.run",
+                return_value=fail_result,
+            ),
+            patch(
+                "devops_ai.sandbox._force_remove_containers",
+            ) as mock_force,
+        ):
+            result = stop_sandbox(slot)
+
+        assert result is False
+        mock_force.assert_called_once_with("myproj-slot-1")
+
+    def test_returns_false_when_docker_missing(self) -> None:
+        """Docker not installed → returns False."""
+        slot = _slot()
+
+        with patch(
+            "devops_ai.sandbox.subprocess.run",
+            side_effect=FileNotFoundError,
+        ):
+            result = stop_sandbox(slot)
+
+        assert result is False
+
+
+class TestForceRemoveContainers:
+    def test_removes_matching_containers(self) -> None:
+        """Finds and removes containers by project label."""
+        ps_result = MagicMock()
+        ps_result.stdout = "abc123\ndef456\n"
+        rm_result = MagicMock()
+
+        with patch(
+            "devops_ai.sandbox.subprocess.run",
+            side_effect=[ps_result, rm_result],
+        ) as mock_run:
+            result = _force_remove_containers("myproj-slot-1")
+
+        assert result is True
+        rm_cmd = mock_run.call_args_list[1][0][0]
+        assert rm_cmd == ["docker", "rm", "-f", "abc123", "def456"]
+
+    def test_no_containers_found(self) -> None:
+        """No matching containers → returns False."""
+        ps_result = MagicMock()
+        ps_result.stdout = ""
+
+        with patch(
+            "devops_ai.sandbox.subprocess.run",
+            return_value=ps_result,
+        ):
+            result = _force_remove_containers("myproj-slot-1")
+
+        assert result is False
 
 
 class TestHealthGate:

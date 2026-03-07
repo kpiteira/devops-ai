@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from devops_ai.cli.sandbox_cmd import sandbox_start_command
+from devops_ai.cli.sandbox_cmd import sandbox_rebuild_command, sandbox_start_command
 
 
 def _setup_registry(tmp_path: Path, worktree_path: str, slot_id: int = 1) -> Path:
@@ -38,6 +38,15 @@ class TestSandboxStartNotWorktree:
         registry_path = _setup_registry(tmp_path, "/some/other/path")
         with patch("devops_ai.cli.sandbox_cmd.REGISTRY_PATH", registry_path):
             code, msg = sandbox_start_command(worktree_path=tmp_path / "unknown")
+        assert code == 1
+        assert "not a kinfra worktree" in msg.lower() or "not allocated" in msg.lower()
+
+
+class TestSandboxRebuildNotWorktree:
+    def test_errors_when_no_slot_found(self, tmp_path: Path) -> None:
+        registry_path = _setup_registry(tmp_path, "/some/other/path")
+        with patch("devops_ai.cli.sandbox_cmd.REGISTRY_PATH", registry_path):
+            code, msg = sandbox_rebuild_command(worktree_path=tmp_path / "unknown")
         assert code == 1
         assert "not a kinfra worktree" in msg.lower() or "not allocated" in msg.lower()
 

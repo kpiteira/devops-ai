@@ -44,6 +44,65 @@ case "$TARGET" in
     *) echo "Error: Invalid target '$TARGET'. Allowed values: claude, codex, copilot, all."; exit 1 ;;
 esac
 
+# ---------------------------------------------------------------------------
+# Skill reconciliation — detect drift before overwriting
+# ---------------------------------------------------------------------------
+
+check_skill_drift() {
+    local target_dir="$1"
+    local has_drift=false
+
+    # Check 1: Uncommitted changes in devops-ai skills/ (symlinks point here)
+    local dirty_skills
+    dirty_skills=$(git -C "$SCRIPT_DIR" diff --name-only -- skills/ 2>/dev/null || true)
+    if [ -n "$dirty_skills" ]; then
+        echo "  WARNING: Uncommitted skill changes in devops-ai:"
+        echo "$dirty_skills" | while read -r f; do
+            echo "    modified: $f"
+        done
+        has_drift=true
+    fi
+
+    # Check 2: Non-symlink skills at target that differ from devops-ai source
+    if [ -d "$target_dir" ]; then
+        for local_skill in "$target_dir"/*/; do
+            [ -d "$local_skill" ] || continue
+            [ -L "${local_skill%/}" ] && continue  # skip symlinks — they're fine
+            local name
+            name=$(basename "${local_skill%/}")
+            local source_skill="$SKILLS_DIR/$name/SKILL.md"
+            local local_file="${local_skill}SKILL.md"
+            if [ -f "$source_skill" ] && [ -f "$local_file" ]; then
+                if ! diff -q "$source_skill" "$local_file" >/dev/null 2>&1; then
+                    echo "  WARNING: Local skill '$name' differs from devops-ai source"
+                    echo "    local:  $local_file"
+                    echo "    source: $source_skill"
+                    has_drift=true
+                fi
+            elif [ ! -f "$source_skill" ] && [ -f "$local_file" ]; then
+                echo "  INFO: Local-only skill '$name' (not in devops-ai)"
+            fi
+        done
+    fi
+
+    if [ "$has_drift" = true ]; then
+        echo ""
+        echo "  Skill drift detected. To resolve:"
+        echo "    1. Review changes:  git -C $SCRIPT_DIR diff skills/"
+        echo "    2. Commit to keep:  git -C $SCRIPT_DIR add skills/ && git commit"
+        echo "    3. Discard changes: git -C $SCRIPT_DIR checkout skills/"
+        echo "    4. Force install:   ./install.sh --force"
+        echo ""
+        if [ "$FORCE" != true ]; then
+            echo "  Aborting. Use --force to install anyway (uncommitted changes will persist)."
+            return 1
+        else
+            echo "  --force specified, continuing despite drift."
+        fi
+    fi
+    return 0
+}
+
 cleanup_stale_symlinks() {
     local target_dir="$1"
     [ -d "$target_dir" ] || return 0
@@ -173,6 +232,13 @@ if command -v uv &>/dev/null; then
     fi
 else
     echo "  SKIP: uv not found — install uv (https://docs.astral.sh/uv/) for kinfra CLI"
+fi
+echo ""
+
+# Skill drift check (runs once, covers all targets)
+echo "Skill reconciliation:"
+if ! check_skill_drift "$HOME/.claude/skills"; then
+    exit 1
 fi
 echo ""
 

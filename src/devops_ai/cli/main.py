@@ -6,7 +6,7 @@ from devops_ai.cli.done import done_command
 from devops_ai.cli.impl import impl_command
 from devops_ai.cli.init_cmd import init_command
 from devops_ai.cli.observability import _down_command, _status_command, _up_command
-from devops_ai.cli.sandbox_cmd import sandbox_start_command
+from devops_ai.cli.sandbox_cmd import sandbox_rebuild_command, sandbox_start_command
 from devops_ai.cli.spec import spec_command
 from devops_ai.cli.status import status_command
 from devops_ai.cli.worktrees import worktrees_command
@@ -141,6 +141,14 @@ def obs_status() -> None:
 def sandbox_start() -> None:
     """Start sandbox for an existing worktree (re-runs provisioning)."""
     code, msg = sandbox_start_command()
+    typer.echo(msg)
+    raise typer.Exit(code)
+
+
+@sandbox_app.command(name="rebuild")
+def sandbox_rebuild() -> None:
+    """Rebuild sandbox with latest code (re-provisions + docker build)."""
+    code, msg = sandbox_rebuild_command()
     typer.echo(msg)
     raise typer.Exit(code)
 
