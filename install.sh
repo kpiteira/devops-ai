@@ -235,7 +235,8 @@ else
 fi
 echo ""
 
-# Skill drift check (runs once, covers all targets)
+# Skill drift check — source-level (git status) plus Claude target directory
+# (Claude is the primary target where local-only skills are created)
 echo "Skill reconciliation:"
 if ! check_skill_drift "$HOME/.claude/skills"; then
     exit 1

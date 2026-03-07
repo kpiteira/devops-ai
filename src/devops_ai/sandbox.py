@@ -236,7 +236,7 @@ def _force_remove_containers(project_name: str) -> bool:
             capture_output=True, text=True,
         )
         container_ids = result.stdout.strip().split()
-        if not container_ids or container_ids == [""]:
+        if not container_ids:
             return False
 
         logger.warning(

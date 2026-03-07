@@ -124,8 +124,8 @@ def done_command(
             clean = stop_sandbox(slot)
             if not clean:
                 sandbox_warning = (
-                    "  Warning: compose down failed, "
-                    "force-removed orphaned containers"
+                    "  Warning: compose down failed; "
+                    "attempted fallback cleanup"
                 )
             remove_slot_dir(slot_dir)
         else:
