@@ -40,7 +40,7 @@ warn_unused_configs = true
 
 [dependency-groups]
 dev = [
-    "pytest>=8",
+    "pytest>=9.0.3",
     "ruff>=0.4",
     "mypy>=1.10",
 ]
