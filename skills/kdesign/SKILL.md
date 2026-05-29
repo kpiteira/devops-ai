@@ -1,139 +1,137 @@
 ---
 name: kdesign
-description: Design and validate features through collaborative exploration. Produces DESIGN.md, ARCHITECTURE.md, and a milestone structure.
+description: Design and validate features through collaborative exploration. Produces DESIGN.md, ARCHITECTURE.md, JTBDs, and a milestone structure.
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # Design Command
 
-Generate, validate, and refine design and architecture documents for a feature or system change. This replaces the separate design, validation, and milestone-structure steps with a single conversation.
+Generate, validate, and refine design and architecture documents for a feature or system change —
+a single conversation that replaces separate design, validation, and milestone-structure steps.
 
-## What This Produces
+## What this produces
 
-1. **DESIGN.md** — The what and why: problem statement, goals, non-goals, user scenarios, key decisions with trade-offs
-2. **ARCHITECTURE.md** — The how: components, data flow, state, errors, interface signatures, integration points
-3. **Milestone structure** — Vertical slices ready for implementation planning
-
-## Command Usage
+1. **DESIGN.md** — the what and why: problem, goals, non-goals, key decisions with trade-offs.
+2. **Jobs To Be Done** — numbered job stories (J1, J2, …), each tagged to the milestone where the
+   job first becomes doable end-to-end. Lives as a section in DESIGN.md.
+3. **ARCHITECTURE.md** — the how: components, data flow, state, errors, interface signatures,
+   integration points.
+4. **Milestone structure** — vertical slices ready for planning, each listing the JTBDs it delivers.
 
 ```
 /kdesign feature: <description> [context: <relevant-docs>]
 ```
 
----
+## This is a conversation, not a generator
 
-## This is a Conversation, Not a Generator
+The value is in the back-and-forth, not the first draft. You know what's flaky, what failed
+before, what "feels wrong"; Claude proposes and finds gaps, you decide. Gaps found now are
+discoveries that save hours later — surface them, don't hide them behind a confident draft.
 
-The value comes from the back-and-forth, not from the first draft. Claude proposes, you refine. Claude finds gaps, you make decisions.
+## What to explore
 
-- Claude will miss scenarios. You know what's flaky, what failed before, what "feels wrong."
-- Claude will propose approaches. You know which constraints actually matter.
-- Gaps are discoveries, not failures. Every gap found now saves hours later.
+Depth scales to the feature. A two-hour change needs a paragraph and three job stories, not the
+full treatment below. Match the ceremony to the stakes.
 
----
+**Problem space.** What problem, for whom, what does success look like, what constrains us. Land a
+2–3 sentence problem statement and get alignment before proposing solutions.
 
-## What to Explore
+**Jobs to be done.** Enumerate the jobs the feature must satisfy, in job-story form: *When
+⟨situation⟩, I want to ⟨motivation⟩, so I can ⟨outcome⟩.* Give each a stable ID (J1, J2, …). The
+act of enumerating is the point — it surfaces capabilities a prose "scenarios" paragraph silently
+drops. Include **client-as-user** stories where the system is API-first ("When I hand Claude Code
+a screenshot, I want it to do everything the UI can via the API"). Each job gets tagged to exactly
+one milestone later; that mapping is a coverage contract kplan enforces from both sides, so it's
+worth getting real here rather than illustrative.
 
-### Problem Space
+**Solution options.** Explore 2–3 approaches with trade-offs when the choice is live; a simple
+feature with an obvious approach doesn't need invented alternatives. For each: how it works, what
+it makes easy, what it makes hard, the risks. Recommend, with reasoning.
 
-Before proposing solutions, understand the problem:
-- What problem are we solving? Who experiences it?
-- What does success look like?
-- What constraints exist?
+**Architecture.** Components and responsibilities; data flow; where state lives and its lifecycle;
+what can go wrong and what happens; what existing code changes.
 
-Share a problem statement (2-3 sentences). Get alignment before moving on.
+## Validation — trace scenarios to find gaps
 
-### Solution Options
+Trace concrete scenarios through the architecture step by step (which component, what input, what
+processing, what state change, what could go wrong). Cover happy paths and key variations, error
+and recovery paths, edge cases (cancellation, concurrency, ambiguous transitions), and integration
+boundaries. Tracing a scenario you just added is where surprises surface — do it live.
 
-Explore 2-3 approaches with trade-offs. Not every feature needs multiple options — simple features can have an obvious best approach.
+Gaps to hunt for:
 
-For each option: how it works, what it makes easy, what it makes hard, what the risks are. Share a recommendation with reasoning.
+- **State-machine** — transitions not covered, ambiguous intermediate states.
+- **Error-handling** — failures with no defined behavior.
+- **Data-shape** — undefined or ambiguous structures.
+- **Integration** — unclear component boundaries or ownership.
+- **Concurrency** — races, ordering.
+- **Side-effect / command-query** — does a read mutate state? does an operation have a side-effect
+  its name doesn't imply? where is each state change triggered, and is that the same surface as
+  the read? (This is CQS hygiene — it catches the "a read is a read" class of bug, e.g. a `GET`
+  that advances a frontier, before it's baked into the architecture.)
 
-### Architecture
+A gap is a decision to make, not a problem to report: present options, trade-offs, a
+recommendation; record the decision.
 
-Design the system structure:
-- Components and their responsibilities
-- Data flow (how information moves through the system)
-- State management (where state lives, lifecycle)
-- Error handling (what can go wrong, what happens)
-- Integration points (what existing code changes)
+## Implementation-readiness check (before you finish)
 
-### Validation
+Behavioral gap-hunting misses a class of decision that isn't behavioral at all — how an entity is
+*shaped* in storage and on the wire. These are cheap to decide on a whiteboard and expensive to
+change once a schema and engine exist, so settle them before declaring the design done. For each,
+a one-line decision or an explicit "deferred to milestone N (low risk)":
 
-Trace concrete scenarios through the architecture to find gaps:
+- **Units & money** — currency, decimal precision, integer-cents vs decimal.
+- **Sign / direction** — signed values, or magnitude + direction-by-legs.
+- **Identity** — id scheme; synthetic/derived ids; uniqueness keys.
+- **Enums & nullability** — closed sets named; which fields are optional, and why.
+- **Time** — date vs datetime; who owns the timezone; is "now" injectable (for tests)?
+- **Side-effects / purity** — which operations are pure reads (ties to the gap category above)?
 
-**Scenario types to cover:**
-- Happy paths (primary use case, key variations)
-- Error paths (expected failures, recovery flows)
-- Edge cases (cancellation, concurrent operations, ambiguous state transitions)
-- Integration boundaries (cross-component communication, external systems)
+This is the hand-off contract to kplan: these are the choices kplan will otherwise invent in code.
 
-**For each scenario**, trace step-by-step: which component handles it, what's the input, what processing occurs, what state changes, what could go wrong.
+## Milestones
 
-**Gap categories to look for:**
-- State machine gaps — transitions not covered, ambiguous intermediate states
-- Error handling gaps — failures without defined behavior
-- Data shape gaps — undefined or ambiguous data structures
-- Integration gaps — unclear component boundaries or ownership
-- Concurrency gaps — race conditions, ordering issues
+Propose a vertical milestone structure (the `vertical-slicing` rule has the principles): each slice
+E2E-testable, building on the last, delivering user-visible value, and **listing the JTBD IDs it
+delivers**. Milestone 1 is the smallest thing that proves the architecture works end-to-end —
+testable, not necessarily useful. Every JTBD lands in exactly one milestone.
 
-Gaps are decisions to make, not problems to report. For each gap: present options, trade-offs, and a recommendation. Record the decision.
+## Principles
 
-### Milestones
+- **Decisions over description** — capture *why*. "Uses a queue because operations take 30+s and we
+  don't want to block the API" beats "uses a queue."
+- **Acknowledge uncertainty** — name open questions rather than performing certainty. (You're better
+  at flagging what you're unsure of than at being right by default — use that.)
+- **Rosetta stone** — diagrams for humans (ASCII box-and-arrow), structured tables for LLM
+  consumption; both carry the same information.
+- **Interface signatures, not implementations** — method names, params, return types. If it could
+  be pasted in as working code, it's too much detail. Enough to plan tasks, not to have built them.
 
-Propose a vertical milestone structure. Each milestone should be E2E-testable, build on the previous one, and deliver user-visible value. The `vertical-slicing` rule has the core principles.
+## Conversation patterns that pay off
 
-Milestone 1 is the smallest thing that proves the architecture works end-to-end — testable, not necessarily useful.
-
----
-
-## Design Principles
-
-**Right-sized:** Match documentation depth to complexity. A small change might not need formal docs. A large system might need docs split by component.
-
-**Decisions over description:** Capture why, not just what. "Uses a queue because operations take 30+ seconds and we don't want to block the API" beats "uses a queue."
-
-**Acknowledge uncertainty:** Open questions are fine. Name them rather than pretending certainty.
-
-## Architecture Principles
-
-**Rosetta stone:** Diagrams for humans (ASCII box-and-arrow), structured tables for LLM consumption. Both capture the same information.
-
-**Interface signatures, not implementations:** Show method names, parameters, return types. If someone could copy-paste it as working code, it's too much detail.
-
-**Right level of detail:** Enough to create implementation tasks, not so much that you've done the implementation.
-
----
-
-## Conversation Patterns
-
-These patterns produce the best results:
-
-- **"What keeps you up at night?"** — After proposing scenarios, ask what feels risky even if hard to articulate. The answer often reveals scenarios Claude would never think of.
-- **"What's the constraint?"** — When a gap has multiple options, ask for the real constraint. It often simplifies the decision.
-- **"Does this remind you of anything?"** — Past failures predict future failures. When a gap surfaces, ask if it's familiar.
-- **"Let me trace that"** — When the user adds a scenario, trace it immediately. The act of tracing often reveals surprises.
-- **"What would you need to see to decide?"** — When the user is uncertain, ask what information would help.
-
----
+- *"What keeps you up at night?"* — after proposing scenarios, ask what feels risky even if hard to
+  articulate. Reveals scenarios Claude wouldn't think of.
+- *"What's the constraint?"* — when a gap has many options, the real constraint often collapses the
+  decision.
+- *"Does this remind you of anything?"* — past failures predict future ones.
+- *"Let me trace that"* — trace an added scenario immediately.
 
 ## Output
 
-Save to the configured design documents path (from project config):
+Save under the configured design-documents path:
 
 ```
 docs/designs/<feature-name>/
-  DESIGN.md
+  DESIGN.md          (includes the Jobs To Be Done section)
   ARCHITECTURE.md
 ```
 
-The milestone structure can be included at the end of the design output or as a separate section — whatever fits the conversation.
+The milestone structure can close the design output or be a separate section — whatever fits.
 
-### When Validation Reveals Rework
+**When validation reveals rework:** many critical gaps (>5) means the design needs another
+iteration. Say so — cheaper now than after code.
 
-If validation finds many critical gaps (>5), the design likely needs another iteration. Say so. It's better to discover this now than after writing code.
-
-### When Design Isn't Needed
-
-Skip formal design docs when the change is small and obvious, you're spiking to learn something, or the implementation will be faster than the design.
+**When design isn't needed:** skip formal docs for small obvious changes, learning spikes, or when
+implementing is faster than documenting.
+</content>

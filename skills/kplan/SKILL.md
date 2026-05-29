@@ -1,115 +1,122 @@
 ---
 name: kplan
-description: Expand milestones into implementable tasks with architecture alignment, TDD requirements, and E2E validation.
+description: Expand milestones into implementable tasks with architecture alignment, JTBD traceability, TDD requirements, and E2E validation.
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # Implementation Planning Command
 
-Expand milestones from a design into detailed, implementable tasks. Each task is self-contained — someone reading only that task should be able to implement it.
+Expand a design's milestones into implementable tasks. Each task is self-contained — someone
+reading only that task should be able to implement it.
 
-## What This Produces
+## What this produces
 
-- **OVERVIEW.md** — Milestone summary, dependency graph, branch strategy
-- **One file per milestone** (M1_name.md, M2_name.md, ...) — detailed tasks with files, acceptance criteria, and tests
-
-## Command Usage
+- **OVERVIEW.md** — milestone summary, dependency graph, branch strategy, human-action checkpoints.
+- **One file per milestone** (M1_name.md, …) — tasks with files, behavior, tests, acceptance.
 
 ```
-/kplan design: <DESIGN.md> arch: <ARCHITECTURE.md> [validation: <SCENARIOS.md>]
+/kplan design: <DESIGN.md> arch: <ARCHITECTURE.md>
 ```
 
-If validation output exists, use its scenarios and milestone structure as the starting point.
+## This is a conversation
 
----
+Claude proposes milestones and tasks; you adjust. Milestone boundaries and split/merge calls are
+judgment — you know team capacity, hidden complexity, and what belongs together as a unit.
 
-## This is a Conversation
+## Architecture alignment (before planning tasks)
 
-Claude proposes milestones and tasks, but:
-- Claude may miss dependencies. You know what's flaky and what has hidden complexity.
-- Claude may over-split or under-split. You know team capacity and what makes sense as a unit.
-- Milestone boundaries are judgment calls. Claude proposes, you adjust.
+Understand the architecture's core decisions first — this is what prevents implementation drift,
+the most expensive planning failure. From the architecture doc, extract the core patterns (state
+machine? worker model? event-driven?), the key decisions and what they mean for task design, and
+what's explicitly ruled out. Confirm these with the user before proceeding: if the architecture
+says "state machine with explicit transitions," no task should quietly introduce a polling loop.
+Every task traces back to an architectural decision — a task introducing an unplanned pattern means
+either the architecture needs updating or the task is wrong.
 
----
+**Also extract the JTBD → milestone mapping** from the design. Each milestone owns a set of job
+stories (the IDs kdesign tagged). That ownership becomes a coverage contract, enforced below.
 
-## Architecture Alignment
+## Planning depth — just-in-time by default
 
-Before planning any tasks, understand the architecture's core decisions. This prevents implementation drift — the most common and expensive planning failure.
+For multi-milestone work, expanding every milestone into full tasks up front is usually wasted
+effort: later milestones get reshaped once earlier ones surface integration learnings. Prefer:
 
-Read the architecture document and extract:
-- **Core patterns** — What architectural approaches are used (state machine, event-driven, worker model, etc.) and how they'll be implemented
-- **Key decisions** — What was decided and what it means for task design
-- **What's ruled out** — Approaches explicitly rejected in the architecture
+- **Just-in-time (default):** OVERVIEW (all milestones, dependencies, branch strategy) + full tasks
+  for the *next* milestone + lightweight sketches (goal, key tasks, risks) for later ones, each
+  marked **"SKETCH — re-plan before build."** Re-run kplan scoped to one milestone before kbuild
+  executes it, feeding in the prior milestone's handoff.
+- **Full up-front:** every milestone fully expanded — for short or highly stable plans.
 
-Share these with the user for confirmation before proceeding. If the architecture says "state machine with explicit transitions," no task should use a polling loop instead.
+A sketch file is a legitimate milestone file. Don't invent detail for a milestone you'll re-plan.
 
-Every task should trace back to an architectural decision. If a task introduces a pattern not in the architecture, either update the architecture or remove the task.
+## Task expansion
 
----
-
-## Task Expansion
-
-For each milestone, create tasks with:
-
-### Task Structure
+A task is implementable by someone who reads only it. That means: **files named** (not "update the
+service" but `src/services/user.py`), **behavior described** (not "add validation" but "validate
+the symbol exists in cache before starting download"), **tests specified** (not "add tests" but
+"returns 404 if symbol not found"), **patterns referenced** (not "follow existing patterns" but
+"follow `UserService.create()`"). Split anything over ~4 hours.
 
 ```markdown
 ## Task N.M: [Title]
 
-**File(s):** [Specific files to create/modify]
+**File(s):** [specific files to create/modify]
 **Type:** CODING | RESEARCH | MIXED | VALIDATION
-**Estimated time:** [1-4 hours]
+**Estimated time:** [1–4 hours]
+**Human action:** [only if a step can't be automated — see below; omit otherwise]
 
-**Description:**
-[What this task accomplishes — specific about behavior, not just "implement X"]
-
-**Implementation Notes:**
-[Patterns to follow, gotchas, integration points]
-
-**Testing Requirements:**
-- [ ] [Specific test cases — happy path, errors, edge cases]
-
-**Acceptance Criteria:**
-- [ ] [Verifiable criterion]
+**Description:** [what it accomplishes — specific about behavior]
+**Implementation Notes:** [patterns, gotchas, integration points]
+**Testing Requirements:** [ ] [specific cases — happy path, errors, edges]
+**Acceptance Criteria:** [ ] [verifiable]
 ```
 
-### Task Quality
+For tasks spanning multiple categories (persistence, wiring, state machines, …), identify each
+category's failure modes and add matching integration tests. The `kplan-categories.md` reference has
+the full taxonomy — load it when analyzing task types.
 
-Each task should be implementable by someone who only reads that task:
+**Human-action callouts.** kbuild needs to know exactly when to stop and hand control to a human —
+interactive logins, secret provisioning, PR review/merge, one-time infra setup. Mark those at the
+exact step with the `Human action:` field, and collect them into a **Human-action checkpoints**
+table in OVERVIEW (when / action / why it can't be automated). Don't bury a manual step in prose as
+if it were automatic.
 
-- **Files named** — not "update the service" but "modify `src/services/user.py`"
-- **Behavior described** — not "add validation" but "validate symbol exists in cache before starting download"
-- **Tests specified** — not "add tests" but "test: returns 404 if symbol not found"
-- **Patterns referenced** — not "follow existing patterns" but "follow pattern in `UserService.create()`"
+One such step is frequently mis-described, so state it correctly:
+- **Onboarding is one-time `kinfra init`** (generates `.devops-ai/infra.toml`, parameterizes
+  compose, Justfile/pre-commit/CI). It is *not* a per-milestone step.
+- **Per-milestone E2E runs against the current worktree's `docker compose` stack** (real HTTP at
+  `localhost:PORT`, DB reset between aggregate-asserting recipes) — *not* a `kinfra impl` sandbox,
+  which forks a new worktree from `main` and is the wrong tool for a hand-made feature branch.
 
-Tasks estimated at >4 hours should be split.
+## VALIDATION tasks
 
-### Task Type Analysis
+Every milestone ends with a VALIDATION task — a structural requirement, because "unit tests pass"
+is not "the system works." Its description carries these instructions, which kbuild reads at
+execution time:
 
-For tasks touching multiple categories (persistence, wiring, state machines, etc.), identify the failure modes specific to each category and add corresponding integration tests. The reference file `kplan-categories.md` has the full taxonomy — load it when analyzing task types.
+1. Load the `ke2e` skill.
+2. Invoke **ke2e-test-scout** with the milestone's validation requirements — it searches the
+   catalog and returns matching recipes, or hands off to ke2e-test-designer for new ones.
+3. Invoke **ke2e-test-runner** with those recipes — it runs pre-flight checks against the real
+   sandbox/compose stack and reports PASS/FAIL with evidence.
+4. **E2E means real external calls** — real APIs, real containers, real state changes, observable
+   outcomes. A test that mocks or seeds data without real calls is an integration test: write it if
+   useful, but it does not satisfy validation. "Does it start" is not validation.
 
----
+**Prove the JTBDs, don't just run the flow.** Each VALIDATION task carries a **JTBD coverage
+audit**: for every job story the milestone owns, the concrete assertion that proves it and the
+evidence captured. A milestone isn't validated until each owned JTBD has a passing,
+evidence-backed assertion.
 
-## VALIDATION Tasks
+⚠️ **Coverage is an audit over assertions — not a recipe count.** ke2e recipes are reusable,
+capability-scoped building blocks the scout composes across milestones (e.g. `ledger/read-purity`
+is reused by any `GET`). One recipe may satisfy assertions for several JTBDs; one JTBD may be
+proven by assertions spread across recipes. Avoid both failure modes: one monolithic
+per-milestone recipe, *and* a rigid one-recipe-per-JTBD. The coverage table maps JTBDs to
+assertions, not to recipes.
 
-Every milestone ends with a VALIDATION task. This is a structural requirement, not optional.
-
-The VALIDATION task must include these instructions in its description — they will be read by `/kbuild` at execution time:
-
-1. **Load the `ke2e` skill** before designing any validation
-2. **Invoke ke2e-test-scout** with the milestone's validation requirements — the scout searches the test catalog and returns matching recipes or hands off to ke2e-test-designer
-3. **Invoke ke2e-test-runner** with the identified test recipes — the runner executes pre-flight checks, runs steps against the real sandbox, and reports PASS/FAIL with evidence
-4. **Tests must exercise real running infrastructure** — real API calls to real containers, real state changes, observable outcomes
-5. **Tests that use mocks or seeded data without real external calls are integration tests, not E2E** — write those too if useful, but they do not satisfy the validation requirement
-
-A validation that only checks "does it start" is insufficient. A validation that seeds data and checks logic without real external calls is an integration test, not E2E. Valid E2E tests exercise real operational flows through real external systems with verifiable outcomes.
-
----
-
-## Output Structure
-
-Implementation plans live next to the design documents:
+## Output
 
 ```
 docs/designs/<feature>/
@@ -117,14 +124,10 @@ docs/designs/<feature>/
   ARCHITECTURE.md
   implementation/
     OVERVIEW.md
-    M1_<name>.md
-    M2_<name>.md
-    ...
+    M1_<name>.md   ...
 ```
 
-### Frontmatter
-
-Each milestone file includes frontmatter referencing the design and architecture docs. This enables `/kbuild` to automatically discover context documents.
+Each milestone file carries frontmatter so kbuild can discover context:
 
 ```markdown
 ---
@@ -133,16 +136,17 @@ architecture: docs/designs/<feature>/ARCHITECTURE.md
 ---
 ```
 
-### Consistency Check
+The milestone table carries a **Stories** column (the JTBD IDs each milestone owns).
 
-Before saving the plan, verify:
-- Every major design decision appears in at least one task
-- Every architectural pattern has implementing tasks
-- No task introduces an approach ruled out by the architecture
-- The dependency ordering is correct
-
----
+**Consistency check before saving.** Every major design decision appears in at least one task;
+every architectural pattern has implementing tasks; no task uses a ruled-out approach; dependency
+ordering is correct; **every JTBD appears in exactly one milestone's Stories column with ≥1
+covering assertion**; and **no milestone consumes or renders an artifact a later milestone
+produces** (a backward dependency — move the producer earlier or split it).
 
 ## Integration
 
-This command sits between `/kdesign` (which produces the design) and `/kbuild` (which executes the tasks). The milestone files are the interface contract between planning and execution.
+kplan sits between `/kdesign` (produces the design + JTBDs) and `/kbuild` (executes the tasks). The
+milestone files are the interface contract between planning and execution. When a build surfaces a
+wrong planning assumption, that belongs in the handoff so the next kplan run absorbs it.
+</content>

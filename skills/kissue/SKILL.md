@@ -2,7 +2,7 @@
 name: kissue
 description: Implement GitHub issues using TDD. Fetches the issue, creates a branch, implements with RED/GREEN/REFACTOR, and opens a PR with "Closes #N".
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # Issue Implementation Command
@@ -44,13 +44,11 @@ The slug is the issue title lowercased, spaces replaced with hyphens, truncated 
 
 ## 3. Research
 
-Before writing code:
-1. Read the issue thoroughly — understand what's being asked
-2. Find relevant code — locate files mentioned or implied
-3. Identify patterns — find similar code for style and conventions
-4. Extract acceptance criteria from the issue body if present
-
-Output a brief summary (2-4 sentences): what the issue asks for, which files are affected, implementation approach.
+Get to where the issue holds no surprises: what it's actually asking, which files it touches, the
+patterns this codebase uses for that kind of change, and any acceptance criteria in the body.
+Scale this to the issue — a typo fix needs none of it; a new code path needs all of it. If the
+issue's framing turns out to be wrong (the bug is elsewhere, a named file has moved), that's signal
+worth surfacing before you code, not something to quietly work around.
 
 ## 4. Implement with TDD
 
