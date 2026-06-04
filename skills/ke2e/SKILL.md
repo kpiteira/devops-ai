@@ -104,6 +104,16 @@ Project-specific preflight modules can be added to `.claude/skills/ke2e/prefligh
 
 Use [TEMPLATE.md](TEMPLATE.md) when creating new test recipes. See [FAILURE_CATEGORIES.md](FAILURE_CATEGORIES.md) for categorizing failures.
 
+**A capability is validated on more than its happy path.** It's validated when it does the right
+thing on good input, *and* turns away bad input (the right rejection, the right status), *and*
+holds up combined with the features it shares state with. A recipe that only drives the
+aspirational flow leaves the expensive defects unproven — silent corruption on malformed input,
+or when two features meet (e.g. "edit an event's date" × "a snapshot absorbs past events", or any
+feature × the dedup/anchor/balance machinery, where each passes alone but the *combination*
+corrupts). So when planning a milestone's validation, the question isn't only "which JTBD does
+this prove" but "what does this capability reject, and which prior capability touches the same
+state" — and there's a recipe driving that combined scenario to an observable outcome.
+
 ## What "Real E2E" Means
 
 E2E tests make real calls against a running sandbox container. Not mocked. Not "integration with mocks."

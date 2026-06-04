@@ -74,6 +74,31 @@ Update `HANDOFF_<feature>.md` per the `handoffs` rule (create it in the plan dir
 It's the highest-value cross-session artifact — what you learned that the code alone won't tell
 the next session.
 
+## The bar for closing a milestone: the interaction surface is examined
+
+Per-task TDD verifies each feature in isolation, so the defects that survive it are the ones no
+single task owns: two individually-correct features that corrupt state *together* — a "move the
+date freely" feature and a "snapshot absorbs past events" feature combining to silently resurrect
+a paid bill. Line-by-line review never sees these; they surface only when something reasons across
+the whole diff and the interaction surface.
+
+So "all tasks done and green" is not the bar for closing a milestone. The bar is: **you have
+adversarially examined the interaction surface and can say, concretely, which cross-feature
+scenarios you traced and why none corrupt state** — where the scenarios that matter are every
+prior feature that touches the *same state* (table, dedup key, balance walk, status field) as
+something new. A milestone where those pairings went unexamined together is not finished, however
+green the unit tests. Hold the same bar for the negative space: what each new write rejects, not
+just what it accepts.
+
+How you clear that bar is yours — a fresh-context subagent reviewing `git diff <main>...HEAD` is
+well-suited to it (no attachment to the code, room to trace), but the examined-surface *outcome*
+is what's required, not any particular mechanism. Two things make the outcome trustworthy rather
+than performative: triage findings critically (a reviewer can be wrong; a claimed silent
+corruption in load-bearing code earns your own trace before you act), and fix what's real via TDD
+(a failing test that reproduces it first). Record in the handoff what you examined and concluded.
+Clearing this bar *before* the PR is the point — it catches the bug class line-level review won't,
+and pre-empts the review rounds that would otherwise find the cheaper half of it.
+
 ## Reconcile the architecture at milestone close
 
 When a milestone's tasks are done, the design/architecture docs are the spec the *next* `/kplan`
@@ -116,6 +141,12 @@ report untruthful, which is worse than a thin E2E section.
 ### Challenges & Solutions
 | Task | Challenge | Solution |
 |------|-----------|----------|
+
+### Interaction surface examined  (the close-out bar)
+<!-- Name the cross-feature/same-state scenarios you traced and why each is safe — this is the
+     evidence the bar was met, not that a step ran. Then the findings it produced: -->
+| Finding | Severity | KEEP/SKIP | Action |
+|---------|----------|-----------|--------|
 
 ### Architecture Reconciliation  (design-level deltas folded back into the docs)
 | Delta (reality vs. doc) | Doc amended |

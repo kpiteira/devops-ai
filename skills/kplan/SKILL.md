@@ -37,6 +37,27 @@ either the architecture needs updating or the task is wrong.
 **Also extract the JTBD → milestone mapping** from the design. Each milestone owns a set of job
 stories (the IDs kdesign tagged). That ownership becomes a coverage contract, enforced below.
 
+## A plan is graded on the negative space too, not just the jobs
+
+JTBDs are aspirational — "when X, I want Y" — so a plan drawn purely from them is a happy-path
+plan, and the rigor it omits (reject bad input, hold invariants, don't corrupt state when
+features combine) gets discovered in review instead, at the highest cost the loop has. So a good
+milestone plan clears a higher bar than "every JTBD has a task." It also accounts for:
+
+- **What must be rejected**, not just accepted — the malformed, out-of-range, out-of-contract
+  inputs each new write turns away, and how (null where non-null, future-dated when "past" is
+  implied, unknown references), so they're planned as behavior rather than found as 500s.
+- **What must always be true** — the invariants worth enforcing at the lowest honest layer (a
+  CHECK/unique constraint, an impossible state-machine transition) rather than trusting every
+  call site, because the constraint is what holds when a later bug or manual write doesn't.
+- **What shares state** — which prior-milestone features touch the same table / dedup key /
+  balance walk as this one, because those pairings are where combined behavior corrupts while
+  per-feature tests stay green.
+
+You don't need a rigid template for this. But a plan that names only its happy-path jobs has left
+its most expensive defects for review to find — so carry these into the task tests and the
+VALIDATION assertions, and let kbuild's close-out interaction-surface bar verify them.
+
 ## Planning depth — just-in-time by default
 
 For multi-milestone work, expanding every milestone into full tasks up front is usually wasted
@@ -68,7 +89,7 @@ the symbol exists in cache before starting download"), **tests specified** (not 
 
 **Description:** [what it accomplishes — specific about behavior]
 **Implementation Notes:** [patterns, gotchas, integration points]
-**Testing Requirements:** [ ] [specific cases — happy path, errors, edges]
+**Testing Requirements:** [ ] [specific cases — happy path, **rejected bad input**, edges, and any **interaction** with a prior-milestone feature that shares this state]
 **Acceptance Criteria:** [ ] [verifiable]
 ```
 
@@ -108,6 +129,11 @@ execution time:
 audit**: for every job story the milestone owns, the concrete assertion that proves it and the
 evidence captured. A milestone isn't validated until each owned JTBD has a passing,
 evidence-backed assertion.
+
+**Validation covers the negative space too**, not only the happy-path JTBDs. A system that does
+the right thing on good input but 500s or corrupts state on bad input, or when two features that
+share state combine, is not validated — so the assertions include the trust-boundary rejections
+and the cross-feature scenarios the plan named (see "A plan is graded on the negative space too").
 
 ⚠️ **Coverage is an audit over assertions — not a recipe count.** ke2e recipes are reusable,
 capability-scoped building blocks the scout composes across milestones (e.g. `ledger/read-purity`
