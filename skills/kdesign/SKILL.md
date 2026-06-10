@@ -2,7 +2,7 @@
 name: kdesign
 description: Design and validate features through collaborative exploration. Produces DESIGN.md, ARCHITECTURE.md, JTBDs, and a milestone structure.
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # Design Command
@@ -16,7 +16,8 @@ a single conversation that replaces separate design, validation, and milestone-s
 2. **Jobs To Be Done** — numbered job stories (J1, J2, …), each tagged to the milestone where the
    job first becomes doable end-to-end. Lives as a section in DESIGN.md.
 3. **ARCHITECTURE.md** — the how: components, data flow, state, errors, interface signatures,
-   integration points.
+   integration points, and an **Enforcement** section mapping each structural decision to the
+   check that holds it.
 4. **Milestone structure** — vertical slices ready for planning, each listing the JTBDs it delivers.
 
 ```
@@ -90,7 +91,23 @@ a one-line decision or an explicit "deferred to milestone N (low risk)":
 
 This is the hand-off contract to kplan: these are the choices kplan will otherwise invent in code.
 
-## Milestones
+## Enforcement — every structural decision names its check
+
+Prose doesn't constrain the agents that will build this; gates do (the `structural-gates` rule).
+So ARCHITECTURE.md closes with an **Enforcement** table: each decision that constrains code
+structure, mapped to how it's held.
+
+| Decision | Enforced by |
+|----------|-------------|
+| Domain stays transport-free | invariant: `domain/` never imports `api/` or `fastapi` |
+| Result types live in one module | invariant: no `*Result` class outside `results.py` |
+| Reads are pure | review-lens: named in kbuild's structural review |
+
+Three kinds of entry: an **invariant** (machine-checked, lands in `tests/architecture/` — kplan
+turns these into M1's harness task), a **review-lens** (a named lens for kbuild's structural
+review, when no machine check can express it), or an explicit **unenforced** (a recorded
+acceptance, never a default). A decision that can't name its check is usually too vague to
+survive contact with implementation — sharpening it here is design work, not bureaucracy.
 
 Propose a vertical milestone structure (the `vertical-slicing` rule has the principles): each slice
 E2E-testable, building on the last, delivering user-visible value, and **listing the JTBD IDs it

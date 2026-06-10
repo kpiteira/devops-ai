@@ -2,7 +2,7 @@
 name: kplan
 description: Expand milestones into implementable tasks with architecture alignment, JTBD traceability, TDD requirements, and E2E validation.
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # Implementation Planning Command
@@ -36,6 +36,11 @@ either the architecture needs updating or the task is wrong.
 
 **Also extract the JTBD → milestone mapping** from the design. Each milestone owns a set of job
 stories (the IDs kdesign tagged). That ownership becomes a coverage contract, enforced below.
+
+**And extract the Enforcement table** from ARCHITECTURE.md — the invariant entries become M1's
+gate-harness task, and the review-lens entries ride along in each milestone's STRUCTURE task
+(both below). If the architecture has no Enforcement table, that's a kdesign gap: surface it
+before planning, don't invent contracts.
 
 ## A plan is graded on the negative space too, not just the jobs
 
@@ -110,6 +115,21 @@ One such step is frequently mis-described, so state it correctly:
   `localhost:PORT`, DB reset between aggregate-asserting recipes) — *not* a `kinfra impl` sandbox,
   which forks a new worktree from `main` and is the wrong tool for a hand-made feature branch.
 
+## Structural gates in the plan
+
+Two structural requirements, mirror-images of the VALIDATION rule below:
+
+- **M1 carries the gate-harness task:** copy `templates/test_invariants.py` (devops-ai) into
+  `tests/architecture/`, port the ARCHITECTURE.md Enforcement table into contracts, freeze
+  ratchets for pre-existing violations, and wire the directory into the project's check command
+  so pre-commit and CI run it. The gate exists *before* the code it must constrain — it is not
+  a retrofit step.
+- **Every milestone's task list ends STRUCTURE, then VALIDATION.** The STRUCTURE task is
+  kbuild's milestone-close structure pass (whole-diff consolidation review, findings fixed
+  in-milestone) made visible in the plan so it can't be skimmed past. List the Enforcement
+  table's review-lens entries in the task description — they are the lenses the reviewing
+  subagent must carry.
+
 ## VALIDATION tasks
 
 Every milestone ends with a VALIDATION task — a structural requirement, because "unit tests pass"
@@ -167,8 +187,10 @@ The milestone table carries a **Stories** column (the JTBD IDs each milestone ow
 **Consistency check before saving.** Every major design decision appears in at least one task;
 every architectural pattern has implementing tasks; no task uses a ruled-out approach; dependency
 ordering is correct; **every JTBD appears in exactly one milestone's Stories column with ≥1
-covering assertion**; and **no milestone consumes or renders an artifact a later milestone
-produces** (a backward dependency — move the producer earlier or split it).
+covering assertion**; **every invariant in the Enforcement table lands in M1's gate-harness
+task and every milestone ends STRUCTURE → VALIDATION**; and **no milestone consumes or renders
+an artifact a later milestone produces** (a backward dependency — move the producer earlier or
+split it).
 
 ## Integration
 
