@@ -17,6 +17,9 @@ machine-checkable half of the project's architecture:
 - **Layering contracts** — which packages may import which ("domain never imports api")
 - **Pattern uniqueness** — one mechanism per job ("no `*Result` dataclass outside
   `results/`", "exactly one router base")
+- **Test honesty** — patch-density caps and no first-party patching (per the `tdd` rule:
+  testing theatre is a structure problem; a mock-welded suite resists every refactor the
+  other gates demand)
 - **Ratchets** — frozen allowlists for violations that pre-date the gate
 
 A starter lives at `templates/test_invariants.py`. Project-specific thresholds go in

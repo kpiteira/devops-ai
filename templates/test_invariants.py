@@ -33,6 +33,15 @@ UNIQUE_PATTERNS: list[tuple[str, str, str]] = []
 # raised. relative path -> line count at freeze time.
 FILE_LINES_RATCHET: dict[str, int] = {}
 
+# Test honesty (see the `tdd` rule): fakes at I/O seams, not patches everywhere.
+TESTS_ROOT = Path(__file__).resolve().parents[1]
+MAX_PATCHES_PER_TEST_FILE = 5
+# Patching first-party code welds tests to internal structure. Set to your package
+# prefix(es), e.g. ("myapp",). Empty disables the gate.
+FIRST_PARTY_PREFIXES: tuple[str, ...] = ()
+# Pre-existing offenders, frozen: test file -> patch count at freeze time.
+PATCH_RATCHET: dict[str, int] = {}
+
 
 # --- Helpers --------------------------------------------------------------------------
 
@@ -48,6 +57,43 @@ def _rel(path: Path) -> str:
 def _module_name(path: Path) -> str:
     parts = path.relative_to(SRC_ROOT).with_suffix("").parts
     return ".".join(parts[:-1] + (parts[-1],)).removesuffix(".__init__")
+
+
+def _test_files() -> list[Path]:
+    me = Path(__file__).resolve()
+    return [
+        p
+        for p in TESTS_ROOT.rglob("test_*.py")
+        if "__pycache__" not in p.parts and p.resolve() != me
+    ]
+
+
+def _patch_calls(tree: ast.AST) -> list[ast.Call]:
+    """Calls that patch running code: patch(), mock.patch[.object/.dict](),
+    monkeypatch.setattr(). Approximate by design — it gates density, not usage."""
+    calls = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        is_patch = (
+            (isinstance(f, ast.Name) and f.id == "patch")
+            or (isinstance(f, ast.Attribute) and f.attr == "patch")
+            or (
+                isinstance(f, ast.Attribute)
+                and isinstance(f.value, ast.Name)
+                and f.value.id == "patch"  # patch.object / patch.dict
+            )
+            or (
+                isinstance(f, ast.Attribute)
+                and f.attr == "setattr"
+                and isinstance(f.value, ast.Name)
+                and f.value.id == "monkeypatch"
+            )
+        )
+        if is_patch:
+            calls.append(node)
+    return calls
 
 
 def _imports(tree: ast.AST) -> list[str]:
@@ -107,6 +153,53 @@ def test_layering_contracts() -> None:
                 if name.startswith(forbidden):
                     violations.append(f"{_rel(path)} imports {name} ({reason})")
     assert not violations, "Layering contract violated:\n" + "\n".join(violations)
+
+
+def test_patch_density() -> None:
+    """Patching is a coupling smell; fakes at I/O seams keep tests refactor-proof."""
+    over, stale_ratchet = [], []
+    for path in _test_files():
+        rel = str(path.relative_to(TESTS_ROOT))
+        count = len(_patch_calls(ast.parse(path.read_text())))
+        frozen = PATCH_RATCHET.get(rel)
+        if frozen is not None:
+            if count <= MAX_PATCHES_PER_TEST_FILE:
+                stale_ratchet.append(rel)  # compliant now — remove its entry
+            elif count > frozen:
+                over.append(f"{rel}: {count} patches (ratchet froze it at {frozen})")
+        elif count > MAX_PATCHES_PER_TEST_FILE:
+            over.append(f"{rel}: {count} patches (max {MAX_PATCHES_PER_TEST_FILE})")
+    assert not over, (
+        "Patch density exceeded — replace patches with fakes at the I/O seam:\n"
+        + "\n".join(over)
+    )
+    assert not stale_ratchet, (
+        "Ratchet entries now compliant — delete them so they can't regress:\n"
+        + "\n".join(stale_ratchet)
+    )
+
+
+def test_no_first_party_patching() -> None:
+    """patch("yourpkg.x.y") welds the test to internal structure — use a fake."""
+    if not FIRST_PARTY_PREFIXES:
+        return
+    violations = []
+    for path in _test_files():
+        rel = str(path.relative_to(TESTS_ROOT))
+        if rel in PATCH_RATCHET:  # frozen offenders shrink via test_patch_density
+            continue
+        for call in _patch_calls(ast.parse(path.read_text())):
+            target = call.args[0] if call.args else None
+            if (
+                isinstance(target, ast.Constant)
+                and isinstance(target.value, str)
+                and target.value.startswith(FIRST_PARTY_PREFIXES)
+            ):
+                violations.append(f"{rel}: patches {target.value}")
+    assert not violations, (
+        "First-party patching — test through the public surface instead:\n"
+        + "\n".join(violations)
+    )
 
 
 def test_pattern_uniqueness() -> None:
