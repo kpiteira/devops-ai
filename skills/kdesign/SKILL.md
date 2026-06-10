@@ -109,6 +109,8 @@ review, when no machine check can express it), or an explicit **unenforced** (a 
 acceptance, never a default). A decision that can't name its check is usually too vague to
 survive contact with implementation — sharpening it here is design work, not bureaucracy.
 
+## Milestones
+
 Propose a vertical milestone structure (the `vertical-slicing` rule has the principles): each slice
 E2E-testable, building on the last, delivering user-visible value, and **listing the JTBD IDs it
 delivers**. Milestone 1 is the smallest thing that proves the architecture works end-to-end —
