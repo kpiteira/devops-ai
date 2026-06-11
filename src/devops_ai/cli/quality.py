@@ -25,6 +25,8 @@ class QualityPlan:
     test_e2e_cmd: str | None
     fix_cmd: str | None
     setup_cmd: str
+    # Structural gates (tests/architecture/) — derived from the unit test command.
+    test_arch_cmd: str | None = None
 
 
 def detect_quality_config(project_root: Path) -> QualityPlan | None:
@@ -82,6 +84,9 @@ def detect_quality_config(project_root: Path) -> QualityPlan | None:
     # Derive setup command
     setup_cmd = _derive_setup_cmd(run)
 
+    # Derive structural-gates command from the unit test command
+    test_arch_cmd = _derive_test_arch_cmd(unit_tests)
+
     return QualityPlan(
         project_root=project_root,
         project_name=name or project_root.name,
@@ -93,6 +98,7 @@ def detect_quality_config(project_root: Path) -> QualityPlan | None:
         test_e2e_cmd=e2e_cmd,
         fix_cmd=fix_cmd,
         setup_cmd=setup_cmd,
+        test_arch_cmd=test_arch_cmd,
     )
 
 
@@ -142,6 +148,26 @@ def _derive_fix_cmd(lint_cmd: str, language: str) -> str | None:
     return None
 
 
+def _derive_test_arch_cmd(test_unit_cmd: str) -> str | None:
+    """Derive the structural-gates command (tests/architecture/) from the unit
+    test command. Only when the unit command names tests/unit — otherwise there
+    is no convention to map onto."""
+    if "tests/unit" in test_unit_cmd:
+        return test_unit_cmd.replace("tests/unit", "tests/architecture")
+    return None
+
+
+# Recipe shared by Makefile/Justfile: run the gates when the directory exists,
+# stay green (with a notice) for projects that haven't adopted them yet. Once
+# tests/architecture/ lands, the gates' own arming test takes over loud-failure.
+def _test_arch_recipe(test_arch_cmd: str) -> str:
+    return (
+        f"@if [ -d tests/architecture ]; then {test_arch_cmd}; "
+        'else echo "no tests/architecture/ yet — structural gates not adopted '
+        '(see devops-ai rules/structural-gates.md)"; fi'
+    )
+
+
 def _normalize_uv_cmd(cmd: str) -> str:
     """Normalize .venv/bin/X to uv run X for portability.
 
@@ -185,6 +211,14 @@ def generate_justfile(plan: QualityPlan) -> str:
         f"    {plan.test_unit_cmd}",
     ]
 
+    if plan.test_arch_cmd:
+        lines.extend([
+            "",
+            "# Structural gates (see devops-ai rules/structural-gates.md)",
+            "test-arch:",
+            f"    {_test_arch_recipe(plan.test_arch_cmd)}",
+        ])
+
     if plan.test_e2e_cmd:
         lines.extend([
             "",
@@ -193,10 +227,15 @@ def generate_justfile(plan: QualityPlan) -> str:
             f"    {plan.test_e2e_cmd}",
         ])
 
+    check_deps = "quality test-unit"
+    check_comment = "# Full check: quality + unit tests"
+    if plan.test_arch_cmd:
+        check_deps += " test-arch"
+        check_comment += " + structural gates"
     lines.extend([
         "",
-        "# Full check: quality + unit tests",
-        "check: quality test-unit",
+        check_comment,
+        f"check: {check_deps}",
     ])
 
     if plan.fix_cmd:
@@ -221,6 +260,8 @@ def generate_justfile(plan: QualityPlan) -> str:
 def generate_makefile(plan: QualityPlan) -> str:
     """Generate Makefile content with standard quality targets."""
     targets = ["lint", "quality", "test-unit", "check", "setup"]
+    if plan.test_arch_cmd:
+        targets.append("test-arch")
     if plan.test_e2e_cmd:
         targets.append("test-e2e")
     if plan.fix_cmd:
@@ -241,6 +282,13 @@ def generate_makefile(plan: QualityPlan) -> str:
         f"\t{plan.test_unit_cmd}",
     ]
 
+    if plan.test_arch_cmd:
+        lines.extend([
+            "",
+            "test-arch:",
+            f"\t{_test_arch_recipe(plan.test_arch_cmd)}",
+        ])
+
     if plan.test_e2e_cmd:
         lines.extend([
             "",
@@ -248,9 +296,12 @@ def generate_makefile(plan: QualityPlan) -> str:
             f"\t{plan.test_e2e_cmd}",
         ])
 
+    check_deps = "quality test-unit"
+    if plan.test_arch_cmd:
+        check_deps += " test-arch"
     lines.extend([
         "",
-        "check: quality test-unit",
+        f"check: {check_deps}",
     ])
 
     if plan.fix_cmd:
@@ -419,7 +470,17 @@ def should_generate_conftest(project_root: Path) -> bool:
 
 
 def generate_claude_hooks(plan: QualityPlan) -> str:
-    """Generate Claude Code settings.json with Stop hook for lint."""
+    """Generate Claude Code settings.json with a blocking Stop hook.
+
+    The Stop hook is the mechanical half of the loop: exit code 2 blocks the
+    turn from ending while `make check` is red, feeding the failure back to
+    Claude. Claude Code's built-in cap (8 consecutive blocks) breaks spins.
+    """
+    stop_cmd = (
+        'out=$(make check 2>&1) || { printf \'%s\\n\' "$out" | tail -n 40 >&2; '
+        "echo 'make check failed — the turn cannot end red; fix and finish "
+        "again.' >&2; exit 2; }"
+    )
     data = {
         "hooks": {
             "Stop": [
@@ -427,8 +488,8 @@ def generate_claude_hooks(plan: QualityPlan) -> str:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "make lint",
-                            "timeout": 120,
+                            "command": stop_cmd,
+                            "timeout": 600,
                         },
                     ],
                 },

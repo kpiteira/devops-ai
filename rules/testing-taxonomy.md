@@ -6,13 +6,13 @@ Tests are classified by what they exercise and what they need to run.
 
 | Type | Directory | Speed | Dependencies | Runs in |
 |------|-----------|-------|-------------|---------|
-| Unit | tests/unit/ | <100ms each | None (mocks only) | Pre-commit, CI |
+| Unit | tests/unit/ | <100ms each | None (no I/O; fakes at the seams) | Pre-commit, CI |
 | Integration | tests/integration/ | <5s each | Real services | CI |
 | E2E | tests/e2e/ | <30s each | Full running system | Milestone validation |
 
 ## Unit tests
 
-Unit tests exercise individual functions and classes in isolation. They must have:
+Unit tests exercise behaviors through public surfaces, with the in-process stack running real. "Unit" is a speed-and-determinism contract (no I/O), not a one-class isolation rule — the `tdd` rule defines where the fake/real line lives. They must have:
 
 - No network calls (no `socket.connect`, no HTTP requests)
 - No subprocess spawning (no `subprocess.run` unless mocked)

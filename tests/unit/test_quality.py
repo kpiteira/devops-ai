@@ -59,6 +59,44 @@ class TestDetectQualityConfig:
         assert plan is not None
         assert plan.lint_cmd == "uv run ruff check src/ tests/"
 
+    def test_derives_test_arch_cmd(self, tmp_path: Path) -> None:
+        """Derives the structural-gates command from the unit test command."""
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "project.md").write_text(
+            "## Project\n\n"
+            "- **Name:** myapp\n"
+            "- **Language:** Python\n"
+            "- **Runner:** uv\n\n"
+            "## Testing\n\n"
+            "- **Unit tests:** uv run pytest tests/unit\n"
+            "- **Quality checks:** uv run ruff check src/ tests/ && uv run mypy src/\n"
+        )
+
+        plan = detect_quality_config(tmp_path)
+
+        assert plan is not None
+        assert plan.test_arch_cmd == "uv run pytest tests/architecture"
+
+    def test_no_arch_cmd_when_unit_path_unrecognized(self, tmp_path: Path) -> None:
+        """No tests/unit path in the unit command — nothing to derive from."""
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "project.md").write_text(
+            "## Project\n\n"
+            "- **Name:** myapp\n"
+            "- **Language:** TypeScript\n"
+            "- **Runner:** npm\n\n"
+            "## Testing\n\n"
+            "- **Unit tests:** npm test\n"
+            "- **Quality checks:** npm run lint\n"
+        )
+
+        plan = detect_quality_config(tmp_path)
+
+        assert plan is not None
+        assert plan.test_arch_cmd is None
+
     def test_derives_fix_cmd_for_python(self, tmp_path: Path) -> None:
         """Derives ruff --fix from quality command."""
         config_dir = tmp_path / ".devops-ai"
@@ -265,6 +303,30 @@ class TestGenerateJustfile:
 
         # check should call quality and test-unit
         assert "check: quality test-unit" in content
+        # no test-arch generated → the comment must not claim structural gates
+        assert "structural gates" not in content
+
+    def test_arch_target_in_check(self) -> None:
+        plan = QualityPlan(
+            project_root=Path("/tmp/test"),
+            project_name="myapp",
+            language="python",
+            runner="uv",
+            lint_cmd="uv run ruff check src/",
+            quality_cmd="uv run ruff check src/",
+            test_unit_cmd="uv run pytest tests/unit",
+            test_e2e_cmd=None,
+            fix_cmd=None,
+            setup_cmd="uv sync --all-groups --all-extras",
+            test_arch_cmd="uv run pytest tests/architecture",
+        )
+
+        content = generate_justfile(plan)
+
+        assert "test-arch:" in content
+        assert "check: quality test-unit test-arch" in content
+        # guarded: projects that haven't adopted gates yet still pass check
+        assert "tests/architecture" in content
 
     def test_no_e2e_omits_target(self) -> None:
         plan = QualityPlan(
@@ -344,6 +406,47 @@ class TestGenerateMakefile:
         content = generate_makefile(plan)
 
         assert "check: quality test-unit" in content
+
+    def test_arch_target_guarded_and_in_check(self) -> None:
+        plan = QualityPlan(
+            project_root=Path("/tmp/test"),
+            project_name="myapp",
+            language="python",
+            runner="uv",
+            lint_cmd="uv run ruff check src/",
+            quality_cmd="uv run ruff check src/",
+            test_unit_cmd="uv run pytest tests/unit",
+            test_e2e_cmd=None,
+            fix_cmd=None,
+            setup_cmd="uv sync --all-groups --all-extras",
+            test_arch_cmd="uv run pytest tests/architecture",
+        )
+
+        content = generate_makefile(plan)
+
+        assert "test-arch:" in content
+        assert "check: quality test-unit test-arch" in content
+        # guard keeps check green for projects that haven't adopted gates yet
+        assert 'if [ -d tests/architecture ]' in content
+
+    def test_no_arch_target_when_cmd_missing(self) -> None:
+        plan = QualityPlan(
+            project_root=Path("/tmp/test"),
+            project_name="myapp",
+            language="typescript",
+            runner="npm",
+            lint_cmd="npm run lint",
+            quality_cmd="npm run lint",
+            test_unit_cmd="npm test",
+            test_e2e_cmd=None,
+            fix_cmd=None,
+            setup_cmd="npm install",
+        )
+
+        content = generate_makefile(plan)
+
+        assert "test-arch:" not in content
+        assert "check: quality test-unit\n" in content
 
 
 # --- Pre-commit hook generator ---
@@ -518,7 +621,9 @@ class TestGenerateClaudeHooks:
         assert len(stop_rules) == 1
         assert stop_rules[0]["hooks"][0]["type"] == "command"
 
-    def test_runs_make_lint(self) -> None:
+    def test_stop_hook_blocks_on_make_check(self) -> None:
+        """The Stop hook is the loop's gate: a turn cannot end while make check
+        is red, so exit code 2 (block) — not a mere lint notice."""
         plan = QualityPlan(
             project_root=Path("/tmp/test"),
             project_name="myapp",
@@ -534,7 +639,12 @@ class TestGenerateClaudeHooks:
 
         content = generate_claude_hooks(plan)
 
-        assert "make lint" in content
+        import json
+        data = json.loads(content)
+        hook = data["hooks"]["Stop"][0]["hooks"][0]
+        assert "make check" in hook["command"]
+        assert "exit 2" in hook["command"]
+        assert hook["timeout"] >= 600
 
 
 # --- Conftest guardrails ---
