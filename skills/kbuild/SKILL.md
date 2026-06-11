@@ -1,11 +1,18 @@
 ---
 name: kbuild
-description: Execute tasks (TDD) and orchestrate milestones from implementation plans.
+description: Execute tasks (TDD) and orchestrate milestones from implementation plans. Attended fallback — kloop is the autonomous path.
 metadata:
   version: "0.3.0"
+  status: frozen
 ---
 
 # Build Command
+
+> **Frozen (2026-06).** kbuild is the attended fallback; autonomous execution runs
+> through `kloop` (one task per fresh context, verifier-enforced). No further
+> investment in this file — what a build run teaches goes into the gates
+> (`templates/test_invariants.py`), the Stop hook, or kloop, never into prose here.
+> If kloop proves out on real milestones, kbuild gets deleted.
 
 Execute implementation-plan tasks with TDD, or orchestrate a whole milestone by sequencing
 tasks with verification between them.
