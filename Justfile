@@ -12,16 +12,16 @@ quality:
 test-unit:
     uv run pytest tests/unit
 
-# Integration tests (requires git, sockets — no external services)
-test-integration:
-    uv run pytest tests/integration
+# Structural gates (see devops-ai rules/structural-gates.md)
+test-arch:
+    @if [ -d tests/architecture ]; then uv run pytest tests/architecture; else echo "no tests/architecture/ yet — structural gates not adopted (see devops-ai rules/structural-gates.md)"; fi
 
 # E2E tests (requires running infrastructure)
 test-e2e:
     uv run pytest tests/e2e
 
-# Full check: quality + unit tests
-check: quality test-unit
+# Full check: quality + unit tests + structural gates
+check: quality test-unit test-arch
 
 # Auto-fix lint issues
 fix:
