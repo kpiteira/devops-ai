@@ -25,7 +25,7 @@ def load_gates(tmp_path: Path, **overrides: object) -> ModuleType:
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     mod.SRC_ROOT = tmp_path / "src"
-    mod.TESTS_ROOT = tmp_path / "tests"
+    mod.TESTS_ROOT = tmp_path / "tests" / "unit"  # the template's default scope
     for key, value in overrides.items():
         setattr(mod, key, value)
     return mod
@@ -43,7 +43,6 @@ def write(root: Path, rel: str, text: str = "") -> Path:
 
 def test_armed_fails_when_src_root_missing(tmp_path: Path) -> None:
     mod = load_gates(tmp_path)
-    (tmp_path / "tests").mkdir()
     with pytest.raises(AssertionError, match="SRC_ROOT"):
         mod.test_gates_are_armed()
 
@@ -51,16 +50,15 @@ def test_armed_fails_when_src_root_missing(tmp_path: Path) -> None:
 def test_armed_fails_when_src_root_empty(tmp_path: Path) -> None:
     mod = load_gates(tmp_path)
     (tmp_path / "src").mkdir()
-    (tmp_path / "tests").mkdir()
     with pytest.raises(AssertionError, match="[Nn]o Python"):
         mod.test_gates_are_armed()
 
 
 def test_armed_reports_unparseable_files(tmp_path: Path) -> None:
+    # no tests/unit dir either — _test_files() must tolerate it
     mod = load_gates(tmp_path)
     write(tmp_path, "src/myapp/good.py", "x = 1\n")
     write(tmp_path, "src/myapp/broken.py", "def (\n")
-    (tmp_path / "tests").mkdir()
     with pytest.raises(AssertionError, match="broken.py"):
         mod.test_gates_are_armed()
     # other gates skip the unparseable file instead of crashing every gate
@@ -113,6 +111,40 @@ def test_conftest_is_scanned_for_density(tmp_path: Path) -> None:
     )
     with pytest.raises(AssertionError, match="conftest.py"):
         mod.test_patch_density()
+
+
+def test_default_scope_is_unit_tests() -> None:
+    """The template's own default TESTS_ROOT must target tests/unit/ — the
+    loader override above can't catch a wrong default."""
+    spec = importlib.util.spec_from_file_location("invariants_default", TEMPLATE_PATH)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    # copied to tests/architecture/, parents[1] is tests/ — default scope is unit/
+    assert mod.TESTS_ROOT == TEMPLATE_PATH.resolve().parents[1] / "unit"
+
+
+def test_integration_tests_not_governed(tmp_path: Path) -> None:
+    """Test honesty is the unit-test contract (tdd rule) — integration tests may
+    patch freely and must not trip the gates with the default scope."""
+    mod = load_gates(
+        tmp_path, MAX_PATCHES_PER_TEST_FILE=1, FIRST_PARTY_PREFIXES=("myapp",)
+    )
+    write(tmp_path, "src/myapp/a.py", "x = 1\n")
+    write(
+        tmp_path,
+        "tests/integration/test_real_adapter.py",
+        """
+        from unittest.mock import patch
+
+        def test_t():
+            with patch("myapp.services.save"):
+                with patch("myapp.services.load"):
+                    pass
+        """,
+    )
+    mod.test_patch_density()
+    mod.test_no_first_party_patching()
 
 
 # --- First-party patching ---
@@ -206,7 +238,7 @@ def test_first_party_ratchet_frozen_offenders(tmp_path: Path) -> None:
     mod = load_gates(
         tmp_path,
         FIRST_PARTY_PREFIXES=("myapp",),
-        FIRST_PARTY_PATCH_RATCHET={"unit/test_old.py": 2},
+        FIRST_PARTY_PATCH_RATCHET={"test_old.py": 2},
     )
     write(tmp_path, "src/myapp/a.py", "x = 1\n")
     write(tmp_path, "tests/unit/test_old.py", src)
@@ -215,7 +247,7 @@ def test_first_party_ratchet_frozen_offenders(tmp_path: Path) -> None:
     mod_over = load_gates(
         tmp_path,
         FIRST_PARTY_PREFIXES=("myapp",),
-        FIRST_PARTY_PATCH_RATCHET={"unit/test_old.py": 1},
+        FIRST_PARTY_PATCH_RATCHET={"test_old.py": 1},
     )
     with pytest.raises(AssertionError, match="ratchet"):
         mod_over.test_no_first_party_patching()
@@ -225,7 +257,7 @@ def test_first_party_ratchet_stale_entry_flagged(tmp_path: Path) -> None:
     mod = load_gates(
         tmp_path,
         FIRST_PARTY_PREFIXES=("myapp",),
-        FIRST_PARTY_PATCH_RATCHET={"unit/test_old.py": 2},
+        FIRST_PARTY_PATCH_RATCHET={"test_old.py": 2},
     )
     write(tmp_path, "src/myapp/a.py", "x = 1\n")
     write(tmp_path, "tests/unit/test_old.py", "def test_t():\n    pass\n")
@@ -241,7 +273,6 @@ def test_layering_resolves_relative_imports(tmp_path: Path) -> None:
         tmp_path,
         LAYERING=[("myapp.domain", ("myapp.api",), "domain stays transport-free")],
     )
-    (tmp_path / "tests").mkdir()
     write(tmp_path, "src/myapp/api/routes.py", "x = 1\n")
     write(tmp_path, "src/myapp/domain/logic.py", "from ..api import routes\n")
     with pytest.raises(AssertionError, match="myapp.api"):
@@ -253,7 +284,6 @@ def test_layering_prefix_requires_dot_boundary(tmp_path: Path) -> None:
         tmp_path,
         LAYERING=[("myapp.domain", ("myapp.api",), "domain stays transport-free")],
     )
-    (tmp_path / "tests").mkdir()
     write(tmp_path, "src/myapp/domain/logic.py", "import myapp.apiclient\n")
     mod.test_layering_contracts()  # apiclient is not api — must pass
 
@@ -263,7 +293,6 @@ def test_layering_absolute_import_still_caught(tmp_path: Path) -> None:
         tmp_path,
         LAYERING=[("myapp.domain", ("myapp.api", "fastapi"), "transport-free")],
     )
-    (tmp_path / "tests").mkdir()
     write(tmp_path, "src/myapp/domain/logic.py", "from fastapi import APIRouter\n")
     with pytest.raises(AssertionError, match="fastapi"):
         mod.test_layering_contracts()
@@ -274,7 +303,6 @@ def test_layering_absolute_import_still_caught(tmp_path: Path) -> None:
 
 def test_class_caps_count_nested_classes(tmp_path: Path) -> None:
     mod = load_gates(tmp_path, MAX_CLASSES_PER_MODULE=1)
-    (tmp_path / "tests").mkdir()
     write(
         tmp_path,
         "src/myapp/shapes.py",
@@ -293,7 +321,6 @@ def test_pattern_uniqueness_sees_nested_classes(tmp_path: Path) -> None:
         tmp_path,
         UNIQUE_PATTERNS=[("results.py", "Result", "result types live in results.py")],
     )
-    (tmp_path / "tests").mkdir()
     write(
         tmp_path,
         "src/myapp/service.py",
@@ -311,7 +338,6 @@ def test_pattern_uniqueness_sees_nested_classes(tmp_path: Path) -> None:
 
 
 def test_file_budget_ratchet_growth_and_stale(tmp_path: Path) -> None:
-    (tmp_path / "tests").mkdir()
     # frozen file may not grow past its freeze point
     mod = load_gates(
         tmp_path, MAX_FILE_LINES=2, FILE_LINES_RATCHET={"myapp/big.py": 4}

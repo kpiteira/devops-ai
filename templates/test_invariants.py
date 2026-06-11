@@ -37,7 +37,9 @@ UNIQUE_PATTERNS: list[tuple[str, str, str]] = []
 FILE_LINES_RATCHET: dict[str, int] = {}
 
 # Test honesty (see the `tdd` rule): fakes at I/O seams, not patches everywhere.
-TESTS_ROOT = Path(__file__).resolve().parents[1]
+# The contract governs UNIT tests (the testing-taxonomy rule lets integration
+# tests use what they need) — widen to parents[1] for stricter enforcement.
+TESTS_ROOT = Path(__file__).resolve().parents[1] / "unit"
 MAX_PATCHES_PER_TEST_FILE = 5
 # Patching first-party code welds tests to internal structure. Set to your package
 # prefix(es), e.g. ("myapp",). Empty disables the gate.
@@ -67,6 +69,8 @@ def _module_name(path: Path) -> str:
 
 
 def _test_files() -> list[Path]:
+    if not TESTS_ROOT.is_dir():
+        return []
     me = Path(__file__).resolve()
     return [
         p
