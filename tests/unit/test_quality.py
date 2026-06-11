@@ -303,6 +303,8 @@ class TestGenerateJustfile:
 
         # check should call quality and test-unit
         assert "check: quality test-unit" in content
+        # no test-arch generated → the comment must not claim structural gates
+        assert "structural gates" not in content
 
     def test_arch_target_in_check(self) -> None:
         plan = QualityPlan(

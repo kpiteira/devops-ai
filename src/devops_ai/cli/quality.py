@@ -228,11 +228,13 @@ def generate_justfile(plan: QualityPlan) -> str:
         ])
 
     check_deps = "quality test-unit"
+    check_comment = "# Full check: quality + unit tests"
     if plan.test_arch_cmd:
         check_deps += " test-arch"
+        check_comment += " + structural gates"
     lines.extend([
         "",
-        "# Full check: quality + unit tests + structural gates",
+        check_comment,
         f"check: {check_deps}",
     ])
 

@@ -7,8 +7,11 @@ and a human reading classes is not a scalable sensor.
 
 ## The gate
 
-Every project carries `tests/architecture/test_invariants.py`, run as part of the quality
-checks (in `make check`, so pre-commit and CI both enforce it). It encodes the
+Every project carries a structural-invariants gate, run as part of the quality checks
+(in `make check`, so pre-commit and CI both enforce it). For Python projects that's
+`tests/architecture/test_invariants.py` (starter template below); non-Python projects
+encode the same contracts with their stack's tooling (e.g. dependency-cruiser or ts-arch
+for TypeScript layering, ESLint rules for pattern caps). The gate encodes the
 machine-checkable half of the project's architecture:
 
 - **File budgets** — no source file beyond the configured line cap (default 400)
@@ -22,8 +25,9 @@ machine-checkable half of the project's architecture:
   other gates demand)
 - **Ratchets** — frozen allowlists for violations that pre-date the gate
 
-A starter lives at `templates/test_invariants.py`. Project-specific thresholds go in
-`.devops-ai/project.md` under a **Structure** section; otherwise defaults apply.
+A starter lives at `templates/test_invariants.py` (devops-ai). Thresholds and contracts
+are configured in the copied file's own Configuration block — once copied into
+`tests/architecture/`, it is project-owned, versioned with the code it constrains.
 
 ## The non-negotiables
 
