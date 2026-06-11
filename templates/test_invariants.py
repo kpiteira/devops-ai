@@ -4,8 +4,9 @@ These tests gate code STRUCTURE the way ruff gates style: they fail red, you fix
 the code. Never fix a failure by editing a threshold, a contract, or the ratchet —
 widening anything requires explicit human sign-off, recorded in the handoff.
 
-Starter template: adjust SRC_ROOT and the CONTRACTS below to this project's
-ARCHITECTURE.md, delete contracts that don't apply, then delete this paragraph.
+Starter template: adjust SRC_ROOT and the Configuration block below (LAYERING,
+UNIQUE_PATTERNS, ratchets, …) to this project's ARCHITECTURE.md, delete entries
+that don't apply, then delete this paragraph.
 """
 
 from __future__ import annotations

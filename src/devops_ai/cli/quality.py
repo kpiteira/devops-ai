@@ -475,7 +475,7 @@ def generate_claude_hooks(plan: QualityPlan) -> str:
     Claude. Claude Code's built-in cap (8 consecutive blocks) breaks spins.
     """
     stop_cmd = (
-        'out=$(make check 2>&1) || { printf \'%s\\n\' "$out" | tail -40 >&2; '
+        'out=$(make check 2>&1) || { printf \'%s\\n\' "$out" | tail -n 40 >&2; '
         "echo 'make check failed — the turn cannot end red; fix and finish "
         "again.' >&2; exit 2; }"
     )
