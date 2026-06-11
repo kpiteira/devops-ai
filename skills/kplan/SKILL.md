@@ -2,7 +2,7 @@
 name: kplan
 description: Expand milestones into implementable tasks with architecture alignment, JTBD traceability, TDD requirements, and E2E validation.
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # Implementation Planning Command
@@ -85,11 +85,12 @@ the symbol exists in cache before starting download"), **tests specified** (not 
 "follow `UserService.create()`"). Split anything over ~4 hours.
 
 ```markdown
-## Task N.M: [Title]
+## [ ] Task N.M: [Title]
 
 **File(s):** [specific files to create/modify]
-**Type:** CODING | RESEARCH | MIXED | VALIDATION
+**Type:** CODING | RESEARCH | MIXED | STRUCTURE | VALIDATION
 **Estimated time:** [1–4 hours]
+**Verify:** [the command that proves this task — exits 0 only if the behavior works, e.g. `uv run pytest tests/unit/test_user.py -q`]
 **Human action:** [only if a step can't be automated — see below; omit otherwise]
 
 **Description:** [what it accomplishes — specific about behavior]
@@ -101,6 +102,14 @@ the symbol exists in cache before starting download"), **tests specified** (not 
 For tasks spanning multiple categories (persistence, wiring, state machines, …), identify each
 category's failure modes and add matching integration tests. The `kplan-categories.md` reference has
 the full taxonomy — load it when analyzing task types.
+
+**The milestone file is goal state, not prose.** The loop that executes it (kloop) and a `/goal`
+evaluator treat it as the completion contract: tasks are worked first-unchecked-first, and a
+checkbox flips to `[x]` only when the task's **Verify** command exits 0 — evidence, not the
+implementer's claim. So write Verify to actually discriminate: the test selector that fails if
+this task's behavior is wrong (`make check` runs on every task regardless — don't restate it).
+A task whose done-condition can't be a command gets the closest runnable proxy plus a named
+review-lens in the STRUCTURE task — never "done when it looks done."
 
 **Human-action callouts.** kbuild needs to know exactly when to stop and hand control to a human —
 interactive logins, secret provisioning, PR review/merge, one-time infra setup. Mark those at the
@@ -119,11 +128,13 @@ One such step is frequently mis-described, so state it correctly:
 
 Two structural requirements, mirror-images of the VALIDATION rule below:
 
-- **M1 carries the gate-harness task:** copy `templates/test_invariants.py` (devops-ai) into
-  `tests/architecture/`, port the ARCHITECTURE.md Enforcement table into contracts, freeze
-  ratchets for pre-existing violations, and wire the directory into the project's check command
-  so pre-commit and CI run it. The gate exists *before* the code it must constrain — it is not
-  a retrofit step.
+- **M1 carries the gate-harness task:** copy `templates/test_invariants.py` from the devops-ai
+  repo (locate it by resolving the skill symlink: `readlink ~/.claude/skills/kplan` → its parent
+  repo) into `tests/architecture/`, port the ARCHITECTURE.md Enforcement table into contracts,
+  and freeze ratchets for pre-existing violations. kinfra-generated Makefiles already run
+  `tests/architecture/` inside `make check` (a `kinfra init` re-run refreshes older ones), so
+  pre-commit, CI, and the Stop hook all enforce it with no extra wiring. The gate exists
+  *before* the code it must constrain — it is not a retrofit step.
 - **Every milestone's task list ends STRUCTURE, then VALIDATION.** The STRUCTURE task is
   kbuild's milestone-close structure pass (whole-diff consolidation review, findings fixed
   in-milestone) made visible in the plan so it can't be skimmed past. List the Enforcement
@@ -186,15 +197,17 @@ The milestone table carries a **Stories** column (the JTBD IDs each milestone ow
 
 **Consistency check before saving.** Every major design decision appears in at least one task;
 every architectural pattern has implementing tasks; no task uses a ruled-out approach; dependency
-ordering is correct; **every JTBD appears in exactly one milestone's Stories column with ≥1
-covering assertion**; **every invariant in the Enforcement table lands in M1's gate-harness
-task and every milestone ends STRUCTURE → VALIDATION**; and **no milestone consumes or renders
-an artifact a later milestone produces** (a backward dependency — move the producer earlier or
-split it).
+ordering is correct; **every task heading carries an unchecked `[ ]` and a Verify command that
+discriminates** (a Verify that passes before the task is implemented proves nothing); **every
+JTBD appears in exactly one milestone's Stories column with ≥1 covering assertion**; **every
+invariant in the Enforcement table lands in M1's gate-harness task and every milestone ends
+STRUCTURE → VALIDATION**; and **no milestone consumes or renders an artifact a later milestone
+produces** (a backward dependency — move the producer earlier or split it).
 
 ## Integration
 
-kplan sits between `/kdesign` (produces the design + JTBDs) and `/kbuild` (executes the tasks). The
-milestone files are the interface contract between planning and execution. When a build surfaces a
-wrong planning assumption, that belongs in the handoff so the next kplan run absorbs it.
+kplan sits between `/kdesign` (produces the design + JTBDs) and execution — `/kloop` (the
+autonomous loop, one task per fresh context) or `/kbuild` (the attended fallback). The milestone
+files are the interface contract between planning and execution. When a build surfaces a wrong
+planning assumption, that belongs in the handoff so the next kplan run absorbs it.
 </content>
