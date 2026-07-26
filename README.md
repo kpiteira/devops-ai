@@ -36,6 +36,7 @@ For day-to-day work, two shortcuts handle the common cases:
 ```
 /kissue 42       → Fetch GitHub issue, branch, TDD implement, PR with "Closes #42"
 /kreview         → Assess PR review comments, implement fixes or push back
+/kbabysit        → Babysit a PR: request AI reviews, address, loop to merge-ready
 ```
 
 For projects with Docker infrastructure, kinfra provides isolated environments:
@@ -148,7 +149,8 @@ kinfra done auth-M1                  # Clean up worktree, sandbox, containers
 | Command | Purpose |
 |---------|---------|
 | `/kissue <number>` | Implement a GitHub issue: fetch, branch, TDD, PR with `Closes #N` |
-| `/kreview` | Critically assess PR review comments — implement, push back, or discuss |
+| `/kreview` | Critically assess PR review comments — implement, push back, or discuss (one round) |
+| `/kbabysit` | Drive a PR to merge-ready: request AI reviews, wait, address via kreview, re-review, loop until converged, report with TL;DR |
 
 ### Infrastructure
 
@@ -277,7 +279,8 @@ devops-ai/
 │   ├── kplan/              # Implementation planning
 │   ├── kbuild/             # TDD task execution and milestone orchestration
 │   ├── kissue/             # GitHub issue implementation
-│   ├── kreview/            # PR review comment assessment
+│   ├── kreview/            # PR review comment assessment (single round)
+│   ├── kbabysit/           # PR review loop orchestration to merge-ready
 │   ├── kworktree/          # Worktree/sandbox management skill
 │   └── kinfra-onboard/     # Project onboarding skill
 ├── rules/                  # Shared principles (auto-loaded via .claude/rules/)
