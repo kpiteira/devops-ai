@@ -1,6 +1,6 @@
 ---
 name: kreview
-description: Address PR review comments critically — assess each comment, recommend action (implement/push-back/discuss), and execute. Works with any reviewer (Copilot, Claude, human). Single-round engine; kbabysit drives the multi-round loop.
+description: Address PR review comments critically — assess each comment, recommend action (implement/push-back/discuss), and execute. Works with any reviewer (Copilot, human, other bots). Single-round engine; kbabysit drives the multi-round loop.
 metadata:
   version: "0.2.0"
 ---
@@ -35,7 +35,7 @@ Feedback lives in four places. A partial fetch produces a partial triage — get
 PR_NUMBER=$(gh pr view --json number -q '.number')
 REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner')
 
-# 1. Reviews (state + summary bodies — Claude Code Review puts its findings here)
+# 1. Reviews (state + summary bodies — some reviewers put their findings here)
 gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
   --jq '.[] | {id, user: .user.login, state, submitted_at, body}'
 
@@ -120,10 +120,10 @@ Automated reviewers lack project history and still miss cross-file/architectural
 human reviewers' style preferences carry more weight since they maintain the code. Don't
 discount a comment by its source — a bot regularly catches real logic errors — but expect a
 real noise floor (independent evaluations put Copilot's vague/false-positive rate around
-15–25%): a comment that can't cite verifiable behavior gets pushed back, briefly. Managed
-Claude review pre-tags severity (🔴 Important / 🟡 Nit / 🟣 Pre-existing) — trust it as a
-prior, not a verdict. Positive summary feedback from an LLM reviewer is not comprehensive
-validation; it means that reviewer found nothing, not that nothing is there.
+15–25%): a comment that can't cite verifiable behavior gets pushed back, briefly. Some
+reviewers pre-tag severity — trust the tag as a prior, not a verdict. Positive summary
+feedback from an LLM reviewer is not comprehensive validation; it means that reviewer found
+nothing, not that nothing is there.
 
 ### Cross-round memory
 
@@ -165,9 +165,7 @@ Resolving push-backs is deliberate: the reasoning is preserved in the thread and
 the round report, and leaving them open just makes the merge-time skim noisier. Know what
 resolving does and doesn't do: it's hygiene for humans — Copilot is documented to repeat
 comments on re-review even when threads were resolved or dismissed (your prior replies are
-the real memory), and bots don't read thread replies at all. One exception: on PRs where
-managed Claude review is push-subscribed, leave Claude's fixed threads for Claude — its next
-run auto-resolves what's actually fixed, which doubles as verification.
+the real memory), and bots don't read thread replies at all.
 Review-level bodies and issue comments have no thread to resolve — address their points in the
 round report, and reply on the PR only if a point needs a visible answer.
 
@@ -183,7 +181,7 @@ consumes):
 
 ```markdown
 ## Review round report — PR #N, round R
-**Reviewers heard from:** copilot, claude[bot] · **Comments processed:** X new (Y skipped: resolved/outdated)
+**Reviewers heard from:** copilot, ... · **Comments processed:** X new (Y skipped: resolved/outdated)
 
 | # | Reviewer | File:Line | Comment (gist) | Verdict | Action taken |
 |---|----------|-----------|----------------|---------|--------------|

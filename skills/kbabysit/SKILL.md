@@ -1,6 +1,6 @@
 ---
 name: kbabysit
-description: Drive a PR from ready-for-review to merge-ready — request AI reviews (Copilot, Claude), wait for them, triage and address comments via kreview, re-review, and loop until another round adds no value. Ends with a TL;DR report. Never merges.
+description: Drive a PR from ready-for-review to merge-ready — request Copilot review, wait for it, triage and address comments via kreview, re-request, and loop until another round adds no value. Ends with a TL;DR report. Never merges, never triggers Claude reviews.
 metadata:
   version: "0.1.0"
 ---
@@ -35,48 +35,31 @@ gh pr view "$PR_NUMBER" --json state,isDraft,mergeable,headRefName,baseRefName,s
 - **CI red → fix CI first.** Reviewers reviewing broken code wastes a round. Diagnose, fix,
   push, wait for green, then start the loop.
 - Detect the repo's review automation so you don't double-request:
-  - **Claude, self-hosted** (`anthropics/claude-code-action` in `.github/workflows/`,
-    kinfra-generated repos have this): if it triggers on `pull_request` `synchronize`, it
-    re-reviews **automatically on every push** — never needs requesting. Mention-triggered
-    setups need a top-level `@claude review` comment instead.
-  - **Claude, managed Code Review** (check run named "Claude Code Review", no workflow file):
-    trigger mode is a repo setting (once / every push / manual). Manual trigger is a top-level
-    `@claude review` comment — bare, not `@claude review always`; this skill drives each
-    round, so don't subscribe the PR.
   - **Copilot:** automatic review (repo/org ruleset) typically fires on PR **creation** only;
     updates need an explicit re-request unless the ruleset enables "review new pushes". If a
     Copilot review already exists for the current head, don't request another.
-- If the repo uses Claude review and has no `REVIEW.md` at the root, note it in the final
-  report: a `REVIEW.md` with convergence rules ("after the first review, post Important
-  findings only; at most 5 nits") is the documented lever for making review loops converge.
+  - **Claude reviews are out of scope — cost.** They are expensive and have caused runaway
+    costs; they're meant to be unplugged from these repos. If you find Claude review
+    automation still wired up (an `anthropics/claude-code-action` workflow on `pull_request`
+    events, or a "Claude Code Review" check run appearing), don't touch it — but **flag it
+    prominently in the final report** so the human can unplug it for real.
 
-## 1. Request reviews
+## 1. Request the review
 
-For each configured reviewer that hasn't reviewed the current head SHA and won't auto-fire:
+If Copilot hasn't reviewed the current head SHA and won't auto-fire:
 
 ```bash
-# Copilot — same command requests and re-requests
+# Same command requests and re-requests
 gh pr edit "$PR_NUMBER" --add-reviewer @copilot
 ```
 
-Claude: if a `synchronize`-triggered workflow exists, pushing already triggered it. Otherwise
-comment `@claude review` (top-level PR comment — inline replies trigger nothing). If neither
-reviewer is available, proceed with whichever is — one reviewer is enough to run the loop.
+Human reviewers need no requesting — any comments they've left get triaged in the same round.
 
-## 2. Wait for reviews to complete
+## 2. Wait for the review to complete
 
-Poll with `sleep`-and-check. Completion signals and budgets, per reviewer:
-
-- **Copilot:** a new review by `copilot-pull-request-reviewer[bot]` in
-  `repos/$REPO/pulls/$PR_NUMBER/reviews` with `submitted_at` after the request. Usually lands
-  within a minute or two — poll every 30–60s, give up after ~5 min.
-- **Claude:** the check run for the head SHA reaches `completed`
-  (`gh api "repos/$REPO/commits/$HEAD_SHA/check-runs"`). Self-hosted workflows finish within
-  their `timeout-minutes` (~10); managed Code Review averages ~20 min — poll every 2–3 min,
-  give up after ~40. The managed check run's output ends with a machine-readable severity
-  count (`{"normal": N, "nit": N, "pre_existing": N}`) — read it; it's the cleanest
-  converged/not signal available. A run titled "encountered an error" or "timed out" gets
-  exactly one re-trigger via `@claude review` (the Checks re-run button does not work).
+Poll with `sleep`-and-check: a new review by `copilot-pull-request-reviewer[bot]` in
+`repos/$REPO/pulls/$PR_NUMBER/reviews` with `submitted_at` after the request means done.
+Usually lands within a minute or two — poll every 30–60s, give up after ~5 min.
 
 While waiting, also watch CI for the same head SHA — a red check that local gates missed is
 round feedback exactly like a review comment, and it gets fixed in the same round.
@@ -110,8 +93,7 @@ feedback prompted changes (in auto-review repos the push already triggered it).
 
 **Stop — converged** when any of:
 - The round produced **zero IMPLEMENT items** (all feedback was push-backs, nitpicks, or
-  repeats of prior rounds). For managed Claude review, `normal: 0` in the check-run severity
-  count is this signal directly.
+  repeats of prior rounds).
 - Reviewers returned no new comments, or approved.
 - New comments only re-raise points already handled — reply linking the prior reasoning
   (kreview's cross-round memory), then stop. Copilot is *documented* to repeat comments on
@@ -165,9 +147,13 @@ say so — that's a signal the pre-PR gates are doing their job, not a failure o
 
 - **Never merge.** Merge-ready is the finish line; the human merges.
 - **Never force-push** during the loop — it orphans review threads.
-- **Rounds cost real money** — a managed Claude review runs $15–25, Copilot burns
-  credits/Actions minutes. The round cap is a budget control, not just a convergence
-  heuristic; don't spend a round on a re-review nothing warranted.
+- **Never trigger a Claude review.** No `@claude` comments on the PR, no `@claude review`,
+  no subscribing, no re-enabling or re-running Claude review workflows — these are expensive
+  and have caused runaway costs. If one fires anyway from leftover automation, triage its
+  output like any other comments, but flag the still-active automation in the report.
+- **Rounds cost real money** — Copilot reviews burn credits/Actions minutes. The round cap is
+  a budget control, not just a convergence heuristic; don't spend a round on a re-review
+  nothing warranted.
 - Timebox waiting (step 2); a stalled reviewer never blocks the report.
 - If the same reviewer flip-flops across rounds (suggests X, then suggests reverting X),
   freeze that file's feedback as DISCUSS and note the oscillation in the report.
