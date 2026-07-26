@@ -31,7 +31,7 @@ The typical workflow for a new feature:
 
 Each stage produces artifacts consumed by the next. You can enter at any point — `/kbuild` works fine with a hand-written plan, and `/kplan` works with a design you wrote yourself.
 
-For day-to-day work, two shortcuts handle the common cases:
+For day-to-day work, a few shortcuts handle the common cases:
 
 ```
 /kissue 42       → Fetch GitHub issue, branch, TDD implement, PR with "Closes #42"

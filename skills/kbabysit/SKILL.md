@@ -14,7 +14,7 @@ not when reviewers stop talking — an empty round and a round of pure nitpicks 
 ```
 /kbabysit                # PR for the current branch
 /kbabysit <pr-number>
-/kbabysit <pr-number> max-rounds: 5
+/kbabysit <pr-number> max-rounds: 5   # override the round cap (default 3, applied in step 4)
 ```
 
 **End state:** merge-ready (or explicitly blocked) + a detailed report with TL;DR. This skill

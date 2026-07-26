@@ -39,14 +39,18 @@ REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner')
 gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
   --jq '.[] | {id, user: .user.login, state, submitted_at, body}'
 
-# 2. Review threads with state (new vs resolved vs outdated) — GraphQL only
-gh api graphql -f query='
-  query($owner:String!, $repo:String!, $pr:Int!) {
+# 2. Review threads with state (new vs resolved vs outdated) — GraphQL only.
+#    --paginate follows pageInfo automatically, so >100 threads aren't silently dropped.
+gh api graphql --paginate -f query='
+  query($owner:String!, $repo:String!, $pr:Int!, $endCursor:String) {
     repository(owner:$owner, name:$repo) { pullRequest(number:$pr) {
-      reviewThreads(first:100) { nodes {
-        id isResolved isOutdated path line
-        comments(first:50) { nodes { databaseId author{login} body createdAt } }
-      }}}}}' -f owner="${REPO%/*}" -f repo="${REPO#*/}" -F pr="$PR_NUMBER"
+      reviewThreads(first:100, after:$endCursor) {
+        nodes {
+          id isResolved isOutdated path line
+          comments(first:50) { nodes { databaseId author{login} body createdAt } }
+        }
+        pageInfo { hasNextPage endCursor }
+      }}}}' -f owner="${REPO%/*}" -f repo="${REPO#*/}" -F pr="$PR_NUMBER"
 
 # 3. General PR comments (not attached to lines)
 gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" \
