@@ -25,7 +25,7 @@ never merges and never closes a DISCUSS item on its own — those are the human'
 ## 0. Preflight
 
 ```bash
-PR_NUMBER=${ARG:-$(gh pr view --json number -q '.number')}
+PR_NUMBER=$(gh pr view --json number -q '.number')   # or the <pr-number> argument if given
 REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner')
 gh pr view "$PR_NUMBER" --json state,isDraft,mergeable,headRefName,baseRefName,statusCheckRollup
 ```

@@ -41,13 +41,15 @@ gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
 
 # 2. Review threads with state (new vs resolved vs outdated) — GraphQL only.
 #    --paginate follows pageInfo automatically, so >100 threads aren't silently dropped.
+#    Per-thread comments are capped at the first 100 (the API max) — a longer thread than
+#    that isn't a review, it's a meeting; escalate it rather than paginating deeper.
 gh api graphql --paginate -f query='
   query($owner:String!, $repo:String!, $pr:Int!, $endCursor:String) {
     repository(owner:$owner, name:$repo) { pullRequest(number:$pr) {
       reviewThreads(first:100, after:$endCursor) {
         nodes {
           id isResolved isOutdated path line
-          comments(first:50) { nodes { databaseId author{login} body createdAt } }
+          comments(first:100) { nodes { databaseId author{login} body createdAt } }
         }
         pageInfo { hasNextPage endCursor }
       }}}}' -f owner="${REPO%/*}" -f repo="${REPO#*/}" -F pr="$PR_NUMBER"
