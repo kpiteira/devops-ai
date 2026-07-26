@@ -31,11 +31,12 @@ The typical workflow for a new feature:
 
 Each stage produces artifacts consumed by the next. You can enter at any point — `/kbuild` works fine with a hand-written plan, and `/kplan` works with a design you wrote yourself.
 
-For day-to-day work, two shortcuts handle the common cases:
+For day-to-day work, a few shortcuts handle the common cases:
 
 ```
 /kissue 42       → Fetch GitHub issue, branch, TDD implement, PR with "Closes #42"
 /kreview         → Assess PR review comments, implement fixes or push back
+/kbabysit        → Babysit a PR: request Copilot review, address, loop to merge-ready
 ```
 
 For projects with Docker infrastructure, kinfra provides isolated environments:
@@ -148,7 +149,8 @@ kinfra done auth-M1                  # Clean up worktree, sandbox, containers
 | Command | Purpose |
 |---------|---------|
 | `/kissue <number>` | Implement a GitHub issue: fetch, branch, TDD, PR with `Closes #N` |
-| `/kreview` | Critically assess PR review comments — implement, push back, or discuss |
+| `/kreview` | Critically assess PR review comments — implement, push back, or discuss (one round) |
+| `/kbabysit` | Drive a PR to merge-ready: request Copilot review, wait, address via kreview, re-review, loop until converged, report with TL;DR |
 
 ### Infrastructure
 
@@ -202,8 +204,8 @@ The `/kinfra-onboard` skill provides intelligent, phased onboarding:
 |----------|---------|-------|
 | `Justfile` / `Makefile` | Task runner with `lint`, `quality`, `test-unit`, `check`, `fix`, `setup` targets | — |
 | `.githooks/pre-commit` | Runs `make check` before every commit | ~30s |
-| `.github/workflows/ci.yml` | Quality + tests + AI code review on PRs | ~2min |
-| `.github/workflows/security.yml` | CodeQL + AI security review | ~2min |
+| `.github/workflows/ci.yml` | Quality + tests on PRs | ~2min |
+| `.github/workflows/security.yml` | CodeQL analysis | ~2min |
 | `.claude/settings.json` | `TaskCompleted` hook runs `make lint` (~2s) | ~2s |
 | `tests/unit/conftest.py` | Blocks `socket.connect` in unit tests (Python only) | — |
 
@@ -277,7 +279,8 @@ devops-ai/
 │   ├── kplan/              # Implementation planning
 │   ├── kbuild/             # TDD task execution and milestone orchestration
 │   ├── kissue/             # GitHub issue implementation
-│   ├── kreview/            # PR review comment assessment
+│   ├── kreview/            # PR review comment assessment (single round)
+│   ├── kbabysit/           # PR review loop orchestration to merge-ready
 │   ├── kworktree/          # Worktree/sandbox management skill
 │   └── kinfra-onboard/     # Project onboarding skill
 ├── rules/                  # Shared principles (auto-loaded via .claude/rules/)
