@@ -204,8 +204,8 @@ The `/kinfra-onboard` skill provides intelligent, phased onboarding:
 |----------|---------|-------|
 | `Justfile` / `Makefile` | Task runner with `lint`, `quality`, `test-unit`, `check`, `fix`, `setup` targets | — |
 | `.githooks/pre-commit` | Runs `make check` before every commit | ~30s |
-| `.github/workflows/ci.yml` | Quality + tests + AI code review on PRs | ~2min |
-| `.github/workflows/security.yml` | CodeQL + AI security review | ~2min |
+| `.github/workflows/ci.yml` | Quality + tests on PRs | ~2min |
+| `.github/workflows/security.yml` | CodeQL analysis | ~2min |
 | `.claude/settings.json` | `TaskCompleted` hook runs `make lint` (~2s) | ~2s |
 | `tests/unit/conftest.py` | Blocks `socket.connect` in unit tests (Python only) | — |
 
