@@ -1,6 +1,6 @@
 # Project Configuration
 
-This file is read by k* development commands (kdesign, kplan, kbuild, etc.)
+This file is read by k* development commands (kspec, kbuild, etc.)
 to adapt workflows to this project's specific tooling and conventions.
 
 ## Project
@@ -39,8 +39,7 @@ Not configured.
 ## Paths
 
 - **Design documents:** [e.g., "docs/designs/"]
-- **Implementation plans:** [e.g., "implementation/" subfolder within design]
-- **Handoff files:** [e.g., "Same directory as implementation plans"]
+- **Specs:** [e.g., "docs/specs/" — intent specs + work briefs, v2 contract]
 
 ## Project-Specific Patterns
 

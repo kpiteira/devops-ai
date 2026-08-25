@@ -20,9 +20,9 @@ machine-checkable half of the project's architecture:
 - **Layering contracts** — which packages may import which ("domain never imports api")
 - **Pattern uniqueness** — one mechanism per job ("no `*Result` dataclass outside
   `results/`", "exactly one router base")
-- **Test honesty** — patch-density caps and no first-party patching (per the `tdd` rule:
-  testing theatre is a structure problem; a mock-welded suite resists every refactor the
-  other gates demand)
+- **Test honesty** — patch-density caps and no first-party patching (per the
+  `test-quality` rule: testing theatre is a structure problem; a mock-welded suite
+  resists every refactor the other gates demand)
 - **Ratchets** — frozen allowlists for violations that pre-date the gate
 
 A starter lives at `templates/test_invariants.py` (devops-ai). Thresholds and contracts
@@ -33,17 +33,18 @@ are configured in the copied file's own Configuration block — once copied into
 
 - **A structural gate failure is fixed by changing the code — never by editing the
   threshold, the contract, or the allowlist.** Widening anything requires Karl's explicit
-  sign-off in the conversation, recorded in the handoff.
+  sign-off, recorded as an amendment in the feature's spec.
 - **Ratchets only shrink.** The allowlist freezes the violations that existed when the gate
   was introduced; new code meets the bar immediately. When a legacy file comes into
   compliance, its entry is removed (the test enforces this) so it can't regress.
 - **Three sign-off requests against the same contract is a design signal, not a third
-  exception.** The contract is probably wrong — write an ACP (see kbuild) so it gets
-  decided, not routed around.
+  exception.** The contract is probably wrong — that's the escape valve: escalate to a
+  planner session (`/kspec triage`) so it gets decided, not routed around.
 
 ## Where the contracts come from
 
-From the architecture: each enforceable decision in ARCHITECTURE.md should name its check
-here. A decision that can't be expressed as a machine check is enforced as a named lens in
-kbuild's structural review instead — but that's an explicit choice, recorded in the doc,
-not a default.
+From planning: each durable structural decision in a feature's intent spec (its
+Invariants) should land as a machine check here — enforced structure is run, not read,
+so it can't go stale, and "locally better but violates a boundary" fails CI instead of
+requiring anyone's judgment. A decision that can't be expressed as a machine check stays
+a spec invariant the reviews carry — an explicit choice, recorded, never a default.

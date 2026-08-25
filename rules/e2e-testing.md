@@ -1,6 +1,10 @@
 # E2E Testing
 
-Every milestone ends with a VALIDATION task that exercises the real system end-to-end. This is the primary defense against "unit tests pass but the system doesn't work."
+Every milestone is gated by end-to-end evidence — the primary defense against "unit
+tests pass but the system doesn't work." In the v2 contract that gate is the
+milestone's planner-authored **acceptance tests** (the `test-quality` and
+`testing-taxonomy` rules): real E2E runs against the brief's pinned surface, executed
+in the executor's goal loop and on the milestone's PR.
 
 ## What "real E2E" means
 
@@ -11,32 +15,26 @@ E2E tests run against the actual system, not test doubles:
 - Actual state changes (database writes, file creation) — not in-memory state
 - Observable outcomes (logs, API responses, DB queries) — not assertions on mocks
 
-## When to run E2E tests
-
-- At the end of every milestone (as the final VALIDATION task)
-- Whenever a milestone changes how components interact
-- When previous milestone E2E tests should be re-verified for regression
-
-## What makes a valid validation
-
-A validation that only checks "the code runs without crashing" is insufficient. Valid E2E tests exercise real operational flows:
-
-| Insufficient | Valid |
-|--------------|-------|
-| "API imports without error" | "Feature completes and produces expected output" |
-| "System starts" | "Workflow executes and produces verifiable results" |
-| "No exceptions on startup" | "Full workflow completes with verifiable output" |
+A test that mocks or seeds data without real calls is an integration test: write it if
+useful, but it does not satisfy an E2E gate. "The system starts without crashing" is
+not E2E evidence; "the workflow completes with verifiable output" is.
 
 ## Evidence
 
-E2E test results should include concrete evidence: API responses, log excerpts, database state, or screenshots. "It worked" without evidence is not a test result.
+E2E results include concrete evidence: API responses, log excerpts, database state, or
+screenshots. "It worked" without evidence is not a test result — a milestone PR carries
+the blocking commands and their green output.
 
-## Per-project test catalog
+## The ke2e catalog
 
-The `/ke2e` skill and agents (ke2e-test-scout, ke2e-test-designer, ke2e-test-runner) provide the full E2E testing workflow. Test recipes live at `.claude/skills/ke2e/tests/` per project and grow organically as milestones are validated.
+The `/ke2e` skill and agents (ke2e-test-scout, ke2e-test-designer, ke2e-test-runner)
+remain the knowledge layer for E2E design and execution against project sandboxes:
+recipes live at `.claude/skills/ke2e/tests/` per project, the scout searches before the
+designer invents, the runner reports PASS/FAIL with evidence and failure
+categorization. Planners can draw on the catalog when authoring acceptance tests;
+executors can use the runner for exploratory validation beyond the blocking bar.
 
-Before designing a new E2E test, the scout agent searches the catalog for existing recipes. When no match exists, the designer agent creates a new recipe. The runner agent executes recipes against the real sandbox and reports PASS/FAIL with evidence and failure categorization.
-
-## Integration with milestones
-
-The milestone completion report includes an E2E test table documenting what was tested, the steps executed, and the result. This is an interface contract — PR reviewers rely on it to understand what was validated.
+How the intent-level conformance review and this functional E2E pipeline fully compose
+(ordering, shared artifacts, what blocks a feature boundary) is an open evolution —
+`docs/EVOLUTIONS.md` item 2. Until it lands, the acceptance tests are the gate and the
+catalog is a resource, not a required step.

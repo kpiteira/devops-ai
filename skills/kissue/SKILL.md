@@ -52,7 +52,7 @@ worth surfacing before you code, not something to quietly work around.
 
 ## 4. Implement with TDD
 
-Follow TDD: write failing tests first, then minimal implementation, then refactor. The `tdd` rule has the full cycle details.
+Write the tests that prove the fix or feature — the `test-quality` rule is the bar (outcomes, not choreography; fakes at the seams).
 
 If the issue has acceptance criteria, write tests that map to them.
 

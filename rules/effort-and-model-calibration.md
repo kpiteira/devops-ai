@@ -6,9 +6,11 @@ lookup wastes it; starving a hard design problem of effort produces shallow work
 
 ## Effort levels
 
-`xhigh` is the right setting for the heavy reasoning work: design, planning, implementation,
-architectural analysis (`/kdesign`, `/kplan`, `/kbuild`, and any audit/review skill). It is the
-recommended level for most coding and agentic tasks on current Opus models.
+`xhigh` is the right setting for the heavy reasoning work: planning, implementation,
+architectural analysis (`/kspec`, `/kbuild`, and any audit/review skill). It is the
+recommended level for most coding and agentic tasks on current Opus models. The v2
+contract's model tiering (planner on the strongest frontier model, executor on the
+strongest cost-effective coding model) is set per-session by the human or harness.
 
 `high` (the default) fits the lighter, more linear skills where the path is mostly known and the
 judgment is local: addressing review comments (`/kreview`), implementing a scoped issue

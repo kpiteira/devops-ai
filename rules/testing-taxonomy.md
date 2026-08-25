@@ -8,11 +8,12 @@ Tests are classified by what they exercise and what they need to run.
 |------|-----------|-------|-------------|---------|
 | Unit | tests/unit/ | <100ms each | None (no I/O; fakes at the seams) | Pre-commit, CI |
 | Integration | tests/integration/ | <5s each | Real services | CI |
-| E2E | tests/e2e/ | <30s each | Full running system | Milestone validation |
+| Acceptance | tests/acceptance/<feature>/ | <30s each | Full running system | Scoped: goal loop + own milestone's PR gate |
+| E2E | tests/e2e/ | <30s each | Full running system | Standing suite; milestone validation |
 
 ## Unit tests
 
-Unit tests exercise behaviors through public surfaces, with the in-process stack running real. "Unit" is a speed-and-determinism contract (no I/O), not a one-class isolation rule — the `tdd` rule defines where the fake/real line lives. They must have:
+Unit tests exercise behaviors through public surfaces, with the in-process stack running real. "Unit" is a speed-and-determinism contract (no I/O), not a one-class isolation rule — the `test-quality` rule defines where the fake/real line lives. They must have:
 
 - No network calls (no `socket.connect`, no HTTP requests)
 - No subprocess spawning (no `subprocess.run` unless mocked)
@@ -30,6 +31,15 @@ Integration tests exercise interactions between components with real services. T
 - Real HTTP endpoints
 - Docker containers (started by the test or pre-existing)
 - Real file system operations
+
+## Acceptance tests
+
+Acceptance tests are planner-authored blocking criteria for a milestone (the
+`test-quality` rule has their constraints). Technically E2E, but **scoped runs, not
+general-CI members**: they execute in the executor's goal loop and as a gate on their
+own milestone's PR, nowhere else — a not-yet-implemented milestone's tests are
+*supposed* to be failing. At feature close the human decides whether they're promoted
+into the standing `tests/e2e/` suite.
 
 ## E2E tests
 
