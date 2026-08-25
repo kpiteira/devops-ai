@@ -1,6 +1,7 @@
 ---
 name: kbuild
-description: Executor sessions for the v2 contract — consume one work brief, run the goal loop against its blocking criteria, honor the escape valve, deliver the milestone as a PR.
+description: Implement one milestone from its work brief — run the goal loop until the planner-authored blocking tests pass, then deliver a PR. Use when the user asks to build, implement, or execute a milestone or points at a work brief under docs/specs/.
+argument-hint: "<path-to-brief>"
 metadata:
   version: "1.0.0"
 ---

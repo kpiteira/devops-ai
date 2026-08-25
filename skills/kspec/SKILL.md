@@ -1,6 +1,7 @@
 ---
 name: kspec
-description: Planner sessions — turn an intent dump into a signed spec with work briefs and planner-authored acceptance tests; triage divergence reports; run re-planning passes and the feature-close review.
+description: Turn a feature idea into a signed intent spec with work briefs and planner-authored acceptance tests. Use when the user wants to plan, spec, or design a feature; triage a diverged milestone; re-plan after a divergence or change of direction; or close a finished feature with an intent-conformance review.
+argument-hint: "<intent dump> | triage <feature> | replan <feature> [M<N>…] | close <feature>"
 metadata:
   version: "1.0.0"
 ---
