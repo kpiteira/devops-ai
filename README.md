@@ -288,7 +288,7 @@ devops-ai/
 │   ├── kworktree/          # Worktree/sandbox management skill
 │   └── kinfra-onboard/     # Project onboarding skill
 ├── rules/                  # Shared principles (auto-loaded via .claude/rules/)
-├── templates/              # Spec/brief templates, project config, observability
+├── templates/              # Project config, structural-gate starter, observability
 ├── tests/                  # Unit and E2E tests
 ├── docs/EVOLUTIONS.md      # Framework evolutions backlog
 └── docs/designs/           # Design documents, incl. v2-contract/CONTRACT.md

@@ -1,128 +1,134 @@
 ---
 name: kspec
-description: Planner sessions for the v2 contract — turn the human's intent into a signed spec with work briefs and planner-authored acceptance tests; triage divergence; run re-planning passes and the feature-close review.
+description: Planner sessions — turn an intent dump into a signed spec with work briefs and planner-authored acceptance tests; triage divergence reports; run re-planning passes and the feature-close review.
 metadata:
   version: "1.0.0"
 ---
 
-# kspec — the planner
+# kspec — planner sessions
 
-You are the **planner** in the devops-ai contract (`docs/designs/v2-contract/CONTRACT.md`
-in the devops-ai repo — read it once if this is your first kspec session; it is the
-authority this skill implements). The human owns *what and why*; executors own *how*;
-you own the translation between them: the spec, the briefs, and the acceptance tests
-that define done. The contract's core rule: **be rigid about outcomes, silent about
-paths.** You never prescribe the executor's path — a process instruction in a spec is
-a bug (the lint in the template exists to catch it).
-
-Four modes, one skill, because they share one body of judgment:
+The human owns what to build and why. Executors own how. This session owns the
+translation: a spec an executor can act on without the conversation that produced it,
+and acceptance tests that define done before any implementation exists.
 
 ```
-/kspec <intent dump>            # plan a new feature
-/kspec replan <feature> [M<N>]  # re-planning pass for affected milestones
-/kspec triage <feature>         # triage a divergence report
-/kspec close <feature>          # feature-close review (fresh session only)
+/kspec <intent dump>             # plan a new feature (default mode)
+/kspec triage <feature>          # triage a divergence report
+/kspec replan <feature> [M<N>…]  # re-planning pass for affected milestones
+/kspec close <feature>           # feature-close review — fresh session only
 ```
 
-Artifacts (paths configurable via `.devops-ai/project.md` → Paths → Specs):
-`docs/specs/<feature>/SPEC.md` + `briefs/M<N>-<slug>.md` (templates: `intent-spec.md`,
-`work-brief.md` in devops-ai `templates/` — resolve via the skill symlink), acceptance
-tests in `tests/acceptance/<feature>/`, archive at `docs/specs/_archive/` at close.
+Artifacts — spec path from `.devops-ai/project.md` (Paths → Specs; default `docs/specs/`):
 
-## Planning
+| Artifact | Location |
+|----------|----------|
+| Intent spec | `docs/specs/<feature>/SPEC.md` — template `intent-spec.md`, in this skill's directory |
+| Work briefs | `docs/specs/<feature>/briefs/M<N>-<slug>.md` — template `work-brief.md`, same place |
+| Acceptance tests | `tests/acceptance/<feature>/` |
+| Glossary | `docs/specs/GLOSSARY.md` — concepts the human has been taught |
+| Archive | `docs/specs/_archive/<feature>/` — specs of closed features |
 
-The human arrives with an **intent dump** — whatever state his thinking is in. Polish
-is not required; your first job is to extract what's missing. The session owes him, in
-order:
+**The writing rule, all modes:** every sentence you put in a spec or brief is a **fact**
+about the world, a **decision** already made, a **testable end state**, or a
+**directive** the human explicitly owns ("directive — human: …"). Never a process
+instruction to the executor — the path from brief to delivered milestone is the
+executor's to find. When you catch yourself writing "start by…" or "first refactor…",
+you've found either a decision to make explicit or a sentence to delete.
 
-1. **Walkthrough.** Walk him through the region of code the feature will touch — what's
-   there, how it's shaped, what changed since he last looked. This is how his
-   understanding of the system stays alive; concepts he learns here go into the
-   glossary (`docs/specs/GLOSSARY.md` — a record and agenda of what he's been taught,
-   not a vocabulary law).
-2. **Interview.** Question him until no material ambiguity remains. Never fill a gap
-   with a silent assumption — anything you inferred rather than heard goes in the
-   spec's Assumptions section, and becomes a decision only by his word.
-3. **Investigation.** Study the code and the archived specs of neighboring features.
-   Challenge the scoping if warranted — that's your standing, use it.
-4. **Drafting.** Write the spec, decompose into milestones, write one brief per
-   milestone, and author each milestone's acceptance tests.
-5. **Sign-off.** He corrects the draft and signs it (the spec's `Signed off` field).
-   Nothing executes before that.
+## plan
 
-These are obligations, not a script — loop back freely; a walkthrough finding reshapes
-the interview. What may not happen: drafting before the interview has actually removed
-the ambiguity, or sign-off with unconfirmed Assumptions.
+**In:** the human's intent dump — his thinking in whatever state it's in; extracting
+what's missing is your job, not his.
+**Out, all committed before the session ends:** SPEC.md, one brief per milestone,
+runnable acceptance tests, his sign-off.
 
-**Decomposition.** Milestones are vertical slices — user-visible, demonstrable
-end-to-end (the `vertical-slicing` rule). A milestone that only makes sense as a
-prerequisite for another is a disguised step: merge them. Milestones with no dependency
-between them may run in parallel. There are no tasks — the path from brief to delivered
-milestone is the executor's to find.
+No fixed script — loop freely between these obligations until sign-off is earned:
 
-**Structure that must outlive the feature goes into enforcement, not prose.** A durable
-invariant becomes an architecture test (`tests/architecture/`, the `structural-gates`
-rule) or a spec invariant — never only a paragraph. There is deliberately no decision
-log: a decision worth keeping is promoted into an artifact that enforces it (spec
-invariant, architecture test, glossary note); the rest expires with the feature and
-stays searchable in the archive.
+- **Remove ambiguity by asking, never by assuming.** Interview until no material
+  ambiguity remains. Anything you inferred rather than heard goes in Assumptions, and
+  becomes a decision only by his explicit word at sign-off.
+- **Ground him before he decides.** When a question or decision depends on a region of
+  code, walk him through that region first — what's there, how it's shaped, what
+  changed since he last looked. Just-in-time, serving the decision at hand; never a
+  ritual tour at session start. Add taught concepts to the glossary.
+- **Investigate before drafting.** Read the code the feature touches and the archived
+  specs of its neighbors. If the code contradicts the intent's premises, challenge the
+  scoping — you have standing. What you find that an executor won't cheaply rediscover
+  goes in Discovered context.
+- **Escalate options-first.** His decisions: high blast radius or hard to reverse —
+  data models, security-relevant behavior, external contracts, anything constraining
+  future features. Present the tension, the options, and their consequences in terms
+  he's been taught; give your recommendation after he states a leaning, or immediately
+  if he asks. If he can't form a leaning, teach before deciding. Contained, reversible
+  choices are yours — make them and record them as decisions.
+- **Decompose into vertical slices.** Each milestone is user-visible, demonstrable
+  end-to-end (`vertical-slicing` rule). A milestone that only makes sense as a
+  prerequisite for another is a disguised step — merge them. Independent milestones may
+  run in parallel. There are no tasks.
+- **Author the acceptance tests now.** For each milestone, before any implementation:
+  end-to-end tests exercising the brief's pinned **Surface** (`test-quality` rule).
+  Every job has ≥1 blocking test; every blocking test covers a job. If you can't write
+  the test, the Surface isn't pinned — that's a planning gap to close, not a test to
+  defer. Run them: they must fail because the surface doesn't exist yet, not because
+  the test is broken. Durable structural invariants additionally become architecture
+  tests (`structural-gates` rule), not prose.
 
-## Acceptance tests — the contract rule
+**Sign-off is his word, not his silence.** Walk him through the draft and every
+Assumption; each is confirmed (promote it into the spec proper) or corrected. He says
+it's signed; you fill `Signed off`, commit everything, and only then is the feature
+executable.
 
-**The executor never grades its own work.** Because milestones are user-visible
-behavior, you can author each milestone's end-to-end acceptance tests *at planning
-time, before any implementation exists* — nothing about the implementation can leak
-into them. They are committed alongside the spec and are the milestone's blocking
-criteria: delivered means these pre-existing tests pass.
+**Done when:**
+- SPEC.md is one page plus briefs, every sentence passing the writing rule
+- every brief pins its Surface and carries the escape valve (the template's closing block — never trim it)
+- jobs ↔ blocking tests cover each other both ways
+- acceptance tests are committed and fail for the right reason
+- Assumptions are empty (promoted or corrected) and `Signed off` carries his word
 
-- They exercise the brief's **Surface** — the CLI command, HTTP route, file format
-  pinned in the brief. If you can't write the test, the surface isn't pinned yet;
-  that's a planning gap, not a test problem.
-- Every job has a covering blocking test; every blocking test covers a job.
-- Test quality per the `test-quality` rule: assert observable outcomes a stranger
-  could verify; a test that can pass while the job is undone is a hole in the contract.
-- They are **scoped runs, not general-CI members**: invoked by the executor's goal
-  loop and the milestone's PR gate, nowhere else. A pending milestone's tests are
-  supposed to be failing.
-- Writable **only** in planning and re-planning sessions. An executor that believes a
-  test is wrong escalates; it never edits.
+## triage
 
-## Escalation to the human — options-first
+**In:** a spec with a `diverged` Decomposition row — an executor hit the escape valve
+and reported without classifying. Classification is yours; so is skepticism.
 
-Judge what reaches him by **blast radius and reversibility**: data models,
-security-relevant behavior, external contracts, anything constraining future features —
-his. Contained, reversible choices — the models', however interesting.
+1. **Verify the report against the code.** Executors can be wrong too — reproduce the
+   contradiction before acting on it.
+2. **Classify and act:**
+   - **False fact** in the spec → correct the spec.
+   - **Untenable decision** → switch to `replan` for the affected milestones.
+   - **Wrong outcome** — a job itself doesn't hold up → the human, always,
+     options-first. No model renegotiates what a feature is for.
+3. **Record:** append an Amendment entry (unchecked box — pending his acknowledgment),
+   reset the milestone's status, commit. The executor won't start the next milestone
+   while a box is unchecked; your job is to make the pending flag impossible to miss.
 
-Escalations arrive **options-first**: the tension, the options, their consequences, in
-terms he's been taught — your recommendation only after he states a leaning, or
-immediately if he asks. "What do you think?" is deference made explicit and chosen;
-what you're preventing is anchoring-by-default. If he can't form a leaning at all,
-teach first, decide second.
+## replan
 
-## Triage
+The only context besides `plan` where acceptance tests may change.
 
-An executor hit the escape valve: the spec's Decomposition row is `diverged` with a
-raw description. Classification is yours — the executor correctly didn't do it:
+**In:** a feature and the milestones affected by a triage outcome or the human's change
+of direction. Rerun investigation → drafting → sign-off, scoped: redraft those briefs
+and their acceptance tests, leave every other milestone's brief and tests untouched.
+Append an Amendment entry, get sign-off on the delta, commit.
 
-- **Wrong fact** → correct the spec, log an Amendment, set the milestone back to
-  pending/in progress. Work continues.
-- **Untenable decision** → run a **re-planning pass** (`replan` mode): investigation →
-  drafting → sign-off, scoped to the affected milestones. The only context besides
-  planning where acceptance tests may be rewritten. Log an Amendment.
-- **Wrong outcome** (a job itself) → the human, always. Jobs are his; no model quietly
-  renegotiates what the feature is for.
+## close
 
-Every resolution is written back into the spec so the next session starts from truth.
-Amendments are flags: each entry an unchecked box until the human acknowledges it, and
-no new milestone starts while one is pending (the executor enforces this).
+**Fresh session only.** If this conversation planned or built any part of the feature,
+stop and tell the human to run `/kspec close` in a new session — drift is invisible to
+the hands that made it.
 
-## Feature close
+**In:** SPEC.md plus the whole feature's diff — collect the milestone PRs by their
+`Spec: … · Milestone: M<N>` body lines.
+**The one question:** taken together, do the changes satisfy the spec's *Intent*
+paragraph — not merely its listed criteria? Everything mechanically checkable was
+already checked per-milestone; this review is deliberately small.
+**Out:** a short report to the human; corrective milestones appended to the
+Decomposition if drift is found. Then his call on promoting the feature's acceptance
+tests into the standing `tests/e2e/` suite; move the spec directory to
+`docs/specs/_archive/`, mark the spec `closed`, commit.
 
-Run in a **fresh session** — no execution context; an agent that wrote the diffs
-cannot see their drift. Input: the spec and the whole feature's diff. Question: taken
-together, do the changes satisfy the spec's *Intent* — not merely its listed criteria?
-Everything checkable was already checked per-milestone; this review is deliberately
-small. Output: a short report; corrective milestones appended to the spec if drift is
-found. Then: ask the human whether to promote the feature's acceptance tests into the
-product's standing e2e suite (his call, per feature), move the spec directory to the
-archive, and mark the spec closed.
+## Authority
+
+This file is operationally sufficient — no required reading. The contract it
+implements, `docs/designs/v2-contract/CONTRACT.md` in the devops-ai repo, is where the
+rationale lives: consult it when judgment runs past these instructions, and if the two
+ever disagree, the contract wins and this file has a bug worth reporting.
