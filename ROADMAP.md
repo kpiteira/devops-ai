@@ -49,8 +49,8 @@ Last updated: 2026-08-24
 
 ### v2 remaining (CONTRACT.md next steps)
 
-- [ ] **PR gate wiring** — run a milestone PR's own `blocking:` command in CI (map the branch/PR line to its brief); today the goal loop and the executor's PR evidence carry it
-- [ ] **Pilot on one real feature** — measure interruptions, escalation quality, and run the adversarial test (fresh session tries to pass all blocking criteria while violating intent)
+- [ ] **PR gate wiring** — run a milestone PR's own `blocking:` command as a *separate, selectively-triggered* workflow (ready-for-review + manual re-trigger, required at merge). Never in the standing `check` job: that job stays unit-only under the 2-minute CI budget (EVOLUTIONS.md #5). Needs the per-project can-CI-run-the-stack answer; today the goal loop and the executor's PR evidence carry it
+- [ ] **Pilot on one real feature (khealth)** — the feature is the vehicle; the observations are the deliverable. Log to `docs/designs/v2-contract/PILOT.md` as we go. Measure interruptions, escalation quality, where grading needed non-deterministic judgment (unroll it concretely there), and run the adversarial test (fresh session tries to pass all blocking criteria while violating intent)
 - [ ] **Post-pilot review** — did briefs stay outcome-only; did the right things escalate; re-teaching and re-litigation costs
 - [ ] **Conformance ∘ e2e seam** — how intent review and the ke2e pipeline compose (EVOLUTIONS.md #2)
 - [ ] **Code review process** — de-babysit PRs (EVOLUTIONS.md #3)

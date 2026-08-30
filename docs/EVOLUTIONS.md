@@ -25,3 +25,15 @@
 **Problem:** running multiple teams of agents in parallel creates a heavy context-switch tax; the human needs a way to ground quickly at any moment — where each product stands, what's on deck short-term and long-term.
 **Direction:** to be designed — a maintained, always-current roadmap view aggregating feature specs' status across products; possibly generated from the specs themselves so it can't drift from reality.
 **Status:** not started.
+
+## 5. CI budget and gate events
+
+**Problem:** the always-run CI job must stay under 2 minutes (hard limit; ideally under 1) — the human's principle, and why it runs unit tests only. The milestone blocking gate is E2E and cannot live there; running it on every push would also be overly expensive.
+**Direction:** blocking acceptance tests run as a separate, selectively-triggered workflow — on PR ready-for-review plus a manual re-trigger, required at merge — never in the standing `check` job. Needs per-project infra answers (can this project's stack stand up in a runner at all?).
+**Status:** principle agreed 2026-08-30; wiring deferred to its own feature (see roadmap "PR gate wiring").
+
+## 6. kinfra beyond Python containers
+
+**Problem:** kinfra grew up on Python apps in Docker; the quality generation (uv-flavored Makefile, pytest conftest guardrails) is Python-centric with a thinner Node path, and the human is expanding beyond that world.
+**Direction:** to be designed — keep the language-agnostic core (worktrees, slots, ports, compose, observability, guards) and make the quality layer pluggable per stack rather than grown by special cases.
+**Status:** identified 2026-08-30, not started.
