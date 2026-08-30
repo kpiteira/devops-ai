@@ -12,6 +12,10 @@ quality:
 test-unit:
     uv run pytest tests/unit
 
+# Integration tests (real services; not in check — CI stays unit-only)
+test-integration:
+    uv run pytest tests/integration
+
 # Structural gates (see devops-ai rules/structural-gates.md)
 test-arch:
     @if [ -d tests/architecture ]; then uv run pytest tests/architecture; else echo "no tests/architecture/ yet — structural gates not adopted (see devops-ai rules/structural-gates.md)"; fi

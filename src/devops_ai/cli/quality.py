@@ -632,7 +632,9 @@ def generate_ci_workflow(plan: QualityPlan) -> str:
         "        run: |\n"
         "          git show \"${{ github.event.pull_request.base.sha }}:"
         ".devops-ai/check_contract_integrity.py\" "
-        "> \"$RUNNER_TEMP/check_contract_integrity.py\"\n"
+        "> \"$RUNNER_TEMP/check_contract_integrity.py\" 2>/dev/null \\\n"
+        "            || cp .devops-ai/check_contract_integrity.py "
+        "\"$RUNNER_TEMP/check_contract_integrity.py\"\n"
         "          python3 \"$RUNNER_TEMP/check_contract_integrity.py\" "
         "\"${{ github.event.pull_request.base.sha }}\" \"$GITHUB_HEAD_REF\"\n"
     )

@@ -13,3 +13,7 @@ def _guarded_connect(self, address):  # type: ignore[no-untyped-def]
 
 
 socket.socket.connect = _guarded_connect  # type: ignore[assignment]
+
+
+def pytest_sessionfinish(session, exitstatus):  # type: ignore[no-untyped-def]
+    socket.socket.connect = _original_connect  # type: ignore[method-assign]
