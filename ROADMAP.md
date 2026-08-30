@@ -41,15 +41,15 @@ Last updated: 2026-08-24
 - `/kspec` (planner: walkthrough, interview, spec + briefs + planner-authored acceptance tests, triage, replan, close) replaces `/kdesign`
 - `/kbuild` rewritten thin (executor: one brief, goal loop on blocking tests, escape valve, milestone PR)
 - Templates: `intent-spec.md`, `work-brief.md` (lint + escape valve baked in); amendment-flag and divergence mechanics specified
-- Rules reconciled: `tdd` → `test-quality` (process mandate dropped, honesty bar kept), `handoffs` deleted (state lives in the spec + git), acceptance tests added to the taxonomy
+- Rules reconciled: `tdd` → `test-quality` (process mandate dropped, honesty bar kept), `handoffs` deleted (state lives in the spec + git), acceptance tests added to the taxonomy; `outcome-contracts` rule states the contract core in every session
+- Enforcement (merged from the parallel Copilot proposal): `kinfra init` generates a contract-integrity guard (briefs + acceptance tests writable only on `spec/*`/`replan/*`, run from the PR base commit so a PR can't neuter it) and a new-public-symbol signal; `tests/architecture/test_v2_contract.py` gates the framework's own contract surfaces
 - Evolutions backlog imported (`docs/EVOLUTIONS.md`)
 
 ## Backlog
 
 ### v2 remaining (CONTRACT.md next steps)
 
-- [ ] **Validation pipeline** — new-public-symbol detection per PR; first architecture tests (contract steps 5)
-- [ ] **PR gate wiring** — map `Milestone: M<N>` PR line to its acceptance-test run in CI
+- [ ] **PR gate wiring** — run a milestone PR's own `blocking:` command in CI (map the branch/PR line to its brief); today the goal loop and the executor's PR evidence carry it
 - [ ] **Pilot on one real feature** — measure interruptions, escalation quality, and run the adversarial test (fresh session tries to pass all blocking criteria while violating intent)
 - [ ] **Post-pilot review** — did briefs stay outcome-only; did the right things escalate; re-teaching and re-litigation costs
 - [ ] **Conformance ∘ e2e seam** — how intent review and the ke2e pipeline compose (EVOLUTIONS.md #2)

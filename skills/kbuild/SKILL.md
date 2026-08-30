@@ -60,9 +60,10 @@ they hold), permissions pre-approved so the loop isn't parked on a human.
 > codebase, or an acceptance test contradicts a job: stop and describe what you found.
 > Don't comply, and don't classify the problem yourself.
 
-Mechanics: set your Decomposition row to `diverged`, add an indented `Divergence:`
-block under it — what you found, concretely, with file/line evidence where it exists —
-commit, and stop. Classification (fact vs decision vs outcome) needs cross-feature
+Mechanics: write `docs/specs/<feature>/divergences/M<N>-<date>.md` from this skill's
+`divergence-report.md` template — what contradicts the contract, reproducible evidence,
+why you stopped — set your Decomposition row to `diverged` with the report path in its
+Evidence column, commit, and stop. Classification (fact vs decision vs outcome) needs cross-feature
 context you don't have; a planner session (`/kspec triage`) picks it up from there.
 Don't build workarounds on top of a fact you believe is false.
 
@@ -72,7 +73,8 @@ A finished milestone becomes a PR — one PR per milestone, merged as it clears 
 never a long-lived feature branch:
 
 - Branch `impl/<feature>-M<N>` (the kinfra convention; `kinfra impl <feature>/M<N>`
-  gives you a worktree and sandbox when the project uses them).
+  gives you a worktree and sandbox when the project uses them). The CI guard rejects
+  brief or acceptance-test changes from this branch — by design, not as an obstacle.
 - Before opening it, a fresh-context review of the whole diff — conformance to the
   spec's invariants, interactions with prior features that share state — is a tool
   worth using; the hands that wrote the code can't see its drift. The *pipeline* is
@@ -81,6 +83,6 @@ never a long-lived feature branch:
   M<N>` — so the gate knows which acceptance tests to run: this milestone's blocking
   criteria, plus the standing checks. Include the blocking commands and their final
   green output in the description.
-- Set the Decomposition row to `PR`, then `delivered` when merged. Nothing else to
-  write: no handoff files, no completion report — the spec row, the PR, and git are
-  the record.
+- Set the Decomposition row to `PR` with the PR link in its Evidence column, then
+  `delivered` when merged. Nothing else to write: no handoff files, no completion
+  report — the spec row, the PR, and git are the record.

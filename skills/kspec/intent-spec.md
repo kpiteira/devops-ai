@@ -1,8 +1,11 @@
 <!--
 INTENT SPEC — one per feature. Lives at docs/specs/<feature>/SPEC.md (path configurable
 via .devops-ai/project.md → Paths → Specs). Work briefs live beside it in briefs/,
-acceptance tests in tests/acceptance/<feature>/. At feature close the spec directory
-moves to docs/specs/_archive/<feature>/.
+divergence reports in divergences/, acceptance tests in tests/acceptance/<feature>/.
+At feature close the spec directory moves to docs/specs/_archive/<feature>/.
+
+Briefs and acceptance tests are planner-owned: CI rejects changes to them from any
+branch except spec/* and replan/*, so planning sessions work on those branches.
 
 THE LINT (a warning, not a law): every sentence in this spec should be a FACT about the
 world, a DECISION already made, or a TESTABLE END STATE. A fourth kind is legal but must
@@ -51,13 +54,14 @@ end-to-end. A milestone that only makes sense as a prerequisite for another is a
 disguised step: merge them. Status here is the cross-session progress state; there is
 no other status artifact.
 
-Status values: pending → in progress → diverged (awaiting triage) → PR → delivered.
-On divergence, the executor adds an indented "Divergence:" block under the row —
-what it found, verbatim per the escape valve, with no self-classification. -->
+Status values: pending → in progress → diverged (awaiting triage) → PR → delivered;
+corrective (appended at feature close). The Evidence column carries the PR link and
+blocking-command result once delivered, or the divergence report path
+(divergences/M<N>-YYYY-MM-DD.md, from kbuild's template) while diverged. -->
 
-| Milestone | Brief | Jobs | Depends on | Status |
-|-----------|-------|------|------------|--------|
-| M1 — <name> | briefs/M1-<slug>.md | J1 | — | pending |
+| Milestone | Brief | Jobs | Depends on | Status | Evidence |
+|-----------|-------|------|------------|--------|----------|
+| M1 — <name> | briefs/M1-<slug>.md | J1 | — | pending | — |
 
 ## Assumptions
 

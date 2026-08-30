@@ -26,8 +26,15 @@ Artifacts — spec path from `.devops-ai/project.md` (Paths → Specs; default `
 | Intent spec | `docs/specs/<feature>/SPEC.md` — template `intent-spec.md`, in this skill's directory |
 | Work briefs | `docs/specs/<feature>/briefs/M<N>-<slug>.md` — template `work-brief.md`, same place |
 | Acceptance tests | `tests/acceptance/<feature>/` |
-| Glossary | `docs/specs/GLOSSARY.md` — concepts the human has been taught |
+| Divergence reports | `docs/specs/<feature>/divergences/` — written by executors, resolved here |
+| Close report | `docs/specs/<feature>/CLOSE.md` — template `feature-close-report.md` |
+| Glossary | `docs/specs/GLOSSARY.md` — template `glossary.md`; concepts the human has been taught |
 | Archive | `docs/specs/_archive/<feature>/` — specs of closed features |
+
+**Branch:** briefs and acceptance tests are planner-owned — the CI guard rejects changes
+to them from any branch except `spec/*` and `replan/*`. Work on `spec/<feature>`
+(`kinfra spec <feature>` creates the worktree) for `plan`, and `replan/<feature>` for
+`triage`/`replan` outcomes that touch briefs or tests.
 
 **The writing rule, all modes:** every sentence you put in a spec or brief is a **fact**
 about the world, a **decision** already made, a **testable end state**, or a
@@ -81,15 +88,16 @@ executable.
 
 **Done when:**
 - SPEC.md is one page plus briefs, every sentence passing the writing rule
-- every brief pins its Surface and carries the escape valve (the template's closing block — never trim it)
+- every brief pins its Surface, states its exact `blocking:` command, and carries the escape valve (the template's closing block — never trim it)
 - jobs ↔ blocking tests cover each other both ways
 - acceptance tests are committed and fail for the right reason
 - Assumptions are empty (promoted or corrected) and `Signed off` carries his word
 
 ## triage
 
-**In:** a spec with a `diverged` Decomposition row — an executor hit the escape valve
-and reported without classifying. Classification is yours; so is skepticism.
+**In:** a spec with a `diverged` Decomposition row and the divergence report it points
+to — an executor hit the escape valve and reported without classifying. Classification
+is yours; so is skepticism.
 
 1. **Verify the report against the code.** Executors can be wrong too — reproduce the
    contradiction before acting on it.
@@ -98,8 +106,8 @@ and reported without classifying. Classification is yours; so is skepticism.
    - **Untenable decision** → switch to `replan` for the affected milestones.
    - **Wrong outcome** — a job itself doesn't hold up → the human, always,
      options-first. No model renegotiates what a feature is for.
-3. **Record:** append an Amendment entry (unchecked box — pending his acknowledgment),
-   reset the milestone's status, commit. The executor won't start the next milestone
+3. **Record:** fill the report's *Planner resolution* section, append an Amendment entry
+   (unchecked box — pending his acknowledgment), reset the milestone's status, commit. The executor won't start the next milestone
    while a box is unchecked; your job is to make the pending flag impossible to miss.
 
 ## replan
@@ -122,8 +130,9 @@ the hands that made it.
 **The one question:** taken together, do the changes satisfy the spec's *Intent*
 paragraph — not merely its listed criteria? Everything mechanically checkable was
 already checked per-milestone; this review is deliberately small.
-**Out:** a short report to the human; corrective milestones appended to the
-Decomposition if drift is found. Then his call on promoting the feature's acceptance
+**Out:** a short report to the human (`feature-close-report.md` → `CLOSE.md`);
+corrective milestones appended to the Decomposition if drift is found — each with a
+brief and planner-authored blocking tests, for his sign-off. Then his call on promoting the feature's acceptance
 tests into the standing `tests/e2e/` suite; move the spec directory to
 `docs/specs/_archive/`, mark the spec `closed`, commit.
 

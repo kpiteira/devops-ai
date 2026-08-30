@@ -33,9 +33,10 @@ The workflow for a new feature — **rigid about outcomes, silent about paths**:
 ```
 
 There are no task lists — the path from brief to delivered milestone is the executor's
-to find. The rigidity lives in contracts: planner-authored acceptance tests the
-executor can never edit, structural gates in `make check`, and amendment flags that
-keep the human's signature meaningful.
+to find. The rigidity lives in contracts, enforced by machines: a CI guard that rejects
+brief or acceptance-test edits from any branch but `spec/*`/`replan/*` (the executor can
+never grade its own work), structural gates in `make check`, a new-public-symbol signal
+on every PR, and amendment flags that keep the human's signature meaningful.
 
 For day-to-day work, a few shortcuts handle the common cases:
 
@@ -211,6 +212,8 @@ The `/kinfra-onboard` skill provides intelligent, phased onboarding:
 | `.githooks/pre-commit` | Runs `make check` before every commit | ~30s |
 | `.github/workflows/ci.yml` | Quality + tests on PRs | ~2min |
 | `.github/workflows/security.yml` | CodeQL analysis | ~2min |
+| `.devops-ai/check_contract_integrity.py` | PR guard: briefs + acceptance tests are planner-owned (`spec/*`, `replan/*` only) | ~1s |
+| `.devops-ai/check_public_surface.py` | PR signal: new public symbols annotated for planner review | ~1s |
 | `.claude/settings.json` | `TaskCompleted` hook runs `make lint` (~2s) | ~2s |
 | `tests/unit/conftest.py` | Blocks `socket.connect` in unit tests (Python only) | — |
 
@@ -281,7 +284,7 @@ devops-ai/
 ├── skills/                 # AI tool skills (symlinked on install)
 │   ├── kspec/              # Planner: spec + briefs + acceptance tests, triage, close
 │   ├── kbuild/             # Executor: one brief → goal loop → milestone PR
-│   ├── kissue/             # GitHub issue implementation
+│   ├── kissue/             # Bounded issue lane (defects, chores)
 │   ├── kreview/            # PR review comment assessment (single round)
 │   ├── kbabysit/           # PR review loop orchestration to merge-ready
 │   ├── ke2e/               # E2E test catalog knowledge base + agents

@@ -24,6 +24,7 @@ Not configured.
 
 - **Command:** uv run pytest tests/e2e
 - **Requires:** Docker running
+- **Acceptance tests:** tests/acceptance
 
 ## Paths
 
