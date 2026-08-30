@@ -438,7 +438,7 @@ def findings(diff: str) -> list[tuple[str, int, str]]:
 def main() -> int:
     base = sys.argv[1] if len(sys.argv) > 1 else "origin/main"
     result = subprocess.run(
-        ["git", "diff", "--unified=0", "--diff-filter=AM", f"{base}...HEAD", "--"],
+        ["git", "diff", "--unified=0", "--diff-filter=ACMR", f"{base}...HEAD", "--"],
         capture_output=True,
         text=True,
         check=False,
@@ -495,11 +495,23 @@ GUARD_PATHS = {
 }
 
 
-def acceptance_root() -> str:
-    config = Path(".devops-ai/project.md")
-    if not config.exists():
-        return DEFAULT_ACCEPTANCE_ROOT
-    match = ACCEPTANCE_FIELD.search(config.read_text())
+def acceptance_root(base: str) -> str:
+    # Read the config from the BASE commit: the root the human signed governs this
+    # PR — a PR that repoints the field cannot move the guard off its own edits.
+    show = subprocess.run(
+        ["git", "show", f"{base}:.devops-ai/project.md"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if show.returncode == 0:
+        content = show.stdout
+    else:
+        config = Path(".devops-ai/project.md")
+        if not config.exists():
+            return DEFAULT_ACCEPTANCE_ROOT
+        content = config.read_text()
+    match = ACCEPTANCE_FIELD.search(content)
     if match is None:
         return DEFAULT_ACCEPTANCE_ROOT
     value = match.group(1).strip().strip("`'\\"").rstrip("/")
@@ -548,7 +560,7 @@ def main() -> int:
         print(result.stderr, file=sys.stderr)
         return result.returncode
 
-    root = acceptance_root()
+    root = acceptance_root(base)
     protected = sorted({
         path for path in changed_paths(result.stdout)
         if protected_path(path, root)

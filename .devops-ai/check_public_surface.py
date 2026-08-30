@@ -95,7 +95,7 @@ def findings(diff: str) -> list[tuple[str, int, str]]:
 def main() -> int:
     base = sys.argv[1] if len(sys.argv) > 1 else "origin/main"
     result = subprocess.run(
-        ["git", "diff", "--unified=0", "--diff-filter=AM", f"{base}...HEAD", "--"],
+        ["git", "diff", "--unified=0", "--diff-filter=ACMR", f"{base}...HEAD", "--"],
         capture_output=True,
         text=True,
         check=False,
