@@ -1,6 +1,6 @@
 # Project Configuration
 
-This file is read by k* development commands (kdesign, kplan, kbuild, etc.)
+This file is read by k* development commands (kspec, kbuild, etc.)
 to adapt workflows to this project's specific tooling and conventions.
 
 ## Project
@@ -24,12 +24,12 @@ Not configured.
 
 - **Command:** uv run pytest tests/e2e
 - **Requires:** Docker running
+- **Acceptance tests:** tests/acceptance
 
 ## Paths
 
 - **Design documents:** docs/designs/
-- **Implementation plans:** implementation/ subfolder within design
-- **Handoff files:** Same directory as implementation plans
+- **Specs:** docs/specs/ (intent specs + work briefs, v2 contract)
 
 ## Project-Specific Patterns
 

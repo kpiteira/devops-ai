@@ -32,75 +32,35 @@ We are partners building devops-ai together. This section defines our collaborat
 
 ## Project Purpose
 
-devops-ai provides versioned, configuration-driven development workflow skills for AI-assisted software engineering.
+devops-ai implements the human–model contract for building software where models do
+nearly all planning and implementation and a single human owns the product. The
+contract is `docs/designs/v2-contract/CONTRACT.md` — the authority for how planner
+sessions, executor sessions, and the human relate. Its core: **rigid about outcomes,
+silent about paths.**
 
 Key components:
-- **Skills** (`skills/`): Markdown command files that encode workflow patterns (Agent Skills standard)
-- **Shared resources** (`skills/shared/`): Cross-skill reference docs (e.g., E2E testing workflow)
-- **Templates** (`templates/`): Bootstrap files for new projects
-- **Docs** (`docs/`): Design documents, architecture, and implementation plans
-
-## Project Structure
-
-```
-devops-ai/
-├── AGENTS.md              # This file — guidance for AI assistants
-├── README.md              # User-facing overview and quick start
-├── install.sh             # Multi-tool symlink installer
-├── skills/                # Skill files (Agent Skills standard)
-│   ├── kdesign/
-│   │   └── SKILL.md       # Design document generation
-│   ├── kdesign-validate/
-│   │   └── SKILL.md       # Scenario-based design validation
-│   ├── kdesign-impl-plan/
-│   │   └── SKILL.md       # Vertical implementation planning
-│   ├── kmilestone/
-│   │   └── SKILL.md       # Milestone orchestration
-│   ├── ktask/
-│   │   └── SKILL.md       # TDD task execution
-│   └── shared/
-│       └── e2e-prompt.md   # E2E testing workflow (referenced by ktask, kmilestone)
-├── templates/             # Bootstrap templates
-│   ├── project-config.md  # Config template for .devops-ai/project.md
-│   └── AGENTS.md.template # AGENTS.md template for new projects
-└── docs/
-    └── designs/
-        └── skill-generalization/
-            ├── DESIGN.md
-            ├── ARCHITECTURE.md
-            ├── SCENARIOS.md
-            ├── research/              # Agent Skills standard research
-            └── implementation/        # Milestone plans and handoffs
-                ├── OVERVIEW.md
-                ├── M1_foundation.md
-                ├── M2_skills.md
-                ├── M3_degradation.md
-                ├── M4_documentation.md
-                └── HANDOFF_M*.md
-```
+- **Skills** (`skills/`): `kspec` (planner), `kbuild` (executor), plus supporting
+  skills (kissue, kreview, ke2e, kworktree, kinfra-onboard) — Agent Skills standard
+- **Rules** (`rules/`): shared principles auto-loaded into every conversation
+- **Templates** (`templates/`): intent-spec and work-brief skeletons, project config,
+  structural-gate starter, observability stack
+- **kinfra** (`src/devops_ai/`): Python CLI for worktrees, sandbox slots, observability
+- **Docs** (`docs/`): the contract, the evolutions backlog (`docs/EVOLUTIONS.md`),
+  design archives
 
 ## Development Workflow
 
-### Modifying skills
-
-1. Edit `skills/<name>/SKILL.md` directly
-2. Changes take effect immediately — symlinks point to this repo
-3. Test by invoking the skill in Claude Code (or Codex/Copilot)
-
-### Adding a new skill
-
-1. Create `skills/<name>/SKILL.md` with YAML frontmatter (`name`, `description`, `metadata.version`)
-2. Run `./install.sh` to create symlinks for the new skill
-3. Follow the Agent Skills standard: directory-based, `SKILL.md` entry point
-
-### Updating install targets
-
-`install.sh` auto-discovers all directories under `skills/`. No changes needed when adding skills — just create the directory and re-run.
-
-### Testing changes
-
-Skills are markdown prompts, not executable code. Testing means invoking them in an AI tool and verifying behavior. The design docs in `docs/designs/skill-generalization/` describe expected behavior for each skill.
+- **Modifying skills/rules:** edit the markdown directly; symlinks make changes live
+  immediately. Test by invoking in Claude Code (or Codex/Copilot).
+- **Adding a skill:** create `skills/<name>/SKILL.md` with frontmatter (`name`,
+  `description`, `metadata.version`), re-run `./install.sh` (it auto-discovers skill
+  directories and cleans stale symlinks).
+- **kinfra code:** `uv run pytest tests/unit` and `uv run ruff check src/ tests/ &&
+  uv run mypy src/` must stay green; `make check` runs both plus structural gates.
+- **Framework changes:** a change to the contract's mechanics belongs in
+  `docs/designs/v2-contract/CONTRACT.md` or `docs/EVOLUTIONS.md`, not only in a skill —
+  skills implement the contract, they don't define it.
 
 ---
 
-*Project created: 2026-02-04*
+*Project created: 2026-02-04 · v2 contract adopted: 2026-08-24*

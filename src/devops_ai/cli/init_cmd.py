@@ -19,9 +19,11 @@ from devops_ai.cli.quality import (
     generate_ci_workflow,
     generate_claude_hooks,
     generate_conftest,
+    generate_contract_integrity_check,
     generate_justfile,
     generate_makefile,
     generate_pre_commit_hook,
+    generate_public_surface_check,
     should_generate_conftest,
 )
 from devops_ai.compose import rewrite_compose
@@ -734,6 +736,14 @@ def _write_quality_artifacts(
             project_root / ".github" / "workflows" / "ci.yml",
             generate_ci_workflow(quality_plan),
         ),
+        (
+            project_root / ".devops-ai" / "check_public_surface.py",
+            generate_public_surface_check(),
+        ),
+        (
+            project_root / ".devops-ai" / "check_contract_integrity.py",
+            generate_contract_integrity_check(),
+        ),
     ]
 
     for path, content in artifacts:
@@ -831,6 +841,8 @@ def _format_quality_dry_run(
         "Makefile",
         ".githooks/pre-commit",
         ".github/workflows/ci.yml",
+        ".devops-ai/check_public_surface.py",
+        ".devops-ai/check_contract_integrity.py",
         ".claude/settings.json",
     ]
 
@@ -857,6 +869,8 @@ def _format_quality_check(
         "Makefile",
         ".githooks/pre-commit",
         ".github/workflows/ci.yml",
+        ".devops-ai/check_public_surface.py",
+        ".devops-ai/check_contract_integrity.py",
         ".claude/settings.json",
     ]
 

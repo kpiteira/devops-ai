@@ -1,0 +1,9 @@
+[project]
+name = "devops-ai"
+prefix = "devops-ai"
+
+[sandbox]
+compose_file = "docker-compose.yml"
+
+[sandbox.health]
+endpoint = "/api/v1/health"

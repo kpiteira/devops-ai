@@ -1,6 +1,6 @@
 # Project Configuration
 
-This file is read by k* development commands (kdesign, kplan, kbuild, etc.)
+This file is read by k* development commands (kspec, kbuild, etc.)
 to adapt workflows to this project's specific tooling and conventions.
 
 ## Project
@@ -34,13 +34,13 @@ Not configured.
 <!-- If your project uses E2E testing, replace above with:
 - **E2E tests:** [start command, e.g., "kinfra sandbox start"]
 - **Test catalog:** .claude/skills/ke2e/tests/
+- **Acceptance tests:** tests/acceptance  (planner-owned root the CI guard protects; default if omitted)
 -->
 
 ## Paths
 
 - **Design documents:** [e.g., "docs/designs/"]
-- **Implementation plans:** [e.g., "implementation/" subfolder within design]
-- **Handoff files:** [e.g., "Same directory as implementation plans"]
+- **Specs:** [e.g., "docs/specs/" — intent specs + work briefs, v2 contract]
 
 ## Project-Specific Patterns
 

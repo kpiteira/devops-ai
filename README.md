@@ -6,35 +6,42 @@ Development workflow skills and infrastructure CLI for AI-assisted software engi
 
 Two things that work together:
 
-1. **Skills** — Markdown prompts that guide AI coding tools through proven development workflows (design, validate, plan, implement)
+1. **Skills** — Markdown prompts that implement the human–model contract (`docs/designs/v2-contract/CONTRACT.md`): the human owns what and why, a planner model turns intent into signed specs with acceptance tests, an executor model delivers milestones with real autonomy
 2. **kinfra** — A Python CLI that manages git worktrees, Docker sandbox slots with port isolation, and a shared observability stack (Jaeger/Grafana/Prometheus)
 
 Skills work with Claude Code, Codex CLI, and GitHub Copilot CLI via the [Agent Skills standard](https://agentskills.io). kinfra is installed globally via `uv` and works from any project.
 
 ## How to Use It
 
-The typical workflow for a new feature:
+The workflow for a new feature — **rigid about outcomes, silent about paths**:
 
 ```
-1. Design       /kdesign feature: Add wellness reminders
-                 → Collaborative conversation producing DESIGN.md + ARCHITECTURE.md
-                 → Validates through scenario tracing, produces milestone structure
+1. Plan         /kspec Add wellness reminders — here's what I'm thinking…
+                 → Planner session: codebase walkthrough, interview, investigation
+                 → Produces a signed intent spec + one work brief per milestone
+                 → Authors each milestone's acceptance tests BEFORE implementation
 
-2. Plan         /kplan design: DESIGN.md arch: ARCHITECTURE.md
-                 → Expands milestones into tasks with files, tests, acceptance criteria
+2. Build        /kbuild docs/specs/reminders/briefs/M1-daily-nudge.md
+                 → Executor session: the brief + the code is its entire context
+                 → Goal loop until the planner's blocking tests pass
+                 → Escape valve: contradictions escalate, never get coded around
+                 → Delivers the milestone as a PR
 
-3. Build        /kbuild impl: M1_reminders.md
-                 → Executes each task with TDD (red → green → refactor)
-                 → Maintains handoff documents between tasks
-                 → Produces milestone completion report
+3. Close        /kspec close reminders
+                 → Fresh-context review: does the whole diff satisfy the INTENT?
+                 → Spec archived; acceptance tests optionally promoted to e2e suite
 ```
 
-Each stage produces artifacts consumed by the next. You can enter at any point — `/kbuild` works fine with a hand-written plan, and `/kplan` works with a design you wrote yourself.
+There are no task lists — the path from brief to delivered milestone is the executor's
+to find. The rigidity lives in contracts, enforced by machines: a CI guard that rejects
+brief or acceptance-test edits from any branch but `spec/*`/`replan/*` (the executor can
+never grade its own work), structural gates in `make check`, a new-public-symbol signal
+on every PR, and amendment flags that keep the human's signature meaningful.
 
 For day-to-day work, a few shortcuts handle the common cases:
 
 ```
-/kissue 42       → Fetch GitHub issue, branch, TDD implement, PR with "Closes #42"
+/kissue 42       → Fetch GitHub issue, branch, test-first implement, PR with "Closes #42"
 /kreview         → Assess PR review comments, implement fixes or push back
 /kbabysit        → Babysit a PR: request Copilot review, address, loop to merge-ready
 ```
@@ -116,13 +123,13 @@ cp ~/Documents/dev/devops-ai/templates/project-config.md .devops-ai/project.md
 
 Or skip config entirely — skills ask for needed values on first use.
 
-### Design and implement a feature
+### Plan and implement a feature
 
 ```bash
-/kdesign feature: Add user authentication      # Design + validate
-/kplan design: DESIGN.md arch: ARCHITECTURE.md  # Break into tasks
-/kbuild impl: M1_auth.md                        # Execute milestone
-/kbuild impl: M1_auth.md task: 1.2              # Or a single task
+/kspec Add user authentication — intent dump…    # Planner: spec + briefs + acceptance tests
+/kbuild docs/specs/auth/briefs/M1-login.md       # Executor: deliver one milestone
+/kspec triage auth                               # Planner: triage a divergence report
+/kspec close auth                                # Planner: feature-close review + archive
 ```
 
 ### Work in isolated environments
@@ -136,19 +143,18 @@ kinfra done auth-M1                  # Clean up worktree, sandbox, containers
 
 ## Skills Reference
 
-### Design-to-implementation pipeline
+### Intent-to-delivery pipeline (the v2 contract)
 
 | Command | Purpose |
 |---------|---------|
-| `/kdesign` | Collaborative design and validation — produces DESIGN.md, ARCHITECTURE.md, and a milestone structure |
-| `/kplan` | Expand milestones into implementable tasks with architecture alignment and TDD requirements |
-| `/kbuild` | Execute tasks (TDD) or orchestrate full milestones from implementation plans |
+| `/kspec` | Planner sessions: intent → signed spec + work briefs + acceptance tests; also `replan`, `triage`, and `close` modes |
+| `/kbuild` | Executor sessions: one work brief in, goal loop against its blocking tests, milestone PR out |
 
 ### Issue workflow
 
 | Command | Purpose |
 |---------|---------|
-| `/kissue <number>` | Implement a GitHub issue: fetch, branch, TDD, PR with `Closes #N` |
+| `/kissue <number>` | Implement a GitHub issue: fetch, branch, test, PR with `Closes #N` |
 | `/kreview` | Critically assess PR review comments — implement, push back, or discuss (one round) |
 | `/kbabysit` | Drive a PR to merge-ready: request Copilot review, wait, address via kreview, re-review, loop until converged, report with TL;DR |
 
@@ -206,6 +212,8 @@ The `/kinfra-onboard` skill provides intelligent, phased onboarding:
 | `.githooks/pre-commit` | Runs `make check` before every commit | ~30s |
 | `.github/workflows/ci.yml` | Quality + tests on PRs | ~2min |
 | `.github/workflows/security.yml` | CodeQL analysis | ~2min |
+| `.devops-ai/check_contract_integrity.py` | PR guard: briefs + acceptance tests are planner-owned (`spec/*`, `replan/*` only) | ~1s |
+| `.devops-ai/check_public_surface.py` | PR signal: new public symbols annotated for planner review | ~1s |
 | `.claude/settings.json` | `TaskCompleted` hook runs `make lint` (~2s) | ~2s |
 | `tests/unit/conftest.py` | Blocks `socket.connect` in unit tests (Python only) | — |
 
@@ -218,28 +226,27 @@ Skills read `.devops-ai/project.md` from your project root.
 | Section | Used By | Required |
 |---------|---------|----------|
 | **Project** (name, language) | All skills | For context |
-| **Testing** (unit tests, quality checks) | kbuild, kplan | Essential |
+| **Testing** (unit tests, quality checks) | kspec, kbuild | Essential |
 | **Infrastructure** (start, logs) | kbuild, kworktree | Optional |
-| **E2E Testing** (command, catalog) | kbuild, kplan | Optional |
-| **Paths** (design docs) | kdesign, kplan | Essential |
+| **E2E Testing** (command, catalog) | kspec, kbuild | Optional |
+| **Paths** (specs, design docs) | kspec, kbuild | Essential |
 | **Project-Specific Patterns** | kbuild | Optional |
 
 Without a config file, skills ask for essential values and skip optional sections.
 
 ## How It Works
 
-Skills are markdown prompts that instruct AI coding tools. Each skill reads `.devops-ai/project.md` to adapt to your project. Shared principles (TDD, quality gates, handoffs) live in `rules/` and are auto-loaded into every conversation via `.claude/rules/` symlinks. kinfra is a real Python CLI that manages git and Docker state.
+Skills are markdown prompts that instruct AI coding tools. Each skill reads `.devops-ai/project.md` to adapt to your project. Shared principles (test quality, quality gates, structural gates) live in `rules/` and are auto-loaded into every conversation via `.claude/rules/` symlinks. kinfra is a real Python CLI that manages git and Docker state.
 
 ```
 devops-ai/                          ~/.claude/skills/ (symlinks)      your-project/
-├── skills/                         ├── kdesign/ →                    ├── .devops-ai/
-│   ├── kdesign/SKILL.md ──────────┤── kplan/ →                      │   ├── project.md
-│   ├── kplan/SKILL.md ────────────┤── kbuild/ →                     │   └── infra.toml
-│   ├── kbuild/SKILL.md ──────────┤── kworktree/ →                  ├── docker-compose.yml
-│   ├── kworktree/SKILL.md ────────┤── kinfra-onboard/ →             └── ...
-│   └── ...                         └── ...
-├── rules/                          ~/.claude/rules/ (symlinks)
-│   ├── tdd.md ────────────────────── tdd.md →
+├── skills/                         ├── kspec/ →                      ├── .devops-ai/
+│   ├── kspec/SKILL.md ────────────┤── kbuild/ →                     │   ├── project.md
+│   ├── kbuild/SKILL.md ──────────┤── kworktree/ →                  │   └── infra.toml
+│   ├── kworktree/SKILL.md ────────┤── kinfra-onboard/ →             ├── docs/specs/
+│   └── ...                         └── ...                           ├── tests/acceptance/
+├── rules/                          ~/.claude/rules/ (symlinks)       └── docker-compose.yml
+│   ├── test-quality.md ───────────── test-quality.md →
 │   ├── quality-gates.md ──────────── quality-gates.md →
 │   └── ...                           ...
 ├── src/devops_ai/                  kinfra (global CLI via uv)
@@ -275,18 +282,19 @@ devops-ai/
 │   ├── worktree.py         # Git worktree lifecycle
 │   └── agent_deck.py       # Optional agent-deck integration
 ├── skills/                 # AI tool skills (symlinked on install)
-│   ├── kdesign/            # Design and validation
-│   ├── kplan/              # Implementation planning
-│   ├── kbuild/             # TDD task execution and milestone orchestration
-│   ├── kissue/             # GitHub issue implementation
+│   ├── kspec/              # Planner: spec + briefs + acceptance tests, triage, close
+│   ├── kbuild/             # Executor: one brief → goal loop → milestone PR
+│   ├── kissue/             # Bounded issue lane (defects, chores)
 │   ├── kreview/            # PR review comment assessment (single round)
 │   ├── kbabysit/           # PR review loop orchestration to merge-ready
+│   ├── ke2e/               # E2E test catalog knowledge base + agents
 │   ├── kworktree/          # Worktree/sandbox management skill
 │   └── kinfra-onboard/     # Project onboarding skill
 ├── rules/                  # Shared principles (auto-loaded via .claude/rules/)
-├── templates/              # Project config and observability templates
+├── templates/              # Project config, structural-gate starter, observability
 ├── tests/                  # Unit and E2E tests
-└── docs/designs/           # Design documents for devops-ai itself
+├── docs/EVOLUTIONS.md      # Framework evolutions backlog
+└── docs/designs/           # Design documents, incl. v2-contract/CONTRACT.md
 ```
 
 ## Troubleshooting
@@ -297,7 +305,7 @@ devops-ai/
 | Skill commands not found | Run `./install.sh` and restart your AI tool |
 | Skills not picking up config | Verify `.devops-ai/project.md` exists in your project root |
 | Port conflict on `kinfra impl` | Another slot is using that port range — check `kinfra status` |
-| Skills not updating after `git pull` | Check symlinks: `ls -la ~/.claude/skills/kdesign` should point to devops-ai |
+| Skills not updating after `git pull` | Check symlinks: `ls -la ~/.claude/skills/kspec` should point to devops-ai |
 | Observability stack not starting | Ensure Docker is running, then `kinfra observability up` |
 
 ## License

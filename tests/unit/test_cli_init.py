@@ -1437,6 +1437,10 @@ class TestInitQualityArtifacts:
         assert (tmp_path / "Makefile").exists()
         assert (tmp_path / ".githooks" / "pre-commit").exists()
         assert (tmp_path / ".github" / "workflows" / "ci.yml").exists()
+        assert (tmp_path / ".devops-ai" / "check_public_surface.py").exists()
+        assert (
+            tmp_path / ".devops-ai" / "check_contract_integrity.py"
+        ).exists()
         assert (tmp_path / ".claude" / "settings.json").exists()
 
     def test_skips_existing_artifacts(self, tmp_path: Path) -> None:

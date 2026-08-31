@@ -1,6 +1,6 @@
 # devops-ai Roadmap
 
-Last updated: 2026-02-15
+Last updated: 2026-08-24
 
 ## Completed
 
@@ -35,11 +35,29 @@ Last updated: 2026-02-15
 - Re-init preserves custom secrets, files, and env values
 - 299 unit tests
 
+### v0.5 — The Human–Model Contract (v2 rewrite)
+- Contract doc landed (`docs/designs/v2-contract/CONTRACT.md`): rigid about outcomes, silent about paths
+- Tasks removed from the framework — kplan deleted, kloop absorbed; path from brief to milestone is the executor's
+- `/kspec` (planner: walkthrough, interview, spec + briefs + planner-authored acceptance tests, triage, replan, close) replaces `/kdesign`
+- `/kbuild` rewritten thin (executor: one brief, goal loop on blocking tests, escape valve, milestone PR)
+- Templates: `intent-spec.md`, `work-brief.md` (lint + escape valve baked in); amendment-flag and divergence mechanics specified
+- Rules reconciled: `tdd` → `test-quality` (process mandate dropped, honesty bar kept), `handoffs` deleted (state lives in the spec + git), acceptance tests added to the taxonomy; `outcome-contracts` rule states the contract core in every session
+- Enforcement (merged from the parallel Copilot proposal): `kinfra init` generates a contract-integrity guard (briefs + acceptance tests writable only on `spec/*`/`replan/*`, run from the PR base commit so a PR can't neuter it) and a new-public-symbol signal; `tests/architecture/test_v2_contract.py` gates the framework's own contract surfaces
+- Evolutions backlog imported (`docs/EVOLUTIONS.md`)
+
 ## Backlog
+
+### v2 remaining (CONTRACT.md next steps)
+
+- [ ] **PR gate wiring** — run a milestone PR's own `blocking:` command as a *separate, selectively-triggered* workflow (ready-for-review + manual re-trigger, required at merge). Never in the standing `check` job: that job stays unit-only under the 2-minute CI budget (EVOLUTIONS.md #5). Needs the per-project can-CI-run-the-stack answer; today the goal loop and the executor's PR evidence carry it
+- [ ] **Pilot on one real feature (khealth)** — the feature is the vehicle; the observations are the deliverable. Log to `docs/designs/v2-contract/PILOT.md` as we go. Measure interruptions, escalation quality, where grading needed non-deterministic judgment (unroll it concretely there), and run the adversarial test (fresh session tries to pass all blocking criteria while violating intent)
+- [ ] **Post-pilot review** — did briefs stay outcome-only; did the right things escalate; re-teaching and re-litigation costs
+- [ ] **Conformance ∘ e2e seam** — how intent review and the ke2e pipeline compose (EVOLUTIONS.md #2)
+- [ ] **Code review process** — de-babysit PRs (EVOLUTIONS.md #3)
+- [ ] **Roadmap grounding view** — always-current status aggregated from specs (EVOLUTIONS.md #4)
 
 ### Dogfooding
 
-- [ ] **Use modernized skills on a real feature** — Run `/kdesign` → `/kplan` → `/kbuild` end-to-end on the next real piece of work. Capture friction points: what's missing, what's confusing, what triggers poorly.
 - [ ] **Test on agent-memory or khealth** — Validate skills on projects outside ktrdr/devops-ai. These projects have different stacks and will expose assumptions baked into the skills.
 
 ### Housekeeping
@@ -49,7 +67,7 @@ Last updated: 2026-02-15
 
 ### Skill Improvements
 
-- [ ] **Agent teams prototype** — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` enables parallel work within a milestone (one agent implements task N, another writes tests for task N+1). Worth a spike to see if it speeds up `/kbuild` on large milestones.
+- [ ] **Agent teams prototype** — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` enables parallel work within a milestone. Worth a spike for large milestones in `/kbuild`.
 - [ ] **Skill frontmatter features** — Claude Code supports `context: fork` (run skill in isolated subagent), `model:` (per-skill model selection), and dynamic context via `!command` syntax. Evaluate which would improve skill behavior.
 - [ ] **Path-scoped rules** — `.claude/rules/` supports path globs in frontmatter. Could be useful for project-specific patterns (e.g., test conventions scoped to `tests/**/*.py`). Probably not needed for universal principles.
 

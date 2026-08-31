@@ -1,104 +1,42 @@
 ---
 name: kissue
-description: Implement GitHub issues using TDD. Fetches the issue, creates a branch, implements with RED/GREEN/REFACTOR, and opens a PR with "Closes #N".
+description: Deliver a bounded GitHub issue — a defect, chore, or narrowly scoped change whose desired outcome is already observable in the issue — as a PR with Closes #N. Use when the user points at an issue number; route feature-sized or materially ambiguous work to kspec instead.
+argument-hint: "<issue-number>"
 metadata:
-  version: "0.2.0"
+  version: "2.0.0"
 ---
 
-# Issue Implementation Command
+# kissue — bounded maintenance lane
 
-Implements GitHub issues end-to-end: fetch issue, create branch, research, implement with TDD, verify, and open a PR.
-
-## Command Usage
-
-```
+```text
 /kissue <issue-number>
-/kissue                    # List open issues and pick one
 ```
 
----
+Use this for defects, chores, and narrowly scoped changes whose desired outcome is already
+observable in the issue. New product capabilities, consequential choices, multi-milestone
+work, or issues without an independent definition of done belong in `/kspec`.
 
-## 1. Fetch Issue
+## Establish the contract
 
-```bash
-gh issue view <number> --json title,body,labels,state,assignees
-```
+Fetch the full issue, linked PRs, discussion, and current repository state. Identify:
 
-- If issue is closed: note it and confirm whether to proceed
-- If issue has a linked PR: note it and confirm whether to continue
+- the user-visible failure or bounded end state;
+- existing reproduction or acceptance evidence;
+- invariants and scope fences;
+- whether the issue's stated facts still match the code.
 
-When called without an issue number, list open issues and ask which one to implement:
-```bash
-gh issue list --state open --limit 10 --json number,title,labels,updatedAt
-```
+If the contract is materially ambiguous or requires inventing product intent, stop and route
+it to planning rather than silently deciding.
 
-## 2. Setup Branch
+## Deliver
 
-Create a branch from the issue:
+Own the implementation path. Reproduce the defect or unmet end state, change the code, add
+useful regression coverage (the `test-quality` rule is the bar), and run the repository's
+standing gates. Do not weaken an existing test or architecture contract.
 
-```bash
-git checkout -b issue-<number>-<slug>
-```
+Work on the current isolated branch when the harness already created one; otherwise create
+an issue branch from the repository default. Commit coherently, push, and open a PR that
+states the observable outcome and includes `Closes #<number>`.
 
-The slug is the issue title lowercased, spaces replaced with hyphens, truncated to ~40 chars, non-alphanumeric removed.
-
-## 3. Research
-
-Get to where the issue holds no surprises: what it's actually asking, which files it touches, the
-patterns this codebase uses for that kind of change, and any acceptance criteria in the body.
-Scale this to the issue — a typo fix needs none of it; a new code path needs all of it. If the
-issue's framing turns out to be wrong (the bug is elsewhere, a named file has moved), that's signal
-worth surfacing before you code, not something to quietly work around.
-
-## 4. Implement with TDD
-
-Follow TDD: write failing tests first, then minimal implementation, then refactor. The `tdd` rule has the full cycle details.
-
-If the issue has acceptance criteria, write tests that map to them.
-
-## 5. Verify
-
-Run unit tests and quality checks using project config commands. Validate each acceptance criterion from the issue.
-
-## 6. Complete
-
-Commit with a clear message referencing the issue. Use conventional prefixes (`fix:`, `feat:`, `refactor:`).
-
-Push and create a PR:
-
-```bash
-git push -u origin issue-<number>-<slug>
-
-gh pr create --title "<type>: <description>" --body "$(cat <<'EOF'
-## Summary
-
-[Brief description of the change]
-
-## Changes
-
-- [List of changes]
-
-## Testing
-
-- Unit tests: [count] added/modified
-- Quality checks: passing
-
-Closes #<issue-number>
-EOF
-)"
-```
-
-The `Closes #N` automatically links the PR and closes the issue on merge.
-
----
-
-## Error Handling
-
-| Blocker | Response |
-|---------|----------|
-| Tests won't pass | Investigate root cause, ask for help if unclear |
-| Acceptance criteria ambiguous | Ask user for clarification |
-| Scope larger than expected | Discuss splitting into multiple issues |
-| Dependency on other work | Note dependency, ask whether to proceed or wait |
-
-Don't create a PR with incomplete work. Document the blocker and ask for guidance.
+Do not create a success-shaped PR around incomplete work. Record a concrete blocker when the
+issue contract cannot be met.

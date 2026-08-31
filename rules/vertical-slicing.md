@@ -11,7 +11,8 @@ Vertical (better): "Milestone 1: user can trigger one action end-to-end." Each m
 ## Principles
 
 - Each milestone builds on the previous one
-- Each milestone has a concrete E2E test: given initial state, when user does X, then observable result Y
+- Each milestone has a concrete E2E test: given initial state, when user does X, then observable result Y — this is what lets acceptance tests be authored at planning time, before implementation exists
+- A milestone that only makes sense as a prerequisite for another milestone is a disguised step: merge them
 - Milestone 1 is the smallest thing that proves the architecture works — it doesn't need to be useful, just testable
 - Later milestones add capabilities incrementally
 

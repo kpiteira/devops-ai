@@ -2,7 +2,7 @@
 
 These tests gate code STRUCTURE the way ruff gates style: they fail red, you fix
 the code. Never fix a failure by editing a threshold, a contract, or the ratchet —
-widening anything requires explicit human sign-off, recorded in the handoff.
+widening anything requires explicit human sign-off, recorded in the feature's spec.
 
 Starter template: adjust SRC_ROOT and the Configuration block below (LAYERING,
 UNIQUE_PATTERNS, ratchets, …) to this project's ARCHITECTURE.md, delete entries
@@ -36,7 +36,7 @@ UNIQUE_PATTERNS: list[tuple[str, str, str]] = []
 # raised. relative path -> line count at freeze time.
 FILE_LINES_RATCHET: dict[str, int] = {}
 
-# Test honesty (see the `tdd` rule): fakes at I/O seams, not patches everywhere.
+# Test honesty (see the `test-quality` rule): fakes at I/O seams, not patches everywhere.
 # The contract governs UNIT tests (the testing-taxonomy rule lets integration
 # tests use what they need) — widen to parents[1] for stricter enforcement.
 TESTS_ROOT = Path(__file__).resolve().parents[1] / "unit"
