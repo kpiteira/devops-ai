@@ -495,6 +495,19 @@ GUARD_PATHS = {
 }
 
 
+def parse_acceptance_root(content: str) -> str:
+    match = ACCEPTANCE_FIELD.search(content)
+    if match is None:
+        return DEFAULT_ACCEPTANCE_ROOT
+    # First token is the path; anything after whitespace is annotation
+    # (e.g. "tests/acceptance  (planner-owned; default if omitted)").
+    tokens = match.group(1).strip().split()
+    if not tokens:
+        return DEFAULT_ACCEPTANCE_ROOT
+    value = tokens[0].strip("`'").strip('"').rstrip("/")
+    return value or DEFAULT_ACCEPTANCE_ROOT
+
+
 def acceptance_root(base: str) -> str:
     # Read the config from the BASE commit: the root the human signed governs this
     # PR — a PR that repoints the field cannot move the guard off its own edits.
@@ -505,17 +518,11 @@ def acceptance_root(base: str) -> str:
         check=False,
     )
     if show.returncode == 0:
-        content = show.stdout
-    else:
-        config = Path(".devops-ai/project.md")
-        if not config.exists():
-            return DEFAULT_ACCEPTANCE_ROOT
-        content = config.read_text()
-    match = ACCEPTANCE_FIELD.search(content)
-    if match is None:
+        return parse_acceptance_root(show.stdout)
+    config = Path(".devops-ai/project.md")
+    if not config.exists():
         return DEFAULT_ACCEPTANCE_ROOT
-    value = match.group(1).strip().strip("`'\\"").rstrip("/")
-    return value or DEFAULT_ACCEPTANCE_ROOT
+    return parse_acceptance_root(config.read_text())
 
 
 def contract_path(path: str, root: str) -> bool:

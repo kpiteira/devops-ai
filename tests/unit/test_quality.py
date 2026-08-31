@@ -609,6 +609,23 @@ class TestGenerateContractIntegrityCheck:
             "tests/acceptance",
         )
 
+    def test_acceptance_root_parsing_tolerates_annotations(self) -> None:
+        namespace: dict[str, object] = {"__name__": "generated_test"}
+        exec(generate_contract_integrity_check(), namespace)
+        parse = namespace["parse_acceptance_root"]
+
+        assert callable(parse)
+        assert parse("- **Acceptance tests:** tests/acceptance") == "tests/acceptance"
+        annotated = (
+            "- **Acceptance tests:** tests/acceptance  "
+            "(planner-owned root the CI guard protects; default if omitted)"
+        )
+        assert parse(annotated) == "tests/acceptance"
+        backticked = "- **Acceptance tests:** `tests/acceptance/`"
+        assert parse(backticked) == "tests/acceptance"
+        assert parse("no field here") == "tests/acceptance"
+        assert parse("- **Acceptance tests:**   ") == "tests/acceptance"
+
 
 # --- Security workflow generator ---
 
