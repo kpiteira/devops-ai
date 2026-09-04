@@ -59,18 +59,24 @@ def parse_feature_milestone(arg: str) -> tuple[str, str]:
 def _find_milestone_file(
     repo_root: Path, feature: str, milestone: str
 ) -> Path | None:
-    """Find milestone file matching the pattern."""
-    impl_dir = (
-        repo_root / "docs" / "designs" / feature / "implementation"
+    """Find the milestone's brief (v2 contract) or milestone file (v1 layout).
+
+    v2: docs/specs/<feature>/briefs/<milestone>-*.md — preferred.
+    v1: docs/designs/<feature>/implementation/<milestone>_*.md — fallback.
+    """
+    candidates = (
+        (repo_root / "docs" / "specs" / feature / "briefs", f"{milestone}-*.md"),
+        (
+            repo_root / "docs" / "designs" / feature / "implementation",
+            f"{milestone}_*.md",
+        ),
     )
-    if not impl_dir.is_dir():
-        return None
-    matches = list(impl_dir.glob(f"{milestone}_*.md"))
-    if len(matches) == 1:
-        return matches[0]
-    if len(matches) > 1:
-        # Prefer exact prefix match
-        return matches[0]
+    for directory, pattern in candidates:
+        if not directory.is_dir():
+            continue
+        matches = sorted(directory.glob(pattern))
+        if matches:
+            return matches[0]
     return None
 
 
@@ -109,9 +115,10 @@ def impl_command(
     ms_file = _find_milestone_file(repo_root, feature, milestone)
     if ms_file is None:
         return 1, (
-            f"No milestone file found matching "
-            f"'{milestone}_*.md' in "
-            f"docs/designs/{feature}/implementation/"
+            f"No brief found for {milestone}: expected "
+            f"docs/specs/{feature}/briefs/{milestone}-*.md "
+            f"(or the v1 layout docs/designs/{feature}/implementation/"
+            f"{milestone}_*.md)"
         )
 
     # Check worktree doesn't already exist

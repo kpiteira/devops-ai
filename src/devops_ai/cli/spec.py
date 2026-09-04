@@ -37,5 +37,5 @@ def spec_command(feature: str, repo_root: Path | None = None) -> int:
 
     typer.echo(f"Created spec worktree: {wt_path}")
     typer.echo(f"  Branch: spec/{feature}")
-    typer.echo(f"  Design dir: {wt_path / 'docs' / 'designs' / feature}")
+    typer.echo(f"  Spec dir: {wt_path / 'docs' / 'specs' / feature}")
     return 0
