@@ -5,11 +5,13 @@ from pathlib import Path
 
 import pytest
 
+from devops_ai.cli.spec import spec_command
 from devops_ai.worktree import (
     check_dirty,
     create_spec_worktree,
     list_worktrees,
     remove_worktree,
+    spec_worktree_path,
 )
 
 
@@ -49,11 +51,31 @@ class TestCreateAndRemoveSpecWorktree:
         )
         assert wt_path.exists()
         assert wt_path.name == "test-spec-my-feature"
-        # Design directory created
-        assert (wt_path / "docs" / "designs" / "my-feature").is_dir()
+        # v2 spec directory created — and not the v1 design directory
+        assert (wt_path / "docs" / "specs" / "my-feature").is_dir()
+        assert not (wt_path / "docs" / "designs" / "my-feature").exists()
 
         remove_worktree(git_repo, wt_path)
         assert not wt_path.exists()
+
+    def test_printed_spec_dir_is_the_one_created(
+        self, git_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Every directory `kinfra spec` reports must actually exist."""
+        assert spec_command("my-feature", repo_root=git_repo) == 0
+
+        out = capsys.readouterr().out
+        wt_path = spec_worktree_path(git_repo, git_repo.name, "my-feature")
+        try:
+            reported = [
+                line.split(":", 1)[1].strip()
+                for line in out.splitlines()
+                if line.strip().startswith("Spec dir:")
+            ]
+            assert reported == [str(wt_path / "docs" / "specs" / "my-feature")]
+            assert Path(reported[0]).is_dir()
+        finally:
+            remove_worktree(git_repo, wt_path)
 
 
 class TestDirtyCheck:

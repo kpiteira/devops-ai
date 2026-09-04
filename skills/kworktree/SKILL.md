@@ -48,7 +48,7 @@ Create a design worktree (no sandbox).
 kinfra spec wellness-reminders
 # Creates: ../<prefix>-spec-wellness-reminders/
 # Branch: spec/wellness-reminders
-# Design dir: docs/designs/wellness-reminders/
+# Spec dir: docs/specs/wellness-reminders/
 ```
 
 ### `kinfra impl <feature>/<milestone> [--no-session]`

@@ -95,7 +95,7 @@ def _fetch_and_resolve_start_point(repo_root: Path) -> str | None:
 def create_spec_worktree(
     repo_root: Path, prefix: str, feature: str
 ) -> Path:
-    """Create a spec worktree and its design directory."""
+    """Create a spec worktree and its spec directory (v2 layout)."""
     validate_feature_name(feature)
     wt_path = spec_worktree_path(repo_root, prefix, feature)
     branch = spec_branch_name(feature)
@@ -107,9 +107,10 @@ def create_spec_worktree(
 
     _run_git(cmd, cwd=repo_root)
 
-    # Create design directory in the worktree
-    design_dir = wt_path / "docs" / "designs" / feature
-    design_dir.mkdir(parents=True, exist_ok=True)
+    # Create the v2 spec directory in the worktree (docs/specs/<feature>/),
+    # matching the path `kinfra spec` prints and the layout /kspec writes into.
+    spec_dir = wt_path / "docs" / "specs" / feature
+    spec_dir.mkdir(parents=True, exist_ok=True)
 
     return wt_path
 
