@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from devops_ai.cli.impl import _find_milestone_file, parse_feature_milestone
+from devops_ai.cli.impl import (
+    _find_milestone_file,
+    impl_command,
+    parse_feature_milestone,
+)
 
 
 class TestParseFeatureMilestone:
@@ -53,3 +57,15 @@ class TestFindMilestoneFile:
 
     def test_missing(self, tmp_path: Path) -> None:
         assert _find_milestone_file(tmp_path, "nothing", "M1") is None
+
+
+class TestMissingBriefMessage:
+    def test_names_both_searched_locations(self, tmp_path: Path) -> None:
+        """The failure names the v2 brief path and the v1 fallback path."""
+        code, message = impl_command(
+            "challenges/M1", repo_root=tmp_path, session=False
+        )
+
+        assert code == 1
+        assert "docs/specs/challenges/briefs/M1-*.md" in message
+        assert "docs/designs/challenges/implementation/M1_*.md" in message

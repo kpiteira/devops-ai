@@ -115,10 +115,10 @@ def impl_command(
     ms_file = _find_milestone_file(repo_root, feature, milestone)
     if ms_file is None:
         return 1, (
-            f"No brief found for {milestone}: expected "
-            f"docs/specs/{feature}/briefs/{milestone}-*.md "
-            f"(or the v1 layout docs/designs/{feature}/implementation/"
-            f"{milestone}_*.md)"
+            f"No brief or milestone file found for {milestone}. Searched "
+            f"docs/specs/{feature}/briefs/{milestone}-*.md (v2 contract) and "
+            f"docs/designs/{feature}/implementation/{milestone}_*.md "
+            f"(v1 layout)"
         )
 
     # Check worktree doesn't already exist
