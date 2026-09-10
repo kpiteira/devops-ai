@@ -30,6 +30,8 @@ from tests.e2e.conftest import (  # noqa: F401
 
 ROOT = Path(__file__).resolve().parents[3]
 README = ROOT / "README.md"
+# Seconds to wait for Karl to grant a 1Password access prompt (A3).
+OP_GRANT_WAIT = 60
 
 
 @dataclass
@@ -84,19 +86,21 @@ def free_port() -> int:
 
 @pytest.fixture()
 def op_item() -> Iterator[tuple[str, str]]:
-    """A fresh 1Password item with a generated password; skips when op is not usable.
+    """A fresh 1Password item with a generated password; skips if access isn't granted.
 
-    Yields (reference, expected_value). The value is obtained through `op read`,
-    never placed in argv by the test.
+    There is no scriptable sign-in for `op`: it prompts the human per access. The
+    fixture attempts access and waits long enough for a touch (A3). Yields
+    (reference, expected_value); the value is obtained through `op read`, never
+    placed in argv by the test.
     """
     try:
         who = subprocess.run(
-            ["op", "whoami"], capture_output=True, text=True, timeout=5
+            ["op", "whoami"], capture_output=True, text=True, timeout=OP_GRANT_WAIT
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        pytest.skip("1Password CLI not installed or not signed in")
+        pytest.skip("1Password CLI not installed, or access not granted in time")
     if who.returncode != 0:
-        pytest.skip("1Password CLI not signed in")
+        pytest.skip("1Password access not granted")
 
     vault = os.environ.get("KSECRET_ACCEPTANCE_OP_VAULT", "Private")
     title = f"ksecret-acceptance-{_secrets.token_hex(4)}"

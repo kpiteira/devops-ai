@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from tests.acceptance.secret_providers.conftest import (
+    OP_GRANT_WAIT,
     ROOT,
     AkvVault,
     BaoServer,
@@ -103,12 +104,12 @@ def test_write_then_read_akv(akv: AkvVault, tmp_path: Path) -> None:
 def test_write_op_creates_item(tmp_path: Path) -> None:
     try:
         who = subprocess.run(
-            ["op", "whoami"], capture_output=True, text=True, timeout=5
+            ["op", "whoami"], capture_output=True, text=True, timeout=OP_GRANT_WAIT
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        pytest.skip("1Password CLI not installed or not signed in")
+        pytest.skip("1Password CLI not installed, or access not granted in time")
     if who.returncode != 0:
-        pytest.skip("1Password CLI not signed in")
+        pytest.skip("1Password access not granted")
     vault = os.environ.get("KSECRET_ACCEPTANCE_OP_VAULT", "Private")
     title = fresh_name("ksecret-acceptance-write")
     ref = f"op://{vault}/{title}/password"

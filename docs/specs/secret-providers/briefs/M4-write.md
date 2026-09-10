@@ -38,7 +38,7 @@ blocking: uv run pytest tests/acceptance/secret_providers/test_m4_write.py tests
 | J8 | `test_m4_write.py::test_write_then_read_dotenv` | Round-trip via a fresh dotenv file, mode 0600, existing lines preserved |
 | J8 | `test_m4_write.py::test_write_then_read_openbao` | Round-trip against the dev container; a sibling key in the same secret survives |
 | J8 | `test_m4_write.py::test_write_then_read_akv` | Round-trip against the real vault (same skip rules as M3); the test deletes what it wrote |
-| J8 | `test_m4_write.py::test_write_op_creates_item` | With a signed-in `op`, a fresh item is created and reads back; the test deletes it (skips otherwise) |
+| J8 | `test_m4_write.py::test_write_op_creates_item` | A fresh 1Password item is created and reads back; the test deletes it (skips when `op` access is not granted — A3) |
 | J8 | `test_m4_write.py::test_write_env_is_refused_and_value_never_in_argv` | `env://` write exits 1; while writing to dotenv, no process in the tree carries the value in its command line |
 | — | `tests/architecture/test_secret_providers.py` | Shape unchanged |
 
@@ -60,7 +60,9 @@ Plus the standing gates: `make check` exits 0.
 
 - Updating an existing 1Password item: `op item edit` takes field values only through
   argv, which the invariant forbids; agent-memory references items by ID after
-  creation, so create-only covers its use.
+  creation, so create-only covers its use. Karl has flagged this argv-rule vs
+  update-capability tension as an open cross-project question (spec A7); this
+  milestone does not resolve it.
 - Deleting or listing secrets.
 
 ## Context

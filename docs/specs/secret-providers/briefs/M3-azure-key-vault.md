@@ -64,9 +64,11 @@ Plus the standing gates: `make check` exits 0.
 - `az` exit codes: not logged in and not found both exit 1 — the failure class must
   come from stderr text (e.g. `SecretNotFound`, `Forbidden`, `Please run 'az login'`).
 - The acceptance vault: **directive — human:** Karl provisions a Key Vault in his
-  tenant for this purpose and sets `KSECRET_ACCEPTANCE_AKV_VAULT=<name>` in the
-  environment before M3 runs; the test creates and deletes secrets prefixed
-  `ksecret-acceptance-` and touches nothing else.
+  tenant for this purpose (a separate task, not part of this milestone) and sets
+  `KSECRET_ACCEPTANCE_AKV_VAULT=<name>` in the environment before M3 runs; the test
+  creates and deletes secrets prefixed `ksecret-acceptance-` and touches nothing
+  else. Until the variable is set the vault tests skip, and a milestone whose only
+  evidence is skips is not delivered (A2).
 - Soft-delete: a deleted AKV secret name stays reserved until purged; the test uses a
   fresh random suffix per run, so purging is not needed.
 

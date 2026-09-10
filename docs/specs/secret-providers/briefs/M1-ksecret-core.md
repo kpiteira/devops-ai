@@ -72,7 +72,7 @@ recommendation ladder (vault-backed over `.env`), and the one-time
 |-----|-----------------------|------------------|
 | J1 | `test_m1_ksecret_core.py::test_read_env_dotenv_and_literal` | `read` returns the exported value, the dotenv value, the literal, and `$VAR` falls back to `./.env` |
 | J1 | `test_m1_ksecret_core.py::test_read_failure_names_ref_not_value` | Missing key → exit 1, stderr names the ref, stdout empty |
-| J1 | `test_m1_ksecret_core.py::test_read_op_reference` | With a signed-in `op`, an item created by the test reads back (skips otherwise) |
+| J1 | `test_m1_ksecret_core.py::test_read_op_reference` | An item the test creates in 1Password reads back; skips when Karl does not grant `op` access (there is no scriptable sign-in — A3) |
 | J2 | `test_m1_ksecret_core.py::test_run_injects_resolved_env_without_disk` | Child sees resolved values; literal lines pass through; no new file appears; child exit code propagates |
 | J2 | `test_m1_ksecret_core.py::test_run_refuses_when_any_ref_fails` | Command not executed, exit 1, stderr names the failing key |
 | J3 | `test_m1_ksecret_core.py::test_check_reports_without_values` | Output classifies ok/literal/error; the secret value string is absent from stdout and stderr |

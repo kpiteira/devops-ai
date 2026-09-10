@@ -106,27 +106,41 @@ create` calls.
 M2 and M3 are independent and may run in parallel. M4 is optional: it may be dropped
 at feature close without amendment if it proves heavy.
 
-## Assumptions
+## Decisions
+
+<!-- Drafted as Assumptions; each confirmed by Karl on 2026-09-08. IDs kept — the
+briefs and tests reference them. -->
 
 - A1 — `ksecret` ships as a second console script of the existing `devops_ai` package
   (installed by the same `uv tool install`), not a new repo or package.
 - A2 — The Azure Key Vault acceptance test runs against a real Key Vault in Karl's
-  tenant and skips when `az` is not logged in or the vault name env var is unset;
-  Karl creates the vault before M3 starts.
-- A3 — The 1Password acceptance test skips when `op` is not signed in; no service
-  account is provisioned for CI.
+  tenant, named by `KSECRET_ACCEPTANCE_AKV_VAULT`, and skips when `az` is not logged
+  in or the variable is unset. **Prerequisite for M3:** Karl creates that vault (a
+  separate task he expects to do with help); M3 cannot be declared delivered on
+  skips alone.
+- A3 — The 1Password acceptance tests skip when access is not granted. There is no
+  scriptable sign-in: `op` prompts Karl per access and he grants it, so the tests
+  simply attempt access and wait long enough for a touch. No service account.
 - A4 — The `.env` fallback applies to `$VAR` / `env://VAR` references only; an
   exported variable wins over the file.
 - A5 — For kinfra sandboxes, `dotenv://` relative paths and the `.env` fallback
   resolve against the main repo root (where gitignored files live), matching
   `[sandbox.files]`. For `ksecret`, relative paths resolve against the working directory.
 - A6 — Provider modules live one-per-scheme under `src/devops_ai/secrets/providers/`;
-  the resolver discovers them without naming any. This is the shape the architecture
-  test enforces.
+  the resolver discovers them without naming any. The architecture test enforces
+  exactly this.
 - A7 — Write (M4) covers 1Password (create only), OpenBao, Azure Key Vault, and
-  `.env` files; the host environment is read-only.
+  `.env` files; the host environment is read-only. Karl accepts this for now without
+  liking it: the create-only limit follows from the no-values-in-argv invariant,
+  which agent-memory's own `op item create` call does not honor today. **Open,
+  cross-project:** whether the argv rule or the 1Password update capability wins is
+  to be settled once, across projects — not in this feature.
 - A8 — An unregistered `word://` value passes through as a literal (so
   `postgres://…` connection strings in `[sandbox.secrets]` keep working);
   `ksecret check` labels it so typos are visible.
+
+## Assumptions
+
+<!-- Empty: all eight promoted above on 2026-09-08. -->
 
 ## Amendments
