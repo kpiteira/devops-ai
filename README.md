@@ -27,9 +27,14 @@ The workflow for a new feature — **rigid about outcomes, silent about paths**:
                  → Escape valve: contradictions escalate, never get coded around
                  → Delivers the milestone as a PR
 
-3. Close        /kspec close reminders
+3. Observe      /kobserve launch reminders/M1 · verify 214 · land 214
+                 → The seat between the human and the sessions: launch each executor,
+                   re-run its blocking tests independently, put "For the human" to
+                   the human before merge, land the merge, tear down
+
+4. Close        /kspec close reminders
                  → Fresh-context review: does the whole diff satisfy the INTENT?
-                 → Spec archived; acceptance tests optionally promoted to e2e suite
+                 → Spec archived; acceptance tests promoted by kind (e2e/integration/unit)
 ```
 
 There are no task lists — the path from brief to delivered milestone is the executor's
@@ -149,6 +154,7 @@ kinfra done auth-M1                  # Clean up worktree, sandbox, containers
 |---------|---------|
 | `/kspec` | Planner sessions: intent → signed spec + work briefs + acceptance tests; also `replan`, `triage`, and `close` modes |
 | `/kbuild` | Executor sessions: one work brief in, goal loop against its blocking tests, milestone PR out |
+| `/kobserve` | Observer seat: launch executors, verify deliveries (independent re-run, *For the human* gate), land merges |
 
 ### Issue workflow
 
@@ -284,6 +290,7 @@ devops-ai/
 ├── skills/                 # AI tool skills (symlinked on install)
 │   ├── kspec/              # Planner: spec + briefs + acceptance tests, triage, close
 │   ├── kbuild/             # Executor: one brief → goal loop → milestone PR
+│   ├── kobserve/           # Observer: launch, verify, land
 │   ├── kissue/             # Bounded issue lane (defects, chores)
 │   ├── kreview/            # PR review comment assessment (single round)
 │   ├── kbabysit/           # PR review loop orchestration to merge-ready

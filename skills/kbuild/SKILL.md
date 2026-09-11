@@ -3,7 +3,7 @@ name: kbuild
 description: Implement one milestone from its work brief — run the goal loop until the planner-authored blocking tests pass, then deliver a PR. Use when the user asks to build, implement, or execute a milestone or points at a work brief under docs/specs/.
 argument-hint: "<path-to-brief>"
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # kbuild — the executor
@@ -20,7 +20,9 @@ you don't need them.
 Your entire context is the brief and the current code. Deliberately: you do not get
 the planning conversation, and you don't need it — if the brief plus the code leave
 material ambiguity, that is a defect in the brief and grounds for the escape valve,
-not something to fill with a guess.
+not something to fill with a guess. Read only your own brief: a field it pins is
+defined in it, by contract; if it isn't, that is the escape valve, not a reason to
+read the next milestone's brief.
 
 ## Before starting
 
@@ -29,11 +31,15 @@ Read the spec the brief points to, for two things only:
 - **Pending amendments.** An unchecked box in the spec's Amendments section means the
   human hasn't acknowledged a change to what he signed. Starting a new milestone while
   one is pending is blocked — stop and say so. His signature has to keep meaning
-  something.
+  something. (Checked boxes labeled *fact-correction* are records, not gates.)
 - **Your row.** Set the milestone's Decomposition status to `in progress`. All
   cross-session state lives in git — code, commits, PRs, that status field. If your
   session dies, the next one resumes from git alone, so commit progressively and leave
   the row truthful.
+
+The brief's **Working environment** section is the environment: standing PR gates and
+their scope, toolchain setup, runtime facts. Set it up before the first commit — a
+secret scan that reads history is not cleared by a later fix.
 
 ## The goal loop
 
@@ -53,6 +59,25 @@ they hold), permissions pre-approved so the loop isn't parked on a human.
   invariants — stays green the whole way; a threshold, ratchet, or contract is never
   edited to get there (the `structural-gates` rule).
 - **Advisory** criteria are worth attempting, never worth burning the session on.
+- **Measure, don't trust.** A claim about the code — yours, a reviewer's, a fresh
+  context's — is checked by running it before it changes what you do.
+
+## What you decide alone, and what you don't
+
+A brief cannot foresee every choice an implementation forces. Decide what you must to
+keep moving, and keep a running list — every call the brief did not make, with the
+alternative you rejected. It goes in the PR (below), in three sections:
+
+- **Decisions I made alone** — contained, reversible calls: internal shape, a default,
+  a mechanism.
+- **For the human** — anything a user would notice that the brief did not pin:
+  **product semantics** (what a state *means* — whether an unlogged day counts as a
+  miss), a consequence of the design (a status that can flip a week later), a
+  behaviour visible on his channel. You may implement your best reading to get green,
+  but it is his decision, and it reaches him *before* merge, not after.
+- **Facts I corrected** — a sentence in the brief about the current code that main
+  contradicts, on a requirement that is otherwise unambiguous. Build the requirement;
+  record the correction. That is a fact-correction, not a divergence.
 
 ## The escape valve
 
@@ -60,12 +85,17 @@ they hold), permissions pre-approved so the loop isn't parked on a human.
 > codebase, or an acceptance test contradicts a job: stop and describe what you found.
 > Don't comply, and don't classify the problem yourself.
 
+The line between this and *Facts I corrected*: a false fact that changes **what to
+build** is the valve; a wrong annotation on a requirement you can build unambiguously is
+a correction. When unsure, it is the valve.
+
 Mechanics: write `docs/specs/<feature>/divergences/M<N>-<date>.md` from this skill's
-`divergence-report.md` template — what contradicts the contract, reproducible evidence,
-why you stopped — set your Decomposition row to `diverged` with the report path in its
-Evidence column, commit, and stop. Classification (fact vs decision vs outcome) needs cross-feature
-context you don't have; a planner session (`/kspec triage`) picks it up from there.
-Don't build workarounds on top of a fact you believe is false.
+`divergence-report.md` template — what contradicts the contract, reproducible evidence
+from the running stack, why you stopped — set your Decomposition row to `diverged` with
+the report path in its Evidence column, commit, and stop. Classification (fact vs
+decision vs outcome) needs cross-feature context you don't have; a planner session
+(`/kspec triage`) picks it up from there. Don't build workarounds on top of a fact you
+believe is false, and never widen a security boundary to get green.
 
 ## Delivering
 
@@ -75,14 +105,19 @@ never a long-lived feature branch:
 - Branch `impl/<feature>-M<N>` (the kinfra convention; `kinfra impl <feature>/M<N>`
   gives you a worktree and sandbox when the project uses them). The CI guard rejects
   brief or acceptance-test changes from this branch — by design, not as an obstacle.
-- Before opening it, a fresh-context review of the whole diff — conformance to the
-  spec's invariants, interactions with prior features that share state — is a tool
-  worth using; the hands that wrote the code can't see its drift. The *pipeline* is
-  the contract, this review is your craft.
+- **Fresh-context review before the PR**, as a step, not an option: review the whole
+  diff from a context that did not write it — conformance to the spec's invariants,
+  interactions with prior features that share state, the failure paths the tests don't
+  reach. Its findings are claims: measure them before acting (the pilot's reviewer
+  said "8 pass on main"; 6 did). The pilot's cheapest real bugs were found here.
 - PR body carries the mapping line — `Spec: docs/specs/<feature>/SPEC.md · Milestone:
   M<N>` — so the gate knows which acceptance tests to run: this milestone's blocking
   criteria, plus the standing checks. Include the blocking commands and their final
-  green output in the description.
+  green output, and the three sections above — **Decisions I made alone**, **For the
+  human**, **Facts I corrected** — each present even when it says "none".
+- **You own the PR's review rounds** (`/kbabysit`) until it is merge-ready or you hand
+  it off explicitly. When a rebase changes SHAs, replies cite what changed, not only a
+  commit; every handled thread is resolved.
 - Set the Decomposition row to `PR` with the PR link in its Evidence column, then
   `delivered` when merged. Nothing else to write: no handoff files, no completion
   report — the spec row, the PR, and git are the record.

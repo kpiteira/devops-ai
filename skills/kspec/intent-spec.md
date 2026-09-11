@@ -71,12 +71,18 @@ the section it belongs to) or corrected. -->
 
 ## Amendments
 
-<!-- Append-only log of post-sign-off changes: divergence triage resolutions, re-planning
-outcomes, corrected facts. Each entry is a flag; an unchecked box is PENDING the human's
-acknowledgment. Starting any new milestone while a box is unchecked is blocked — the
-executor stops and asks. This is what keeps the signature meaning something.
+<!-- Append-only log of post-sign-off changes, two kinds.
 
-- [ ] YYYY-MM-DD (M2) fact-correction: <what was wrong, what is true now>
-- [ ] YYYY-MM-DD (M3) decision-change: <what changed, via re-planning pass>
+Fact-corrections (a sentence about the world was false; what to build did not change)
+are logged PRE-CHECKED: visible, never blocking. They arrive from triage or from an
+executor's "Facts I corrected" PR section.
+
+Decision- and outcome-changes are logged UNCHECKED and are PENDING the human's
+acknowledgment. Starting any new milestone while one is unchecked is blocked — the
+executor stops and asks. This is what keeps the signature meaning something. Each
+records the alternative it rejected.
+
+- [x] YYYY-MM-DD (M2) fact-correction: <what was wrong, what is true now>
+- [ ] YYYY-MM-DD (M3) decision-change: <what changed, via re-planning pass>. *Rejected:* <alternative>
 - [ ] YYYY-MM-DD (M1) outcome-change: <a job changed — decided by the human, never a model>
 -->

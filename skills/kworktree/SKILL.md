@@ -51,7 +51,7 @@ kinfra spec wellness-reminders
 # Spec dir: docs/specs/wellness-reminders/
 ```
 
-### `kinfra impl <feature>/<milestone> [--no-session]`
+### `kinfra impl <feature>/<milestone> [--no-session] [--group <name>]`
 
 Create an implementation worktree with sandbox. Automatically creates an agent-deck session and launches Claude with `/kbuild`.
 
@@ -100,7 +100,9 @@ kinfra status
 
 Restart sandbox for an existing worktree (re-provisions secrets and files).
 
-### `kinfra sandbox rebuild`
+### `kinfra sandbox rebuild [--refresh-secrets]`
+
+Reuses the slot's materialised `.env.secrets` when present, so an unattended rebuild never waits on a keychain approval; `--refresh-secrets` re-resolves the references (also on `sandbox start`).
 
 Rebuild sandbox with latest code changes. Re-provisions secrets/files AND rebuilds Docker images from source. **Use this after code changes** — `start` only restarts existing images.
 
@@ -129,14 +131,14 @@ This is NOT optional. After every `kinfra impl`, immediately create the session:
 # Get current session name
 agent-deck session current
 
-# Create child session (substitute actual values)
-agent-deck add -t "<feature>/<milestone>" -c claude --parent <current-session-name> <worktree-path>
+# Create child session (substitute actual values) — ALWAYS with an explicit group
+agent-deck add -t "<feature>/<milestone>" -c claude --parent <current-session-name> -g <group> <worktree-path>
 
 # Example:
-agent-deck add -t "health-advisor/M2" -c claude --parent khealth /Users/karl/Documents/dev/wellness-agent-impl-health-advisor-M2
+agent-deck add -t "health-advisor/M2" -c claude --parent khealth -g khealth /Users/karl/Documents/dev/wellness-agent-impl-health-advisor-M2
 ```
 
-The `--parent` flag links the child to the current session — this is how agent-deck tracks which sessions spawned which.
+The `--parent` flag links the child to the current session — this is how agent-deck tracks which sessions spawned which. Pass `-g` explicitly: a child without one inherits its parent's group, and groups default to a running-session cap of 1 (the parent counts), so the child queues and errors. `kinfra impl --session --group <group>` does the same in one step (default group `dev`).
 
 **Step 3: Report to user**
 Tell the user the session is ready and how to start it:
