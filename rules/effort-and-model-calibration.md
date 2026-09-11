@@ -30,6 +30,12 @@ that needs real reasoning is a false economy, and we optimize for quality first.
 
 ## How this gets set
 
+A session states which model it is running on when it starts, and re-checks after any
+restart: a session manager resumes on its default model after a tmux restart, and a child
+session carries its parent's model. A planner session that finds itself on the executor
+tier stops and says so rather than continuing — the pilot ran a replan on the wrong tier
+twice before anyone read the status bar.
+
 Effort and model selection are runtime/harness controls — a skill can *recommend* a level (as
 above) but the human or harness sets it. Treat the recommendations here as defaults to reach for,
 not as something a skill can enforce on its own. (Whether a skill can declare its effort in

@@ -12,6 +12,10 @@ briefs, and blocking acceptance tests. The executor (`/kbuild`) owns the impleme
 - A milestone is a user-visible vertical slice and the unit of delivery.
 - A work brief specifies the milestone without prescribing implementation.
 - Tasks are not a framework concept.
+- A brief is self-contained for everything it pins: every field it names is defined in it;
+  anything that enumerates or renders the thing it adds is Surface; every pinned side effect
+  states its failure path; the working environment (standing gates and their scope,
+  toolchain setup, runtime facts) is stated as fact.
 
 Every job in a brief maps to a planner-authored blocking test written before implementation.
 The executor never authors or edits its own grader. Executor-written tests are implementation
@@ -34,6 +38,27 @@ the guard or the workflow from an unknown branch is flagged for review.
 If a stated fact is false, a decision conflicts with reality, or a blocking test contradicts
 its job, execution stops with evidence. The executor does not comply, work around it, edit
 the test, or classify the problem. A planner session triages it with cross-feature context.
+
+**Fact corrections** are the one exception: when the requirement is unambiguous and only an
+annotation about the current code is false, the executor builds the requirement and records
+the correction under *Facts I corrected* in the PR; the planner amends the spec at review.
+A false fact that changes what to build is still the escape valve.
+
+## The executor's PR
+
+Three mandatory sections, none optional even when empty: **Decisions I made alone** (each
+with the alternative it rejected), **For the human** (consequences that are the human's —
+product semantics above all: what a user-visible state means), **Facts I corrected**. Before
+merge, the planner puts *For the human* to the human as a decision — fix now via replan, or
+defer to close — and never argues the executor's case for a product semantic. Merge is also
+preceded by **independent verification**: the blocking command re-run by a stranger at the
+PR head, matching the executor's output.
+
+## Amendments
+
+Two kinds. Fact-corrections are logged pre-checked (`- [x] … fact-correction`) and block
+nothing. Decision- and outcome-changes are logged unchecked and block the next milestone
+until the human acknowledges them.
 
 ## Durable state
 

@@ -6,7 +6,7 @@
 
 **Problem:** the kdesign/kplan/kbuild framework prescribes process, which caps frontier models at the human's plan and wastes their planning/verification abilities.
 **Direction:** outcome-only intent specs and work briefs, executor agency with an escape valve, anti-deference escalation protocol, comprehension layer (glossary, architecture-as-tests, event-triggered interrogation).
-**Status:** design doc validated by two independent cold-reader comprehension probes (transport mechanics deferred by design, semantics confirmed unambiguous). Ready for the Claude Code working session.
+**Status:** v6 piloted end to end on khealth "challenges" (2026-09-01 → 09-11, `docs/designs/v2-contract/PILOT.md`); synthesised in `REVIEW.md`; contract, rules, skills and templates revised to v7 (September 2026). Next: a second pilot on a different product, watching what v7 introduced.
 
 ## 2. Conformance & e2e validation integration
 

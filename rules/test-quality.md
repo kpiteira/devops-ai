@@ -48,3 +48,29 @@ They are the milestone's blocking criteria, so beyond the bar above:
 - **Read-only during execution** — an executor that believes one is wrong escalates
   (the escape valve); the tests are writable only in planning and re-planning
   sessions. Grader and graded stay separate people.
+
+### The acceptance-test checklist
+
+Every item below was a hole in the first pilot. The planner works through it before the
+sign-off walkthrough, and the brief's Blocking table shows the result.
+
+- **If a test asserts it, the Surface states it.** A grader that pins more than the brief
+  is the planner deciding shape silently.
+- **Opposite reading.** For each decision the human cares about: would this test pass
+  under the opposite reading? If yes, it pins nothing — pin it, or mark the decision as
+  the human's to make.
+- **Measured on main.** Every "passes/fails on main" claim is measured on a running
+  sandbox; the Blocking table records the command and its output.
+- **The executor's runtime, not the planner's.** Sandbox ports (`base + slot`),
+  environment, and **clock and timezone** — a test that reads the runner's `today()`
+  while the server judges days in the user's timezone is green on one laptop and red
+  everywhere else.
+- **Run-to-the-end.** At least one scenario per lifecycle the feature introduces runs it
+  to its final state; the pilot's only intent drift lived past the last day nobody tested.
+- **Rendered output for UI jobs.** Never a source substring: it fails a correct refactor
+  and passes a broken render. Assert the SSR or compiled output, or drive a browser.
+- **Failure path.** For every external side effect the Surface pins, one test for the
+  channel being down.
+- **Integration-level, labeled.** When the live stack cannot exercise a job, an
+  integration-level blocking test is legal if the Blocking table says so, says why, and
+  carries its measured baseline.
