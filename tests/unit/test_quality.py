@@ -774,3 +774,24 @@ class TestGenerateConftest:
 
         # No tests/unit/ directory
         assert should_generate_conftest(tmp_path) is False
+
+
+class TestGuardLabelsItsOwnPaths:
+    def test_guard_paths_are_not_called_contract_files(self) -> None:
+        """Pilot 2026-09-05: the annotation mislabeled the guard's own paths."""
+        namespace: dict[str, object] = {}
+        exec(generate_contract_integrity_check(), namespace)
+        change_label = namespace["change_label"]
+        assert callable(change_label)
+        assert "contract" in change_label(
+            "docs/specs/f/briefs/M1-x.md", "tests/acceptance"
+        ).lower()
+        assert "contract" in change_label(
+            "tests/acceptance/f/test_x.py", "tests/acceptance"
+        ).lower()
+        assert "guard" in change_label(
+            ".github/workflows/ci.yml", "tests/acceptance"
+        ).lower()
+        assert "guard" in change_label(
+            ".devops-ai/check_contract_integrity.py", "tests/acceptance"
+        ).lower()

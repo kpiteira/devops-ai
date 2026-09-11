@@ -84,8 +84,13 @@ def impl_command(
     arg: str,
     repo_root: Path | None = None,
     session: bool = True,
+    group: str = "dev",
 ) -> tuple[int, str]:
     """Create an impl worktree with optional sandbox.
+
+    ``group`` is the agent-deck group for the session — always passed
+    explicitly, because a session added without one inherits its parent's
+    group and that group's concurrency cap.
 
     Returns (exit_code, message).
     """
@@ -143,7 +148,7 @@ def impl_command(
         )
         if session:
             session_msg = _setup_session(
-                feature, milestone, wt_path
+                feature, milestone, wt_path, group=group
             )
             if session_msg:
                 msg += f"\n{session_msg}"
@@ -168,7 +173,7 @@ def impl_command(
 
     # --- Sandbox setup ---
     return _setup_sandbox(
-        config, repo_root, wt_path, feature, milestone, session
+        config, repo_root, wt_path, feature, milestone, session, group
     )
 
 
@@ -196,13 +201,14 @@ def _setup_session(
     feature: str,
     milestone: str,
     wt_path: Path,
+    group: str = "dev",
 ) -> str:
     """Set up agent-deck session. Returns status message."""
     if not agent_deck.is_available():
         return "  agent-deck not found, skipping session management"
     title = f"{feature}/{milestone}"
     agent_deck.add_session(
-        title, group="dev", path=str(wt_path)
+        title, group=group, path=str(wt_path)
     )
     agent_deck.start_session(title)
     agent_deck.send_to_session(
@@ -218,6 +224,7 @@ def _setup_sandbox(
     feature: str,
     milestone: str,
     session: bool = False,
+    group: str = "dev",
 ) -> tuple[int, str]:
     """Set up sandbox for an impl worktree."""
     registry = load_registry()
@@ -323,7 +330,9 @@ def _setup_sandbox(
         )
 
     if session:
-        session_msg = _setup_session(feature, milestone, wt_path)
+        session_msg = _setup_session(
+            feature, milestone, wt_path, group=group
+        )
         if session_msg:
             lines.append(session_msg)
 

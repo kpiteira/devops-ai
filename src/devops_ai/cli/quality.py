@@ -544,6 +544,12 @@ def protected_path(path: str, root: str) -> bool:
     return contract_path(normalized, root) or normalized in GUARD_PATHS
 
 
+def change_label(path: str, root: str) -> str:
+    if contract_path(path, root):
+        return "Planner-owned contract file changed"
+    return "Contract guard file changed"
+
+
 def changed_paths(diff: str) -> list[str]:
     paths: list[str] = []
     for line in diff.splitlines():
@@ -590,7 +596,7 @@ def main() -> int:
     level = "error" if blocks_contract_change else "warning"
     for path in protected:
         print(
-            f"::{level} file={path}::Planner-owned contract file changed "
+            f"::{level} file={path}::{change_label(path, root)} "
             f"on branch {branch or '<unknown>'}"
         )
     if blocks_contract_change:

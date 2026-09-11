@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from enum import Enum
 from pathlib import Path
 
 from devops_ai.config import find_project_root, load_config
@@ -46,15 +47,41 @@ def _find_main_repo_root(worktree_path: Path) -> Path | None:
     return None
 
 
+class SecretsPlan(Enum):
+    """What a sandbox start does about secrets."""
+
+    NONE = "none"        # no [sandbox.secrets] configured
+    REUSE = "reuse"      # materialised .env.secrets present, not refreshing
+    RESOLVE = "resolve"  # resolve references (may prompt a keychain)
+
+
+def plan_secrets(
+    secrets: dict[str, str], slot_dir: Path, *, refresh: bool
+) -> SecretsPlan:
+    """Decide whether to reuse the slot's materialised secrets.
+
+    Default is reuse when the file exists: the running containers already use
+    it, and re-resolving can park an unattended session on a human's keychain
+    (v2 pilot, 2026-09-08). ``refresh`` forces resolution.
+    """
+    if not secrets:
+        return SecretsPlan.NONE
+    if not refresh and (slot_dir / ".env.secrets").exists():
+        return SecretsPlan.REUSE
+    return SecretsPlan.RESOLVE
+
+
 def _sandbox_up(
     worktree_path: Path | None = None,
     *,
     build: bool = False,
+    refresh_secrets: bool = False,
 ) -> tuple[int, str]:
     """Shared logic for sandbox start and rebuild.
 
-    Re-runs provisioning (files + secrets) before starting containers.
-    If ``build`` is True, rebuilds images from source.
+    Re-runs file provisioning before starting containers; secrets are
+    re-resolved only when nothing is materialised or ``refresh_secrets`` is
+    set. If ``build`` is True, rebuilds images from source.
     """
     cwd = (worktree_path or Path.cwd()).resolve()
     verb = "rebuilt" if build else "started"
@@ -103,10 +130,13 @@ def _sandbox_up(
             config.files, main_repo, wt_path
         )
 
-    # Resolve secrets
+    # Resolve secrets — or reuse what the slot already has
     secret_errors: list[SecretResolutionError] = []
     resolved_secrets: dict[str, str] = {}
-    if config.secrets:
+    secrets_plan = plan_secrets(
+        config.secrets, slot_dir, refresh=refresh_secrets
+    )
+    if secrets_plan is SecretsPlan.RESOLVE:
         resolved_secrets, secret_errors = resolve_all_secrets(config.secrets)
 
     all_errors: list[SecretResolutionError | FileProvisionError] = (
@@ -154,6 +184,11 @@ def _sandbox_up(
         for var_name in sorted(resolved_secrets.keys()):
             ref = config.secrets.get(var_name, "")
             lines.append(f"  {var_name} \u2190 {ref} \u2713")
+    elif secrets_plan is SecretsPlan.REUSE:
+        lines.append(
+            "Secrets: reused the slot's materialised .env.secrets "
+            "(--refresh-secrets to re-resolve)"
+        )
 
     if not healthy:
         lines.append(
@@ -166,16 +201,24 @@ def _sandbox_up(
 
 def sandbox_start_command(
     worktree_path: Path | None = None,
+    *,
+    refresh_secrets: bool = False,
 ) -> tuple[int, str]:
     """Start sandbox for an existing worktree. Returns (exit_code, message)."""
-    return _sandbox_up(worktree_path, build=False)
+    return _sandbox_up(
+        worktree_path, build=False, refresh_secrets=refresh_secrets
+    )
 
 
 def sandbox_rebuild_command(
     worktree_path: Path | None = None,
+    *,
+    refresh_secrets: bool = False,
 ) -> tuple[int, str]:
     """Rebuild sandbox for an existing worktree. Returns (exit_code, message).
 
     Like start, but rebuilds Docker images from source code.
     """
-    return _sandbox_up(worktree_path, build=True)
+    return _sandbox_up(
+        worktree_path, build=True, refresh_secrets=refresh_secrets
+    )

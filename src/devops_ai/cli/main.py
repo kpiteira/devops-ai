@@ -98,9 +98,17 @@ def impl_cmd(
         "--session/--no-session",
         help="Create an agent-deck session with Claude",
     ),
+    group: str = typer.Option(
+        "dev",
+        "--group",
+        "-g",
+        help="agent-deck group for the session (always passed explicitly)",
+    ),
 ) -> None:
     """Create an implementation worktree with sandbox."""
-    code, msg = impl_command(feature_milestone, session=session)
+    code, msg = impl_command(
+        feature_milestone, session=session, group=group
+    )
     typer.echo(msg)
     raise typer.Exit(code)
 
@@ -137,18 +145,32 @@ def obs_status() -> None:
     raise typer.Exit(code)
 
 
+_REFRESH_HELP = (
+    "Re-resolve secrets even if the slot already has a materialised "
+    ".env.secrets (default: reuse it, so a rebuild never waits on a keychain)"
+)
+
+
 @sandbox_app.command(name="start")
-def sandbox_start() -> None:
+def sandbox_start(
+    refresh_secrets: bool = typer.Option(
+        False, "--refresh-secrets", help=_REFRESH_HELP
+    ),
+) -> None:
     """Start sandbox for an existing worktree (re-runs provisioning)."""
-    code, msg = sandbox_start_command()
+    code, msg = sandbox_start_command(refresh_secrets=refresh_secrets)
     typer.echo(msg)
     raise typer.Exit(code)
 
 
 @sandbox_app.command(name="rebuild")
-def sandbox_rebuild() -> None:
+def sandbox_rebuild(
+    refresh_secrets: bool = typer.Option(
+        False, "--refresh-secrets", help=_REFRESH_HELP
+    ),
+) -> None:
     """Rebuild sandbox with latest code (re-provisions + docker build)."""
-    code, msg = sandbox_rebuild_command()
+    code, msg = sandbox_rebuild_command(refresh_secrets=refresh_secrets)
     typer.echo(msg)
     raise typer.Exit(code)
 

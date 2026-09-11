@@ -264,7 +264,11 @@ def stop_sandbox(slot: SlotInfo) -> bool:
     override_file = slot_dir / "docker-compose.override.yml"
     env_files = _env_files_for_slot(slot_dir)
 
-    cmd = _compose_cmd(compose_file, override_file, env_files, ["down"])
+    # --volumes: the compose project name is per slot, so only this slot's
+    # named volumes go. A stale volume blocked a relaunch in the v2 pilot.
+    cmd = _compose_cmd(
+        compose_file, override_file, env_files, ["down", "--volumes"]
+    )
     logger.info("Stopping sandbox: %s", " ".join(cmd))
 
     try:

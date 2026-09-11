@@ -280,3 +280,22 @@ class TestHealthGate:
 
         url = mock_open.call_args[0][0]
         assert url == "http://localhost:8081/api/v1/health"
+
+
+class TestStopRemovesVolumes:
+    def test_down_removes_the_slot_volumes(self, tmp_path: Path) -> None:
+        """A slot's named volumes go with its containers (pilot 2026-09-06)."""
+        slot_dir = tmp_path / "slot"
+        slot_dir.mkdir()
+        (slot_dir / ".env.sandbox").write_text("X=1\n")
+        slot = SlotInfo(
+            slot_id=2, project="p", worktree_path=str(tmp_path),
+            slot_dir=str(slot_dir),
+            compose_file_copy=str(slot_dir / "docker-compose.yml"),
+            ports={}, claimed_at="2025-01-01T00:00:00", status="running",
+        )
+        with patch("devops_ai.sandbox.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+            assert stop_sandbox(slot) is True
+        cmd = mock_run.call_args_list[0][0][0]
+        assert cmd[-2:] == ["down", "--volumes"]
