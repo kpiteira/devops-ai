@@ -100,6 +100,12 @@ class TestHostEnvironment:
         with pytest.raises(SecretResolutionError, match="not set"):
             resolve("K", "$ABSENT", ctx(tmp_path))
 
+    def test_the_scheme_is_claimed_even_when_malformed(self, project: Path) -> None:
+        """A typo must not resolve to itself — that is how a scheme is claimed."""
+        assert provider_for("env://") is not None
+        with pytest.raises(SecretResolutionError, match="Malformed"):
+            resolve("K", "env://", ctx(project))
+
     def test_a_bare_dollar_is_a_literal(self, project: Path) -> None:
         assert resolve("K", "$", ctx(project)) == "$"
         assert provider_for("$") is None
@@ -158,6 +164,28 @@ class TestLiterals:
     ) -> None:
         assert provider_for(value) is None
         assert resolve("K", value, ctx(project)) == value
+
+
+class TestUnreadableFiles:
+    """Every caller promises an actionable message, so nothing may escape as a crash."""
+
+    def test_non_utf8_file_is_an_os_error_not_a_decode_crash(
+        self, tmp_path: Path
+    ) -> None:
+        bad = tmp_path / "binary.env"
+        bad.write_bytes(b"KEY=\xff\xfe not text\n")
+
+        with pytest.raises(SecretResolutionError) as exc:
+            resolve("K", "dotenv://binary.env#KEY", ctx(tmp_path))
+        assert "binary.env" in exc.value.message
+        assert "UTF-8" in exc.value.message
+
+    def test_the_env_fallback_survives_an_undecodable_dotenv(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / ".env").write_bytes(b"K=\xff\xfe\n")
+        with pytest.raises(SecretResolutionError, match="UTF-8"):
+            resolve("K", "$ABSENT", ctx(tmp_path))
 
 
 # --- Discovery ---

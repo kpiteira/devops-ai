@@ -91,6 +91,15 @@ class TestCheckCollectsFromEveryInput:
         assert result.exit_code == 2
         assert "nothing to check" in result.output
 
+    def test_an_undecodable_env_file_is_an_error_not_a_traceback(
+        self, project: Path
+    ) -> None:
+        (project / "binary.env").write_bytes(b"A=\xff\xfe\n")
+        result = runner.invoke(app, ["check", "--env-file", "binary.env"])
+        assert result.exit_code == 1
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert "binary.env" in result.output
+
     def test_a_missing_env_file_is_an_error_not_a_traceback(
         self, project: Path
     ) -> None:

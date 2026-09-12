@@ -292,8 +292,12 @@ terminal output.
 
 ### In a kinfra sandbox
 
-`[sandbox.secrets]` in `.devops-ai/infra.toml` accepts every reference above, resolved
-by the same resolver `ksecret` uses:
+`[sandbox.secrets]` in `.devops-ai/infra.toml` goes through the same resolver
+`ksecret` uses, so every **implemented** reference above works there. The two marked
+*(coming)* do not yet: until their provider ships, `bao://…` and `akv://…` are
+unclaimed schemes, which means they are treated as literals (see the first row) and
+the URI itself is injected as the value. `ksecret check` labels them `literal` — that
+is how you tell.
 
 ```toml
 [sandbox.secrets]

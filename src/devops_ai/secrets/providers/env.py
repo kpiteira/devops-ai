@@ -18,15 +18,25 @@ FALLBACK_FILE = ".env"
 
 
 def handles(ref: str) -> bool:
-    """True for both the scheme and the `$NAME` shorthand."""
+    """True for both the scheme and the `$NAME` shorthand.
+
+    The scheme is claimed even with nothing after it, so a typo is a malformed
+    reference rather than a literal that quietly resolves to itself. The bare
+    sigil is not: a lone `$` is far likelier to be text than a mistyped
+    reference.
+    """
     if ref.startswith(SCHEME):
-        return len(ref) > len(SCHEME)
+        return True
     return ref.startswith(SHORTHAND) and len(ref) > 1
 
 
 def resolve(ref: str, ctx: ResolveContext) -> str:
     """Return the variable's value, or raise naming the variable that is missing."""
     name = ref[len(SCHEME):] if ref.startswith(SCHEME) else ref[len(SHORTHAND):]
+    if not name:
+        raise ProviderError(
+            f"Malformed reference {ref}. Expected {SCHEME}<NAME>."
+        )
     if name in ctx.env:
         return ctx.env[name]
 

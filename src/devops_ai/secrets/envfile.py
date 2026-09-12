@@ -8,6 +8,7 @@ prefixes and surrounding single or double quotes are stripped.
 
 from __future__ import annotations
 
+import errno
 from pathlib import Path
 
 _EXPORT = "export "
@@ -33,8 +34,18 @@ def parse(text: str) -> dict[str, str]:
 
 
 def read(path: Path) -> dict[str, str]:
-    """Parse the env file at `path`. Raises OSError if it cannot be read."""
-    return parse(path.read_text())
+    """Parse the env file at `path`. Raises OSError if it cannot be read.
+
+    Undecodable bytes come back as an OSError too: every caller promises an
+    actionable message for a file it cannot read, and a `UnicodeDecodeError`
+    escaping to the top is a traceback instead of one.
+    """
+    try:
+        return parse(path.read_text())
+    except UnicodeDecodeError:
+        raise OSError(
+            errno.EILSEQ, "not valid UTF-8 text", str(path)
+        ) from None
 
 
 def _unquote(value: str) -> str:

@@ -23,7 +23,10 @@ def handles(ref: str) -> bool:
 
 def resolve(ref: str, ctx: ResolveContext) -> str:
     """Read the item through `op`, translating its failures into guidance."""
-    if shutil.which("op") is None:
+    # The child is spawned with `env=ctx.env`, and exec resolves the program on
+    # *that* environment's PATH — so discovery has to use the same one, or it
+    # answers about a different PATH than the one that will run `op`.
+    if shutil.which("op", path=ctx.env.get("PATH")) is None:
         raise ProviderError(
             "1Password CLI (op) not found. "
             "Install: brew install 1password-cli "
