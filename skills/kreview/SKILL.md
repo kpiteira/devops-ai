@@ -1,8 +1,8 @@
 ---
 name: kreview
-description: Address PR review comments critically — decide scope first (out-of-scope → issue), then assess each comment and recommend action (implement/push-back/discuss), and execute. Works with any reviewer (Copilot, human, other bots). Single-round engine; kbabysit drives the multi-round loop.
+description: Address PR review comments critically — assess each comment, recommend action (implement/push-back/discuss), and execute. Works with any reviewer (Copilot, human, other bots). Single-round engine; kbabysit drives the multi-round loop.
 metadata:
-  version: "0.3.0"
+  version: "0.2.0"
 ---
 
 # Address PR Review Comments
@@ -21,10 +21,9 @@ zero comments get implemented (all pushed back with reasoning) can be the correc
 ## Modes
 
 - **Attended** (default): present the triage table, get confirmation, then act.
-- **Autonomous** (`/kreview auto`, or when invoked by `kbabysit`): act on OUT-OF-SCOPE,
-  IMPLEMENT and PUSH BACK without asking. DISCUSS items are never resolved autonomously —
-  reply to the thread with the trade-off, leave it open, and list it in the round report
-  for the human.
+- **Autonomous** (`/kreview auto`, or when invoked by `kbabysit`): act on IMPLEMENT and
+  PUSH BACK without asking. DISCUSS items are never resolved autonomously — reply to the
+  thread with the trade-off, leave it open, and list it in the round report for the human.
 
 ---
 
@@ -73,21 +72,7 @@ round, process only comments newer than the round you last handled (compare `cre
 
 ---
 
-## 2. Scope first, then assess
-
-**OUT-OF-SCOPE is decided before anything else**, for every comment, with one question:
-
-> Does acting on this finding serve one of the PR's **stated outcomes** — the spec's jobs
-> (the `Spec: … · Milestone:` line) or the PR body's stated purpose?
-
-If not, the finding is OUT-OF-SCOPE **however true it is**. A real defect outside the
-outcomes is not fixed here: it is filed as an issue that links the thread, the thread gets
-the issue link, and the thread is resolved. Only findings that pass this test go on to the
-value assessment below. This is what keeps a review loop bounded: a reviewer that reads the
-whole diff every round will always find a next thing, and each fix made outside the outcomes
-widens the diff it reads next time (devops-ai #27 ran 13 rounds this way).
-
-Then, for in-scope comments:
+## 2. Assess Each Comment
 
 | Question | If yes... |
 |----------|-----------|
@@ -97,10 +82,7 @@ Then, for in-scope comments:
 | Could this suggestion make things worse? | Push back with reasoning |
 | Does the reviewer lack context for this suggestion? | Discuss or push back |
 
-## Categorize: OUT-OF-SCOPE / IMPLEMENT / PUSH BACK / DISCUSS
-
-**OUT-OF-SCOPE** (decided first, above) when acting on the comment would not serve one of the
-PR's stated outcomes. Action: issue + link + resolve. Never a commit on this branch.
+## Categorize: IMPLEMENT / PUSH BACK / DISCUSS
 
 **IMPLEMENT** when the comment:
 - Fixes actual bugs or security issues
@@ -181,19 +163,9 @@ gh api graphql -f query='
 
 | Verdict | Reply with | Then |
 |---------|-----------|------|
-| OUT-OF-SCOPE | "Out of this PR's outcomes — filed as #N" + the issue link | Resolve the thread |
 | IMPLEMENT | "Fixed in `<sha>`" + one line on what changed (the line is what survives a rebase) | Resolve the thread |
 | PUSH BACK | Your reasoning, concretely — never a bare "won't fix" | Resolve the thread |
 | DISCUSS | The trade-off and what you'd need to decide | Leave open for the human |
-
-Filing an OUT-OF-SCOPE finding:
-
-```bash
-gh issue create --title "<finding, one line>" --body "Raised in <thread URL> on PR #N; out of that PR's outcomes. <the reviewer's point, verbatim or gist; the fix direction if obvious>"
-```
-
-The issue body links the thread and the thread reply links the issue, so neither side loses
-the other. One issue can collect several threads of one round when they share a cause.
 
 Resolving push-backs is deliberate: the reasoning is preserved in the thread and surfaced in
 the round report, and leaving them open just makes the merge-time skim noisier. Know what
@@ -220,8 +192,7 @@ consumes):
 | # | Reviewer | File:Line | Comment (gist) | Verdict | Action taken |
 |---|----------|-----------|----------------|---------|--------------|
 
-**Out of scope:** N (issues #…) · **Implemented:** N (commit <sha>) · **Pushed back:** N · **Discuss (open for human):** N
-**Findings on earlier review-fix commits:** N of M — <which, for kbabysit's oscillation rule>
+**Implemented:** N (commit <sha>) · **Pushed back:** N · **Discuss (open for human):** N
 **Gates:** tests ✓/✗ · quality ✓/✗ · CI ✓/✗
 **Re-review recommended:** yes/no — <one line why>
 ```

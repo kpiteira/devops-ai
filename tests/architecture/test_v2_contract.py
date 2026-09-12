@@ -177,13 +177,3 @@ def test_observer_skill_exists_with_its_launch_guards() -> None:
 
 def test_project_config_template_lists_standing_gates() -> None:
     assert "Standing PR gates" in read("templates/project-config.md")
-
-
-def test_review_loop_is_bounded_by_scope_and_named_stop_rules() -> None:
-    """devops-ai #27 ran 13 rounds; these are the two rules that end such loops."""
-    review = read("skills/kreview/SKILL.md")
-    assert "OUT-OF-SCOPE" in review and "decided before" in review
-    babysit = read("skills/kbabysit/SKILL.md")
-    for rule in ("zero-implement", "oscillation", "trend", "cap"):
-        assert f"`{rule}`" in babysit, rule
-    assert "names the rule" in babysit
