@@ -2,7 +2,7 @@
 name: kbabysit
 description: Drive a PR from ready-for-review to merge-ready — request Copilot review, wait for it, triage and address comments via kreview, re-request, and loop until another round adds no value. Ends with a TL;DR report. Never merges, never triggers Claude reviews.
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # kbabysit — babysit a PR to merge-ready
@@ -14,7 +14,7 @@ not when reviewers stop talking — an empty round and a round of pure nitpicks 
 ```
 /kbabysit                # PR for the current branch
 /kbabysit <pr-number>
-/kbabysit <pr-number> max-rounds: 5   # override the round cap (default 3, applied in step 4)
+/kbabysit <pr-number> max-rounds: 5   # the human names the cap (default 3, applied in step 4)
 ```
 
 **End state:** merge-ready (or explicitly blocked) + a detailed report with TL;DR. This skill
@@ -76,21 +76,19 @@ the loop on a reviewer that never comes.
 ## 3. Triage and address — one kreview round
 
 Run `kreview` in **autonomous mode** for this round. It fetches the full review surface
-(review bodies, threads with resolved/outdated state, issue comments, CI), triages each new
-comment IMPLEMENT / PUSH BACK / DISCUSS, implements what's real with gates green, replies to
-every thread, resolves handled ones, pushes, and returns a round report.
+(review bodies, threads with resolved/outdated state, issue comments, CI), decides
+OUT-OF-SCOPE first and then triages IMPLEMENT / PUSH BACK / DISCUSS, implements what's real
+with gates green, replies to every thread, resolves handled ones, pushes, and returns a round
+report.
 
 The babysitter's own rules on top:
 
 - **Never weaken a test, gate, or threshold to satisfy a reviewer** — that's a DISCUSS with
   the human, not an implement.
-- **Scope fence.** An IMPLEMENT item must serve one of the PR's stated outcomes (the spec's
-  jobs, or the PR body's purpose). A finding that is real but outside them becomes an
-  **issue with a link**, not a commit — however true it is, and even when the round cap has
-  been lifted. The convergence test below ("zero IMPLEMENT items") only works if this
-  judgment is applied first: a babysitter that implements everything can never converge.
-  The v2 pilot synthesis PR ran 13 rounds because the reviewer widened the scope one fix
-  at a time and the babysitter followed.
+- **Scope fence** is kreview's OUT-OF-SCOPE disposition, applied before anything else: a
+  finding that does not serve the PR's stated outcomes is an issue with a link, not a
+  commit — however true, and whatever the round cap. The stop rules below only work when
+  this is applied first: a babysitter that implements everything can never converge.
 - A reviewer comment that fights the architecture is an ACP-shaped question — escalate,
   don't loop on it.
 - Keep the round's push to one coherent commit (or a few logical ones); in auto-review repos
@@ -101,29 +99,43 @@ The babysitter's own rules on top:
 
 ## 4. Loop or stop
 
-After each round, decide:
+After each round, evaluate the stop rules **in this order**; the first that fires ends the
+loop and is named in the report (rule 8 below). Only if none fires: **request another round,
+and only if** the round changed code substantively (new logic, changed behavior, refactors —
+not typo/comment fixes); go to step 1 for the reviewers whose feedback prompted changes (in
+auto-review repos the push already triggered it).
 
-**Request another round only if** the round changed code substantively (new logic, changed
-behavior, refactors — not typo/comment fixes). Then go to step 1 for the reviewers whose
-feedback prompted changes (in auto-review repos the push already triggered it).
+Each rule is a measurement, not a feeling. The numbers come from kreview's round reports.
 
-**Stop — converged** when any of:
-- The round produced **zero IMPLEMENT items** (all feedback was push-backs, nitpicks, or
-  repeats of prior rounds).
-- **Oscillation:** every finding of the round lands on the *previous round's fix commit*.
-  The reviewer is chasing the loop's own tail, not reviewing the PR; each fix will breed
-  the next finding forever. Stop, and file anything real in the round as an issue.
-- Reviewers returned no new comments, or approved.
-- New comments only re-raise points already handled — reply linking the prior reasoning
-  (kreview's cross-round memory), then stop. Copilot is *documented* to repeat comments on
-  re-review even when threads were resolved or dismissed — the disposition ledger is the only
-  defense, and "same findings twice" is the fixed point that means done.
+**Converged** — stop, merge-ready:
+1. `zero-implement` — the round produced zero IMPLEMENT items (everything was out of scope,
+   pushed back, or a repeat).
+2. `approved` — reviewers returned no new comments, or approved.
+3. `repeat` — new comments only re-raise points already handled; reply linking the prior
+   reasoning (kreview's cross-round memory). Copilot is *documented* to repeat comments on
+   re-review even when threads were resolved or dismissed — the disposition ledger is the
+   only defense, and "same findings twice" is the fixed point that means done.
+4. `oscillation` — **every** finding of the round lands on lines introduced by an earlier
+   *review-fix* commit of this loop (any round's, not only the last), none on the PR's
+   original commits. The reviewer is reading the loop's own tail, and each fix breeds the
+   next finding. Stop; file what is real as issues. (Measure it: `git blame` the flagged
+   lines against the list of review-round commits.)
 
-**Stop — escalate** when any of:
-- **Round cap reached** (default 3 full rounds). Non-convergence after 3 rounds means the
-  disagreement is real; grinding won't fix it.
-- Open **DISCUSS** items exist that block merge-readiness.
-- CI can't be brought green within the loop's scope.
+**Diminishing returns** — stop, escalate with the numbers:
+5. `trend` — two consecutive rounds whose IMPLEMENT count did **not fall below** the round
+   before them (counts after the scope fence). Two rounds that fail to shrink the work are
+   the reviewer generating work, not finding it. The window resets when the human names a
+   new cap.
+6. `cap` — the round cap is reached. The cap is **always a number the human names**: the
+   default is 3; a lifted cap is the previous cap + 2 unless he names another figure; there
+   is no unbounded mode. When the cap is reached, the report proposes the next number and
+   the human decides.
+7. `blocked` — open DISCUSS items block merge-readiness, or CI cannot be brought green
+   within the loop's scope.
+
+8. **The report names the rule** that fired — the rule's name from this list and the
+   measurement (counts, commits) that made it fire. "Converged" without a rule name is not
+   a verdict.
 
 Rounds are counted per babysit run; a re-invocation on the same PR starts fresh but inherits
 thread history (kreview reads prior replies, so push-backs stay remembered).
@@ -153,7 +165,8 @@ merge-ready / needs decision on X / blocked on Y.>
 ### Open for you (DISCUSS)
 - <decision needed + the trade-off, enough context to decide without scrolling back>
 
-**Why the loop stopped:** <converged / cap / escalation — one line>
+**Why the loop stopped:** `<rule name from step 4>` — <the measurement that fired it: counts, commits>
+**Out of scope → issues:** #…
 **CI:** green/red · **Merge conflicts:** none/yes
 ```
 
@@ -172,7 +185,7 @@ say so — that's a signal the pre-PR gates are doing their job, not a failure o
   output like any other comments, but flag the still-active automation in the report.
 - **Rounds cost real money** — Copilot reviews burn credits/Actions minutes. The round cap is
   a budget control, not just a convergence heuristic; don't spend a round on a re-review
-  nothing warranted.
+  nothing warranted. A lifted cap is a new number, never "until it's quiet".
 - Timebox waiting (step 2); a stalled reviewer never blocks the report.
 - If the same reviewer flip-flops across rounds (suggests X, then suggests reverting X),
   freeze that file's feedback as DISCUSS and note the oscillation in the report.
