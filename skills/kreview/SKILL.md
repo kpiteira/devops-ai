@@ -1,8 +1,8 @@
 ---
 name: kreview
-description: Address PR review comments critically — assess each comment, recommend action (implement/push-back/discuss), and execute. Works with any reviewer (Copilot, human, other bots). Single-round engine; kbabysit drives the multi-round loop.
+description: Address PR review comments critically — assess each comment against the PR's written review scope, recommend action (implement/push-back/discuss/out-of-scope), and execute. Works with any reviewer (Copilot, human, other bots). Single-round engine; kbabysit drives the multi-round loop.
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # Address PR Review Comments
@@ -15,15 +15,19 @@ round of review; `/kbabysit` invokes this repeatedly to drive a PR to merge-read
 
 Review comments — especially from automated reviewers — vary widely in quality. Assess each
 comment critically before acting. Your job is to decide whether each suggestion actually
-improves the code, not to implement every suggestion. Quality over compliance — a round where
-zero comments get implemented (all pushed back with reasoning) can be the correct outcome.
+improves **this PR**, not to implement every suggestion. Quality over compliance — a round
+where zero comments get implemented (all pushed back with reasoning) can be the correct
+outcome. And true is not the same as in scope: a real defect the PR was never for is an issue,
+not a commit (see OUT OF SCOPE below). Two loops on 2026-09-12 implemented nearly every
+finding and ran 13 and 11 rounds, most of them fixing things the PR did not exist to fix.
 
 ## Modes
 
 - **Attended** (default): present the triage table, get confirmation, then act.
-- **Autonomous** (`/kreview auto`, or when invoked by `kbabysit`): act on IMPLEMENT and
-  PUSH BACK without asking. DISCUSS items are never resolved autonomously — reply to the
-  thread with the trade-off, leave it open, and list it in the round report for the human.
+- **Autonomous** (`/kreview auto`, or when invoked by `kbabysit`): act on IMPLEMENT,
+  PUSH BACK and OUT OF SCOPE without asking. DISCUSS items are never resolved autonomously —
+  reply to the thread with the trade-off, leave it open, and list it in the round report for
+  the human.
 
 ---
 
@@ -49,7 +53,8 @@ gh api graphql --paginate -f query='
       reviewThreads(first:100, after:$endCursor) {
         nodes {
           id isResolved isOutdated path line
-          comments(first:100) { nodes { databaseId author{login} body createdAt } }
+          comments(first:100) { nodes { databaseId url author{login} body createdAt
+                                        originalLine originalCommit { oid } } }
         }
         pageInfo { hasNextPage endCursor }
       }}}}' -f owner="${REPO%/*}" -f repo="${REPO#*/}" -F pr="$PR_NUMBER"
@@ -65,6 +70,53 @@ gh pr checks "$PR_NUMBER" 2>/dev/null || true
 `gh pr view --comments` only shows issue comments — never rely on it alone. Fetch full
 `.body` content; review comments can be 2000+ characters with the key detail in later sections.
 
+**The review scope.** The PR body carries a `## Review scope` section — the outcomes this
+PR delivers, in the author's words (`kbabysit` refuses to start without it; attended runs
+should ask for it rather than infer one). Read it before triaging: it is the reference every
+disposition below is judged against, and what lets a stranger check the judgement later.
+
+```bash
+gh pr view "$PR_NUMBER" --json body -q '.body' | sed -n '/^## Review scope/,/^## /p'
+```
+
+**Provenance of each finding.** A line-anchored finding sits either on the PR's original
+diff or on a *review-fix commit* (anything pushed after the first review was submitted).
+This is a fact about commits, computed, not judged, and `kbabysit` reads it to decide
+whether the reviewer is still reviewing the PR or has moved on to reviewing the fixes:
+
+```bash
+# Head the first review (any reviewer) was submitted against: the boundary of the original diff
+# --paginate runs the jq filter per page, so "first" would be per-page too: emit every
+# submitted review and pick the earliest in the shell (gh rejects --slurp together with --jq)
+FIRST_REVIEWED_SHA=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
+  --jq '.[] | select(.state != "PENDING") | "\(.submitted_at) \(.commit_id)"' \
+  | sort | head -1 | cut -d' ' -f2)
+
+# Per finding: blame at the commit the comment was made against (originalCommit.oid,
+# originalLine from the thread fetch) — never at the current head, where a later fix that
+# touched the line would claim it and every old finding would look second-order.
+BLAME_SHA=$(git blame -L "$ORIGINAL_LINE,$ORIGINAL_LINE" --porcelain "$ORIGINAL_COMMIT" -- "$FILE" \
+  2>/dev/null | head -1 | cut -d' ' -f1)
+if [ -z "$FIRST_REVIEWED_SHA" ] || [ -z "$BLAME_SHA" ]; then
+  echo "unknown (no submitted review, or blame failed: git fetch origin pull/$PR_NUMBER/head)"
+elif git merge-base --is-ancestor "$BLAME_SHA" "$FIRST_REVIEWED_SHA"; then echo "original diff"
+elif git merge-base --is-ancestor "$FIRST_REVIEWED_SHA" "$BLAME_SHA"; then echo "review-fix commit"
+else echo "unknown (not in this PR's history: rebased since the first review, or unrelated)"; fi
+```
+
+Three states, never two, and "review-fix" only for a commit that **descends** from the
+first reviewed head: a failed blame, a missing boundary, or a commit on neither side of it
+is **unknown**. A poller that cannot tell "I could not look" from "it is on a fix" would
+stop loops by accident. A rebase since the first review lands every finding in the last
+branch: the original commits have new SHAs and sit on neither side of the old head (one
+more reason `kbabysit` forbids force-pushing mid-loop). A line that pre-dates the PR blames to an
+ancestor of the first reviewed head too, so it counts as original: the reviewer is still
+looking at first-order code (scope decides whether it is this PR's). Findings without a
+line (review bodies, issue comments) have no provenance; they count as neither. Measured on
+devops-ai #27: the 6th of 14 Copilot reviews was the first whose findings all sat on fix
+commits, and from the 9th on every review was entirely second-order; the 8th still found a
+real first-order defect, a generated test that raised before asserting.
+
 **Scope to what's actionable:** skip threads that are `isResolved`, and skip `isOutdated`
 threads unless the underlying concern plainly still applies to the current code. On a repeat
 round, process only comments newer than the round you last handled (compare `createdAt` /
@@ -76,13 +128,20 @@ round, process only comments newer than the round you last handled (compare `cre
 
 | Question | If yes... |
 |----------|-----------|
+| Does fixing it serve an outcome in the PR's Review scope? | If **no**: OUT OF SCOPE, whatever its truth — stop assessing here |
 | Does this fix a real bug? | High value — likely implement |
 | Does this improve readability or maintainability significantly? | Medium value — consider |
 | Is this a style nitpick with no functional benefit? | Low value — likely push back |
 | Could this suggestion make things worse? | Push back with reasoning |
 | Does the reviewer lack context for this suggestion? | Discuss or push back |
 
-## Categorize: IMPLEMENT / PUSH BACK / DISCUSS
+## Categorize: IMPLEMENT / PUSH BACK / DISCUSS / OUT OF SCOPE
+
+Scope is decided first, on one question: **does fixing this serve an outcome named in the
+PR's Review scope?** Only a yes reaches the other three. Code this PR added to deliver an
+outcome is in scope, defects in it included; code the PR touched on the way, or added in an
+earlier round for a finding that was itself outside the scope, is not. The finding being
+true, severe, or easy does not move it in.
 
 **IMPLEMENT** when the comment:
 - Fixes actual bugs or security issues
@@ -99,6 +158,11 @@ round, process only comments newer than the round you last handled (compare `cre
 **DISCUSS** when the comment:
 - Involves architectural decisions needing human input
 - Presents valid trade-offs where both options are reasonable
+
+**OUT OF SCOPE** when fixing it serves no outcome in the Review scope. It becomes an issue,
+never a commit on this branch — including when the finding is a real defect. The reply names
+the scope outcome it does not serve, so the reviewer (and the human) can disagree with the
+call rather than with silence.
 
 ### Assessment by comment type
 
@@ -134,10 +198,10 @@ nothing, not that nothing is there.
 ### Cross-round memory
 
 Before triaging, read your own prior replies on the PR (your comments in the thread fetch).
-If a new comment re-raises something already pushed back on, don't re-litigate: reply with a
-link to the prior reasoning and move on. Flip a prior push-back to IMPLEMENT only if the new
-comment brings a genuinely new argument — oscillating on the same point is worse than either
-choice.
+If a new comment re-raises something already pushed back on or filed as out of scope, don't
+re-litigate or re-file: reply with a link to the prior reasoning or the issue and move on.
+Flip a prior push-back to IMPLEMENT only if the new comment brings a genuinely new argument —
+oscillating on the same point is worse than either choice.
 
 ---
 
@@ -166,6 +230,20 @@ gh api graphql -f query='
 | IMPLEMENT | "Fixed in `<sha>`" + one line on what changed (the line is what survives a rebase) | Resolve the thread |
 | PUSH BACK | Your reasoning, concretely — never a bare "won't fix" | Resolve the thread |
 | DISCUSS | The trade-off and what you'd need to decide | Leave open for the human |
+| OUT OF SCOPE | "Real, but outside this PR's scope (<which outcome it doesn't serve>) — filed as #<issue>" | File the issue, then resolve the thread |
+
+```bash
+# OUT OF SCOPE: the issue carries the finding verbatim and a link back to the thread
+# (the comment's `url` from the fetch). Reviewer text never goes through shell expansion —
+# a finding quoting `$(...)` or backticks would execute — so it is written with printf '%s'.
+BODY_FILE=$(mktemp)
+{
+  printf 'Raised by %s on #%s (%s), out of that PR review scope: serves none of <the scope outcomes>. Filed rather than fixed there.\n\n' \
+    "$REVIEWER" "$PR_NUMBER" "$THREAD_URL"
+  printf '%s\n' "$FINDING_BODY"
+} > "$BODY_FILE"
+gh issue create --title "<finding gist>" --body-file "$BODY_FILE"
+```
 
 Resolving push-backs is deliberate: the reasoning is preserved in the thread and surfaced in
 the round report, and leaving them open just makes the merge-time skim noisier. Know what
@@ -189,14 +267,16 @@ consumes):
 ## Review round report — PR #N, round R
 **Reviewers heard from:** copilot, ... · **Comments processed:** X new (Y skipped: resolved/outdated)
 
-| # | Reviewer | File:Line | Comment (gist) | Verdict | Action taken |
-|---|----------|-----------|----------------|---------|--------------|
+| # | Reviewer | File:Line | Provenance | Comment (gist) | Verdict | Action taken |
+|---|----------|-----------|------------|----------------|---------|--------------|
 
-**Implemented:** N (commit <sha>) · **Pushed back:** N · **Discuss (open for human):** N
+**Provenance:** N on original diff · N on review-fix commits · N unknown · N unanchored
+**Implemented:** N (commit <sha>) · **Pushed back:** N · **Out of scope → issues:** N (#…) · **Discuss (open for human):** N
 **Gates:** tests ✓/✗ · quality ✓/✗ · CI ✓/✗
 **Re-review recommended:** yes/no — <one line why>
 ```
 
 Recommend re-review only when the round changed code beyond trivia (a typo-level fix doesn't
 need another full review). A round of pure push-backs never needs re-review — there's nothing
-new to look at.
+new to look at. The provenance line is not yours to act on: `kbabysit` reads it, and a round
+with nothing on the original diff is the reviewer's last round whatever you recommend.
