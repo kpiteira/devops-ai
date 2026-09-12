@@ -27,6 +27,14 @@ class TestPlanSecrets:
         plan = plan_secrets({"T": "op://v/i/f"}, tmp_path, refresh=False)
         assert plan == SecretsPlan.REUSE
 
+    def test_new_secret_in_config_forces_resolution(self, tmp_path: Path) -> None:
+        """A secret added since materialisation must not be silently absent."""
+        (tmp_path / ".env.secrets").write_text("T=redacted\n")
+        plan = plan_secrets(
+            {"T": "op://v/i/f", "U": "op://v/i/g"}, tmp_path, refresh=False
+        )
+        assert plan == SecretsPlan.RESOLVE
+
     def test_refresh_forces_resolution(self, tmp_path: Path) -> None:
         (tmp_path / ".env.secrets").write_text("T=redacted\n")
         plan = plan_secrets({"T": "op://v/i/f"}, tmp_path, refresh=True)

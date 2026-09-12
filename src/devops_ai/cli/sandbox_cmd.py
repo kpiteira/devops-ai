@@ -55,20 +55,34 @@ class SecretsPlan(Enum):
     RESOLVE = "resolve"  # resolve references (may prompt a keychain)
 
 
+def _materialised_names(secrets_file: Path) -> set[str]:
+    """Variable names in a materialised env file. Names only — never values."""
+    names: set[str] = set()
+    for line in secrets_file.read_text().splitlines():
+        if "=" in line and not line.startswith("#"):
+            names.add(line.split("=", 1)[0].strip())
+    return names
+
+
 def plan_secrets(
     secrets: dict[str, str], slot_dir: Path, *, refresh: bool
 ) -> SecretsPlan:
     """Decide whether to reuse the slot's materialised secrets.
 
-    Default is reuse when the file exists: the running containers already use
-    it, and re-resolving can park an unattended session on a human's keychain
-    (v2 pilot, 2026-09-08). ``refresh`` forces resolution.
+    Default is reuse when the file exists and covers every configured name:
+    the running containers already use it, and re-resolving can park an
+    unattended session on a human's keychain (v2 pilot, 2026-09-08). A secret
+    added to infra.toml since the file was written forces resolution, as does
+    ``refresh``.
     """
     if not secrets:
         return SecretsPlan.NONE
-    if not refresh and (slot_dir / ".env.secrets").exists():
-        return SecretsPlan.REUSE
-    return SecretsPlan.RESOLVE
+    materialised = slot_dir / ".env.secrets"
+    if refresh or not materialised.exists():
+        return SecretsPlan.RESOLVE
+    if set(secrets) - _materialised_names(materialised):
+        return SecretsPlan.RESOLVE
+    return SecretsPlan.REUSE
 
 
 def _sandbox_up(

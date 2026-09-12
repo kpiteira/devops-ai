@@ -15,6 +15,8 @@ you don't need them.
 
 ```
 /kbuild <path-to-brief>        # e.g. docs/specs/export/briefs/M2-history.md
+/kbuild <feature>/M<N>         # the form kinfra impl --session sends; resolves to
+                               # docs/specs/<feature>/briefs/M<N>-*.md
 ```
 
 Your entire context is the brief and the current code. Deliberately: you do not get

@@ -99,13 +99,13 @@ Executed in this planning session (decision T4); rows are cross-session state on
 
 | Area | Status | Evidence |
 |------|--------|----------|
-| Architecture tests pinning the new shapes | delivered | 25696bc — 17 architecture tests |
-| CONTRACT.md v7 + rules | delivered | 5b3cd9b |
-| kspec skill + templates | delivered | ed2338d |
-| kbuild + kbabysit + kreview + kworktree | delivered | ed2338d |
-| kobserve skill | delivered | ed2338d |
-| kinfra: done volumes, --group, rebuild reuse, guard labels | delivered | f14c225 — unit 319 passed |
-| README, EVOLUTIONS, issue | PR | this PR; guard-hardening issue filed |
+| Architecture tests pinning the new shapes | PR | devops-ai #27 — `uv run pytest tests/architecture` → 17 passed |
+| CONTRACT.md v7 + rules | PR | devops-ai #27 |
+| kspec skill + templates | PR | devops-ai #27 |
+| kbuild + kbabysit + kreview + kworktree | PR | devops-ai #27 |
+| kobserve skill | PR | devops-ai #27 |
+| kinfra: done volumes, --group, rebuild reuse, guard labels | PR | devops-ai #27 — `make check` → unit 324 passed |
+| README, EVOLUTIONS, issue | PR | devops-ai #27; guard hardening filed as devops-ai #28 |
 
 ## Decisions
 
