@@ -47,11 +47,14 @@ gh pr view "$PR_NUMBER" --json state,isDraft,mergeable,headRefName,baseRefName,s
   reading the report can check that judgement.
 
   ```bash
-  gh pr view "$PR_NUMBER" --json body -q '.body' | grep -q '^## Review scope' \
-    || echo "no Review scope section in the PR body"
+  BODY=$(gh pr view "$PR_NUMBER" --json body -q '.body')
+  if ! grep -q '^## Review scope' <<<"$BODY"; then echo "SCOPE: missing"
+  elif [ -z "$(sed -n '/^## Review scope/,/^## /p' <<<"$BODY" | grep -v '^## ' | grep -v '^[[:space:]]*$')" ]; then echo "SCOPE: empty"
+  else echo "SCOPE: present"; fi
   ```
 
-  If it is missing, **stop and say what is missing** — the section's name, what goes in it,
+  Anything but `SCOPE: present` ends the run before step 1 — a heading with nothing under
+  it is not a scope. **Stop and say what is missing** — the section's name, what goes in it,
   and that the loop starts once the author adds it. kbabysit never writes it: a scope
   derived from the diff makes everything in the diff in scope by construction, including
   whatever later rounds add, and the fence is gone before the first round.
@@ -128,7 +131,9 @@ auto-review repos the push already triggered it).
   previous round. Disposition and implement the round as usual — a defect in a fix is still
   a defect — then **this is the last round**: do not re-request. The fix commits since the
   last review get a `kselfreview` pass instead of another paid round; that is what covers
-  the one real risk of stopping here, an unreviewed fix. Measured: this fires at the 6th of
+  the one real risk of stopping here, an unreviewed fix. If `kselfreview` is not available
+  where the loop runs, the report says so, names the unreviewed fix commits, and the verdict
+  is ⚠️ needs human decision — never merge-ready. Measured: this fires at the 6th of
   14 Copilot reviews on devops-ai #27 and the 7th of 11 on homelab #18. Provenance that
   `kreview` reports as unknown (blame failed, or the branch was rebased since the first
   review) never fires this rule — an unknown is not a second-order finding.
@@ -154,9 +159,10 @@ auto-review repos the push already triggered it).
 requests no further review on this PR. Continuing takes the human's explicit words in this
 session, and when they come, every rule in this step still applies. A loop that posted
 "stopping here" and then ran eight more rounds before merge is the failure this sentence
-exists for. A review that arrives unrequested after the stop (auto-review on the
-`kselfreview` fix push) is still owned: triage it under the same rules, append to the
-report, and do not re-request.
+exists for. At most **one** unrequested review is still owned after the stop: the one an
+auto-review fires on the `kselfreview` fix push. Triage it under the same rules, append to
+the report, do not re-request. If that triage pushes again and yet another review arrives,
+it is listed in the report as unread, for the human — otherwise the chain never ends.
 
 Rounds are counted per babysit run; a re-invocation on the same PR starts fresh but inherits
 thread history (kreview reads prior replies, so push-backs stay remembered) and the same
@@ -169,14 +175,17 @@ Post the final report as a PR comment (durable record) **and** present it in cha
 ```markdown
 ## Babysit report — PR #N
 
-**TL;DR:** <2-3 sentences: rounds run, findings / implemented / pushed back / out of scope,
+**TL;DR:** <2-3 sentences: rounds run, "N of M findings pushed back, N out of scope",
 what materially improved, final state — merge-ready / needs decision on X / blocked on Y.>
 
 **Verdict:** ✅ merge-ready | ⚠️ needs human decision | ❌ blocked
 
 ### Rounds
-| Round | Reviewers | Findings | On original diff | On fix commits | Implemented | Pushed back | Out of scope | Discuss | Commits |
-|-------|-----------|----------|------------------|----------------|-------------|-------------|--------------|---------|---------|
+| Round | Reviewers | Findings (anchored+unanchored) | On original diff | On fix commits | Unknown | Implemented | Pushed back | Out of scope | Discuss | Commits |
+|-------|-----------|--------------------------------|------------------|----------------|---------|-------------|-------------|--------------|---------|---------|
+
+Unknown provenance is its own column because it is what keeps the second-order stop from
+firing; a report that hides it cannot explain why the loop kept going.
 
 ### What changed because of review
 - <material improvement, one line each — the value the loop added>

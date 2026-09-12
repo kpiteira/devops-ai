@@ -53,7 +53,7 @@ gh api graphql --paginate -f query='
       reviewThreads(first:100, after:$endCursor) {
         nodes {
           id isResolved isOutdated path line
-          comments(first:100) { nodes { databaseId author{login} body createdAt
+          comments(first:100) { nodes { databaseId url author{login} body createdAt
                                         originalLine originalCommit { oid } } }
         }
         pageInfo { hasNextPage endCursor }
@@ -86,24 +86,30 @@ whether the reviewer is still reviewing the PR or has moved on to reviewing the 
 
 ```bash
 # Head the first review (any reviewer) was submitted against: the boundary of the original diff
+# --paginate runs the jq filter per page, so "first" would be per-page too: emit every
+# submitted review and pick the earliest in the shell (gh rejects --slurp together with --jq)
 FIRST_REVIEWED_SHA=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
-  --jq '[.[] | select(.state != "PENDING")] | sort_by(.submitted_at) | first | .commit_id')
+  --jq '.[] | select(.state != "PENDING") | "\(.submitted_at) \(.commit_id)"' \
+  | sort | head -1 | cut -d' ' -f2)
 
 # Per finding: blame at the commit the comment was made against (originalCommit.oid,
 # originalLine from the thread fetch) — never at the current head, where a later fix that
 # touched the line would claim it and every old finding would look second-order.
 BLAME_SHA=$(git blame -L "$ORIGINAL_LINE,$ORIGINAL_LINE" --porcelain "$ORIGINAL_COMMIT" -- "$FILE" \
   2>/dev/null | head -1 | cut -d' ' -f1)
-if [ -z "$BLAME_SHA" ]; then echo "unknown (fetch the PR head: git fetch origin pull/$PR_NUMBER/head)"
+if [ -z "$FIRST_REVIEWED_SHA" ] || [ -z "$BLAME_SHA" ]; then
+  echo "unknown (no submitted review, or blame failed: git fetch origin pull/$PR_NUMBER/head)"
 elif git merge-base --is-ancestor "$BLAME_SHA" "$FIRST_REVIEWED_SHA"; then echo "original diff"
-else echo "review-fix commit"; fi
+elif git merge-base --is-ancestor "$FIRST_REVIEWED_SHA" "$BLAME_SHA"; then echo "review-fix commit"
+else echo "unknown (not in this PR's history: rebased since the first review, or unrelated)"; fi
 ```
 
-Three states, never two: a failed blame is **unknown**, not "review-fix" — a poller that
-cannot tell "I could not look" from "it is on a fix" would stop loops by accident. A
-rebase since the first review also makes provenance unknown for the run: the original
-commits have new SHAs and nothing is an ancestor of the old head any more (one more reason
-`kbabysit` forbids force-pushing mid-loop). A line that pre-dates the PR blames to an
+Three states, never two, and "review-fix" only for a commit that **descends** from the
+first reviewed head: a failed blame, a missing boundary, or a commit on neither side of it
+is **unknown**. A poller that cannot tell "I could not look" from "it is on a fix" would
+stop loops by accident. A rebase since the first review lands every finding in the last
+branch: the original commits have new SHAs and sit on neither side of the old head (one
+more reason `kbabysit` forbids force-pushing mid-loop). A line that pre-dates the PR blames to an
 ancestor of the first reviewed head too, so it counts as original: the reviewer is still
 looking at first-order code (scope decides whether it is this PR's). Findings without a
 line (review bodies, issue comments) have no provenance; they count as neither. Measured on
@@ -228,13 +234,15 @@ gh api graphql -f query='
 
 ```bash
 # OUT OF SCOPE: the issue carries the finding verbatim and a link back to the thread
-gh issue create --title "<finding gist>" --body "$(cat <<EOT
-Raised by <reviewer> on #$PR_NUMBER (<thread URL>), out of that PR's review scope:
-serves none of <the scope outcomes>. Filed rather than fixed there.
-
-<finding body, verbatim>
-EOT
-)"
+# (the comment's `url` from the fetch). Reviewer text never goes through shell expansion —
+# a finding quoting `$(...)` or backticks would execute — so it is written with printf '%s'.
+BODY_FILE=$(mktemp)
+{
+  printf 'Raised by %s on #%s (%s), out of that PR review scope: serves none of <the scope outcomes>. Filed rather than fixed there.\n\n' \
+    "$REVIEWER" "$PR_NUMBER" "$THREAD_URL"
+  printf '%s\n' "$FINDING_BODY"
+} > "$BODY_FILE"
+gh issue create --title "<finding gist>" --body-file "$BODY_FILE"
 ```
 
 Resolving push-backs is deliberate: the reasoning is preserved in the thread and surfaced in
@@ -262,7 +270,7 @@ consumes):
 | # | Reviewer | File:Line | Provenance | Comment (gist) | Verdict | Action taken |
 |---|----------|-----------|------------|----------------|---------|--------------|
 
-**Provenance:** N on original diff · N on review-fix commits · N unanchored
+**Provenance:** N on original diff · N on review-fix commits · N unknown · N unanchored
 **Implemented:** N (commit <sha>) · **Pushed back:** N · **Out of scope → issues:** N (#…) · **Discuss (open for human):** N
 **Gates:** tests ✓/✗ · quality ✓/✗ · CI ✓/✗
 **Re-review recommended:** yes/no — <one line why>
