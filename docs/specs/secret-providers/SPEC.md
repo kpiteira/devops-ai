@@ -167,8 +167,8 @@ briefs and tests reference them. -->
 
 ## Amendments
 
-- [ ] 2026-09-12 (M4) fact-correction: `op item edit` accepts a JSON `--template`
+- [x] 2026-09-12 (M4) fact-correction: `op item edit` accepts a JSON `--template`
   file for sensitive values (verified against `op item edit --help`), so updating a
   1Password item needs no argv. M4's `op://` write is create-or-update; the
   "create-only" non-goal and the related A7 tension are removed. No milestone had
-  started. Pending Karl's acknowledgment.
+  started. Acknowledged by Karl 2026-09-12.
