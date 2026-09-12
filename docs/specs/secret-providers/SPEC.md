@@ -172,3 +172,8 @@ briefs and tests reference them. -->
   1Password item needs no argv. M4's `op://` write is create-or-update; the
   "create-only" non-goal and the related A7 tension are removed. No milestone had
   started. Acknowledged by Karl 2026-09-12.
+- [x] 2026-09-12 (M1) fact-correction: the planner's 1Password fixture gated on
+  `op whoami` (exits 1 on Karl's machine while `op` works) and defaulted to a vault
+  named `Private` (does not exist), so J1's `op://` test could only skip. Raised by the
+  M1 executor (divergence `M1-2026-09-12`). Fixed on the spec branch: access is proven
+  by querying the acceptance vault `devops-ai-secrets-test`. No decision changed.

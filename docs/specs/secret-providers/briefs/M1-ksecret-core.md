@@ -129,6 +129,13 @@ Plus the standing gates: `make check` exits 0.
   J2 literal-passthrough behavior is what lets that file work unchanged.
 - The public-surface guard (`.devops-ai/check_public_surface.py`) flags new public
   symbols in PR review; it is a signal, not an API contract.
+- The 1Password acceptance vault is `devops-ai-secrets-test` (Karl created it
+  2026-09-12; override with `KSECRET_ACCEPTANCE_OP_VAULT`). The tests create and
+  delete items titled `ksecret-acceptance-*` there and touch nothing else. Access is
+  proven by querying the vault (`op item list --vault …`), which is also the access
+  prompt Karl grants; `op whoami` is never used — it exits 1 on Karl's machine while
+  `op` works (M1 divergence 2026-09-12). A skip is legitimate only when Karl declines
+  the grant; a milestone whose only `op://` evidence is a skip is not delivered.
 
 ## Decisions
 
