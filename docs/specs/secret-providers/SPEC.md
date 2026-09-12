@@ -136,9 +136,9 @@ briefs and tests reference them. -->
   (installed by the same `uv tool install`), not a new repo or package.
 - A2 — The Azure Key Vault acceptance test runs against a real Key Vault in Karl's
   tenant, named by `KSECRET_ACCEPTANCE_AKV_VAULT`, and skips when `az` is not logged
-  in or the variable is unset. **Prerequisite for M3:** Karl creates that vault (a
-  separate task he expects to do with help); M3 cannot be declared delivered on
-  skips alone.
+  in or the variable is unset. **Prerequisite for M3 — met 2026-09-12:** the vault
+  is `kv-devops-ai-accept` in `devops-ai-test-rg` (facts in the M3 brief); Karl
+  exports the variable in his shell. M3 cannot be declared delivered on skips alone.
 - A3 — The 1Password acceptance tests skip when access is not granted. There is no
   scriptable sign-in: `op` prompts Karl per access and he grants it, so the tests
   simply attempt access and wait long enough for a touch. No service account.
@@ -172,3 +172,8 @@ briefs and tests reference them. -->
   1Password item needs no argv. M4's `op://` write is create-or-update; the
   "create-only" non-goal and the related A7 tension are removed. No milestone had
   started. Acknowledged by Karl 2026-09-12.
+- [x] 2026-09-12 (M1) fact-correction: the planner's 1Password fixture gated on
+  `op whoami` (exits 1 on Karl's machine while `op` works) and defaulted to a vault
+  named `Private` (does not exist), so J1's `op://` test could only skip. Raised by the
+  M1 executor (divergence `M1-2026-09-12`). Fixed on the spec branch: access is proven
+  by querying the acceptance vault `devops-ai-secrets-test`. No decision changed.

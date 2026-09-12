@@ -31,6 +31,9 @@ ROOT = Path(__file__).resolve().parents[3]
 README = ROOT / "README.md"
 # Seconds to wait for Karl to grant a 1Password access prompt (A3).
 OP_GRANT_WAIT = 60
+# The acceptance vault Karl created for these tests. Never gate on `op whoami`: it
+# exits 1 on Karl's machine while `op` is fully usable (divergence M1-2026-09-12).
+OP_VAULT_DEFAULT = "devops-ai-secrets-test"
 
 
 @dataclass
@@ -96,6 +99,31 @@ def sandbox_image() -> None:
 # ---------------------------------------------------------------- 1Password
 
 
+def op_vault() -> str:
+    """The 1Password acceptance vault, proven reachable by a real query — or skip.
+
+    Access is proven the only way `op` allows: by querying the vault (A3). The query
+    is the access prompt; it waits `OP_GRANT_WAIT` seconds for the touch. A missing
+    CLI, a timeout, or a non-zero exit (no grant, or the vault does not exist) skips
+    with the reason. `KSECRET_ACCEPTANCE_OP_VAULT` overrides the vault name.
+    """
+    vault = os.environ.get("KSECRET_ACCEPTANCE_OP_VAULT", OP_VAULT_DEFAULT)
+    try:
+        listed = subprocess.run(
+            ["op", "item", "list", "--vault", vault, "--format=json"],
+            capture_output=True, text=True, timeout=OP_GRANT_WAIT,
+        )
+    except FileNotFoundError:
+        pytest.skip("1Password CLI not installed")
+    except subprocess.TimeoutExpired:
+        pytest.skip(f"1Password access not granted within {OP_GRANT_WAIT}s")
+    if listed.returncode != 0:
+        pytest.skip(
+            f"1Password vault {vault!r} not accessible: {listed.stderr.strip()}"
+        )
+    return vault
+
+
 @pytest.fixture()
 def op_item() -> Iterator[tuple[str, str]]:
     """A fresh 1Password item with a generated password; skips if access isn't granted.
@@ -105,16 +133,7 @@ def op_item() -> Iterator[tuple[str, str]]:
     (reference, expected_value); the value is obtained through `op read`, never
     placed in argv by the test.
     """
-    try:
-        who = subprocess.run(
-            ["op", "whoami"], capture_output=True, text=True, timeout=OP_GRANT_WAIT
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pytest.skip("1Password CLI not installed, or access not granted in time")
-    if who.returncode != 0:
-        pytest.skip("1Password access not granted")
-
-    vault = os.environ.get("KSECRET_ACCEPTANCE_OP_VAULT", "Private")
+    vault = op_vault()
     title = f"ksecret-acceptance-{_secrets.token_hex(4)}"
     created = subprocess.run(
         [
