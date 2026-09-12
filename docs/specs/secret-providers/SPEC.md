@@ -177,3 +177,8 @@ briefs and tests reference them. -->
   named `Private` (does not exist), so J1's `op://` test could only skip. Raised by the
   M1 executor (divergence `M1-2026-09-12`). Fixed on the spec branch: access is proven
   by querying the acceptance vault `devops-ai-secrets-test`. No decision changed.
+- [x] 2026-09-12 (M1) fact-correction: the M1 brief's Surface says `kinfra init
+  --check` "and the interactive prompt" name `dotenv://`; `init` has no interactive
+  secrets prompt (verified on main: the only place a scheme is named is the
+  `--check`/dry-run hint text). Raised by the M1 executor in PR #32; the hint now
+  names `dotenv://`. Nothing built changed.
