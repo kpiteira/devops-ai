@@ -17,10 +17,16 @@ create` calls.
 
 ## Outcomes
 
-- `ksecret read <ref>` prints the value of any supported reference; `ksecret run
-  --env-file <file> -- <cmd>` executes a command with every `KEY=<ref>` line resolved
-  into its environment and writes nothing to disk; `ksecret check` reports which
-  references resolve without ever printing a value.
+- `ksecret check` reports which references resolve without ever printing a value;
+  `ksecret run --env-file <file> -- <cmd>` executes a command with every `KEY=<ref>`
+  line resolved into its environment and writes nothing to disk; `ksecret read
+  --print <ref>` prints a value, and without `--print` it refuses — printing a
+  secret is always an explicit, visible choice (an agent that types `read` by habit
+  gets a refusal, not a leak).
+- Resolution happens where the credentials are: on the host, by `ksecret`, using the
+  user's own `op` grant, `az login`, or Vault token. A service started through
+  `ksecret run` receives values as environment variables and never talks to a vault
+  itself.
 - References name the provider **type** in their scheme, like `op://`: `$VAR` /
   `env://VAR`, `dotenv://<path>#KEY`, `op://vault/item/field`,
   `bao://<mount>/<path>#<key>`, `akv://<vault>/<secret>`. Bare strings stay literals.
@@ -55,6 +61,10 @@ create` calls.
 
 - Other cloud vaults (AWS Secrets Manager, GCP Secret Manager): the provider shape
   must admit them; no code implements them.
+- In-container resolution — a service fetching its own secrets at runtime with a
+  bootstrap credential (Vault AppRole, Azure managed identity, a 1Password service
+  account). A separate feature; khealth on Container Apps already gets this from
+  managed identity plus Key Vault references, without ksecret.
 - Instance-named schemes (`homelab://` mapped per user): the grammar leaves room; no
   alias layer ships.
 - Python/JS/Rust client libraries: the CLI is the contract; libraries come later.
@@ -81,6 +91,9 @@ create` calls.
   create … --format=json` (it then references the item by ID, since title references
   collide with archived items), and an `OP_ACCOUNT=` line in the env file that must
   reach the `op` process.
+- On the Lux VM, services already receive secrets as env files rendered by
+  vault-agent from `kv/homelab/lux/*` — there, `dotenv://` and `$VAR` are the right
+  references, not `bao://`.
 - Karl's homelab vault is OpenBao 2.5.x (`bao` CLI installed, `BAO_ADDR` exported,
   `~/.vault-token` present, mode 0600), KV v2 mounted at `kv/`, paths like
   `kv/homelab/lux/<item>`. OpenBao accepts `VAULT_*` and `BAO_*` env vars. The dev-mode

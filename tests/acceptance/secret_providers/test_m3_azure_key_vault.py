@@ -37,13 +37,19 @@ def test_read_secret_from_real_vault(
     akv_secret: tuple[str, str], tmp_path: Path
 ) -> None:
     ref, expected = akv_secret
-    r = ksecret("read", "--no-newline", ref, cwd=tmp_path, env=clean_env())
+    r = ksecret("read", "--print", "--no-newline", ref, cwd=tmp_path, env=clean_env())
     assert (r.code, r.out) == (0, expected), r.err
 
 
 def test_missing_secret_names_ref_not_value(akv: AkvVault, tmp_path: Path) -> None:
     missing = fresh_name("ksecret-acceptance-missing")
-    r = ksecret("read", f"akv://{akv.name}/{missing}", cwd=tmp_path, env=clean_env())
+    r = ksecret(
+        "read",
+        "--print",
+        f"akv://{akv.name}/{missing}",
+        cwd=tmp_path,
+        env=clean_env(),
+    )
     assert r.code == 1 and r.out == ""
     assert missing in r.err
     assert "not found" in r.err.lower()

@@ -42,7 +42,7 @@ def test_write_then_read_dotenv(tmp_path: Path) -> None:
     assert sum(1 for ln in lines if ln.startswith("TARGET=")) == 1
 
     r = ksecret(
-        "read",
+        "read", "--print",
         "--no-newline",
         "dotenv://secrets.env#TARGET",
         cwd=tmp_path,
@@ -58,7 +58,12 @@ def test_write_then_read_dotenv(tmp_path: Path) -> None:
     new = tmp_path / "new.env"
     assert stat.S_IMODE(os.stat(new).st_mode) == 0o600
     r = ksecret(
-        "read", "--no-newline", "dotenv://new.env#K", cwd=tmp_path, env=clean_env()
+        "read",
+        "--print",
+        "--no-newline",
+        "dotenv://new.env#K",
+        cwd=tmp_path,
+        env=clean_env()
     )
     assert (r.code, r.out) == (0, VALUE)
 
@@ -73,7 +78,12 @@ def test_write_then_read_openbao(bao: BaoServer, tmp_path: Path) -> None:
     assert r.code == 0, r.err
     assert bao.read("secret", path) == {"sibling": "must-survive", "token": VALUE}
     r = ksecret(
-        "read", "--no-newline", f"bao://secret/{path}#token", cwd=tmp_path, env=env
+        "read",
+        "--print",
+        "--no-newline",
+        f"bao://secret/{path}#token",
+        cwd=tmp_path,
+        env=env
     )
     assert (r.code, r.out) == (0, VALUE), r.err
 
@@ -90,7 +100,7 @@ def test_write_then_read_akv(akv: AkvVault, tmp_path: Path) -> None:
         )
         assert r.code == 0, r.err
         r = ksecret(
-            "read",
+            "read", "--print",
             "--no-newline",
             f"akv://{akv.name}/{name}",
             cwd=tmp_path,
@@ -116,7 +126,14 @@ def test_write_op_creates_item(tmp_path: Path) -> None:
     try:
         r = ksecret("write", ref, cwd=tmp_path, env=clean_env(), stdin=VALUE)
         assert r.code == 0, r.err
-        r = ksecret("read", "--no-newline", ref, cwd=tmp_path, env=clean_env())
+        r = ksecret(
+            "read",
+            "--print",
+            "--no-newline",
+            ref,
+            cwd=tmp_path,
+            env=clean_env(),
+        )
         assert (r.code, r.out) == (0, VALUE), r.err
         # existing item → refused, explained
         r = ksecret("write", ref, cwd=tmp_path, env=clean_env(), stdin="another")

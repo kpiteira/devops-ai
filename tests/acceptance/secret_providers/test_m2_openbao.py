@@ -25,7 +25,12 @@ def test_read_kv2_secret_from_dev_server(bao: BaoServer, tmp_path: Path) -> None
     env.pop("VAULT_TOKEN", None)
 
     r = ksecret(
-        "read", "--no-newline", f"bao://secret/{path}#token", cwd=tmp_path, env=env
+        "read",
+        "--print",
+        "--no-newline",
+        f"bao://secret/{path}#token",
+        cwd=tmp_path,
+        env=env
     )
     assert (r.code, r.out) == (0, VALUE), r.err
 
@@ -34,7 +39,12 @@ def test_read_kv2_secret_from_dev_server(bao: BaoServer, tmp_path: Path) -> None
     env_v.pop("BAO_ADDR", None)
     env_v.pop("BAO_TOKEN", None)
     r = ksecret(
-        "read", "--no-newline", f"bao://secret/{path}#token", cwd=tmp_path, env=env_v
+        "read",
+        "--print",
+        "--no-newline",
+        f"bao://secret/{path}#token",
+        cwd=tmp_path,
+        env=env_v
     )
     assert (r.code, r.out) == (0, VALUE), r.err
 
@@ -50,11 +60,22 @@ def test_token_file_fallback_and_missing_key(bao: BaoServer, tmp_path: Path) -> 
         env.pop(k, None)
 
     r = ksecret(
-        "read", "--no-newline", f"bao://secret/{path}#token", cwd=tmp_path, env=env
+        "read",
+        "--print",
+        "--no-newline",
+        f"bao://secret/{path}#token",
+        cwd=tmp_path,
+        env=env
     )
     assert (r.code, r.out) == (0, VALUE), r.err
 
-    r = ksecret("read", f"bao://secret/{path}#missing", cwd=tmp_path, env=env)
+    r = ksecret(
+        "read",
+        "--print",
+        f"bao://secret/{path}#missing",
+        cwd=tmp_path,
+        env=env,
+    )
     assert r.code == 1 and r.out == ""
     assert "missing" in r.err
     assert VALUE not in r.err and OTHER not in r.err, "no sibling value may leak"
@@ -63,7 +84,13 @@ def test_token_file_fallback_and_missing_key(bao: BaoServer, tmp_path: Path) -> 
     env_no = clean_env(BAO_ADDR=bao.addr, HOME=str(tmp_path / "empty-home"))
     for k in ("BAO_TOKEN", "VAULT_TOKEN", "VAULT_ADDR"):
         env_no.pop(k, None)
-    r = ksecret("read", f"bao://secret/{path}#token", cwd=tmp_path, env=env_no)
+    r = ksecret(
+        "read",
+        "--print",
+        f"bao://secret/{path}#token",
+        cwd=tmp_path,
+        env=env_no,
+    )
     assert r.code == 1 and r.out == ""
     assert "token" in r.err.lower()
 

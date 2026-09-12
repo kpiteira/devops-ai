@@ -41,52 +41,72 @@ def project(tmp_path: Path) -> Path:
 def test_read_env_dotenv_and_literal(project: Path) -> None:
     env = clean_env(KSECRET_T_EXPORTED="exported-value-1")
 
-    r = ksecret("read", "$KSECRET_T_EXPORTED", cwd=project, env=env)
+    r = ksecret("read", "--print", "$KSECRET_T_EXPORTED", cwd=project, env=env)
     assert (r.code, r.out) == (0, "exported-value-1\n"), r.err
 
     r = ksecret(
-        "read", "env://KSECRET_T_EXPORTED", "--no-newline", cwd=project, env=env
+        "read",
+        "--print",
+        "env://KSECRET_T_EXPORTED",
+        "--no-newline",
+        cwd=project,
+        env=env
     )
     assert (r.code, r.out) == (0, "exported-value-1"), r.err
 
-    r = ksecret("read", "dotenv://.env#FROM_DOTENV", cwd=project, env=env)
+    r = ksecret("read", "--print", "dotenv://.env#FROM_DOTENV", cwd=project, env=env)
     assert (r.code, r.out) == (0, f"{SECRET}\n"), r.err
 
-    r = ksecret("read", "dotenv://.env#QUOTED", cwd=project, env=env)
+    r = ksecret("read", "--print", "dotenv://.env#QUOTED", cwd=project, env=env)
     assert (r.code, r.out) == (0, f"{SECRET}\n"), "quotes must be stripped"
 
     # $VAR not exported → falls back to ./.env
-    r = ksecret("read", "$KSECRET_T_FALLBACK", cwd=project, env=env)
+    r = ksecret("read", "--print", "$KSECRET_T_FALLBACK", cwd=project, env=env)
     assert (r.code, r.out) == (0, f"{FALLBACK}\n"), r.err
 
     # exported wins over the file
     env2 = clean_env(KSECRET_T_FALLBACK="from-shell")
-    r = ksecret("read", "$KSECRET_T_FALLBACK", cwd=project, env=env2)
+    r = ksecret("read", "--print", "$KSECRET_T_FALLBACK", cwd=project, env=env2)
     assert (r.code, r.out) == (0, "from-shell\n"), r.err
 
     # literals, including an unregistered scheme (A8)
-    r = ksecret("read", "plain-literal", cwd=project, env=env)
+    r = ksecret("read", "--print", "plain-literal", cwd=project, env=env)
     assert (r.code, r.out) == (0, "plain-literal\n"), r.err
-    r = ksecret("read", "postgres://dev:dev@db:5432/app", cwd=project, env=env)
+    r = ksecret(
+        "read",
+        "--print",
+        "postgres://dev:dev@db:5432/app",
+        cwd=project,
+        env=env,
+    )
     assert (r.code, r.out) == (0, "postgres://dev:dev@db:5432/app\n"), r.err
 
 
 def test_read_failure_names_ref_not_value(project: Path) -> None:
     env = clean_env()
-    r = ksecret("read", "dotenv://.env#NOPE", cwd=project, env=env)
+    r = ksecret("read", "--print", "dotenv://.env#NOPE", cwd=project, env=env)
     assert r.code == 1
     assert r.out == ""
     assert "NOPE" in r.err and ".env" in r.err
     assert SECRET not in r.err
 
-    r = ksecret("read", "$KSECRET_T_UNSET", cwd=project, env=env)
+    r = ksecret("read", "--print", "$KSECRET_T_UNSET", cwd=project, env=env)
     assert r.code == 1 and r.out == ""
     assert "KSECRET_T_UNSET" in r.err
 
 
+def test_read_refuses_without_print(project: Path) -> None:
+    """Printing a secret is always explicit: a bare `read` is a refusal, not a leak."""
+    r = ksecret("read", "dotenv://.env#FROM_DOTENV", cwd=project, env=clean_env())
+    assert r.code == 2
+    assert r.out == ""
+    assert "--print" in r.err and "check" in r.err
+    assert SECRET not in r.err
+
+
 def test_read_op_reference(op_item: tuple[str, str], tmp_path: Path) -> None:
     ref, expected = op_item
-    r = ksecret("read", "--no-newline", ref, cwd=tmp_path)
+    r = ksecret("read", "--print", "--no-newline", ref, cwd=tmp_path)
     assert r.code == 0, r.err
     assert r.out == expected
 

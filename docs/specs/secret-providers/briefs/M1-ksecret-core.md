@@ -9,9 +9,11 @@ blocking: uv run pytest tests/acceptance/secret_providers/test_m1_ksecret_core.p
 
 ## Jobs
 
-- **J1** — When a developer or agent holds a secret reference, they can run
-  `ksecret read <ref>` and get the value on stdout, so that any script, Makefile, or
-  language can consume a secret without knowing which backend holds it.
+- **J1** — When a script needs a secret value, its author can run `ksecret read
+  --print <ref>` and get the value on stdout, so that a Makefile, a shell script, or
+  any language consumes secrets through one command whose code never changes when a
+  secret moves between backends — only the reference string does. Without `--print`,
+  `read` refuses, so printing is always a deliberate act.
 - **J2** — When a project needs secrets inside a process (agent-memory's `docker
   compose up`), the developer can run `ksecret run --env-file <file> -- <cmd>` and the
   command sees every reference resolved in its environment, so that values live only in
@@ -42,9 +44,11 @@ optional single or double quotes around the value, optional `export ` prefix.
 
 **Commands** (console script `ksecret`, declared in `pyproject.toml`):
 
-- `ksecret read <ref> [--no-newline]` — value on stdout followed by a newline unless
-  `--no-newline`; exit 0. Unresolvable: nothing on stdout, one actionable line on
-  stderr naming the reference (never a value), exit 1.
+- `ksecret read --print <ref> [--no-newline]` (`-p` for `--print`) — value on stdout
+  followed by a newline unless `--no-newline`; exit 0. Unresolvable: nothing on
+  stdout, one actionable line on stderr naming the reference (never a value), exit 1.
+  Without `--print`: nothing on stdout, exit 2, one stderr line saying that printing
+  requires `--print` and that `ksecret check` verifies without printing.
 - `ksecret run [--env-file <file>]… -- <cmd> [args…]` — every `KEY=value` line of each
   file is placed in the child environment; values that are references are resolved
   first; literal lines (e.g. `OP_ACCOUNT=…`) are set in the environment *before*
@@ -72,6 +76,7 @@ recommendation ladder (vault-backed over `.env`), and the one-time
 |-----|-----------------------|------------------|
 | J1 | `test_m1_ksecret_core.py::test_read_env_dotenv_and_literal` | `read` returns the exported value, the dotenv value, the literal, and `$VAR` falls back to `./.env` |
 | J1 | `test_m1_ksecret_core.py::test_read_failure_names_ref_not_value` | Missing key → exit 1, stderr names the ref, stdout empty |
+| J1 | `test_m1_ksecret_core.py::test_read_refuses_without_print` | Bare `read` → exit 2, stdout empty, stderr points at `--print` and `check`; the value never appears |
 | J1 | `test_m1_ksecret_core.py::test_read_op_reference` | An item the test creates in 1Password reads back; skips when Karl does not grant `op` access (there is no scriptable sign-in — A3) |
 | J2 | `test_m1_ksecret_core.py::test_run_injects_resolved_env_without_disk` | Child sees resolved values; literal lines pass through; no new file appears; child exit code propagates |
 | J2 | `test_m1_ksecret_core.py::test_run_refuses_when_any_ref_fails` | Command not executed, exit 1, stderr names the failing key |
@@ -121,6 +126,9 @@ Plus the standing gates: `make check` exits 0.
 
 ## Decisions
 
+- Printing is opt-in (`--print`) and a bare `read` refuses rather than acting like
+  `check`: one verb per meaning, and a refusal teaches an agent faster than a quiet
+  success it did not ask for (Karl's review, 2026-09-12).
 - Provider modules live one per scheme under `src/devops_ai/secrets/providers/`; the
   resolver discovers providers from that package without importing any by name; the
   CLI imports only the resolver. (A6 — the architecture test pins exactly this.)
