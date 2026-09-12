@@ -59,8 +59,9 @@ sign-off walkthrough, and the brief's Blocking table shows the result.
 - **Opposite reading.** For each decision the human cares about: would this test pass
   under the opposite reading? If yes, it pins nothing — pin it, or mark the decision as
   the human's to make.
-- **Measured on main.** Every "passes/fails on main" claim is measured on a running
-  sandbox; the Blocking table records the command and its output.
+- **Measured on main.** Every "passes/fails on main" claim is measured in the
+  executor's runtime (a running sandbox where the project has one); the Blocking
+  table records the command and its output.
 - **The executor's runtime, not the planner's.** Sandbox ports (`base + slot`),
   environment, and **clock and timezone** — a test that reads the runner's `today()`
   while the server judges days in the user's timezone is green on one laptop and red

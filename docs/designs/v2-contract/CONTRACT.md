@@ -62,7 +62,7 @@ A milestone's outcome is expressed as one or more **jobs-to-be-done (JTBDs)** �
 
 *Blocking* criteria define delivered. *Advisory* criteria are worth attempting but never worth burning a session on.
 
-**Measured, not asserted.** Every claim a Blocking table makes about the current code — "fails on main", "passes on main" — is measured on a running sandbox before sign-off, and the brief records the command and its output. The pilot's one divergence was a planner's inferred "passes against main" that a running stack contradicted. The same preflight checks the tests against the *executor's* runtime — sandbox ports, environment, clock and timezone — not the planner's laptop.
+**Measured, not asserted.** Every claim a Blocking table makes about the current code — "fails on main", "passes on main" — is measured in the executor's runtime — a running sandbox where the project has one — before sign-off, and the brief records the command and its output. The pilot's one divergence was a planner's inferred "passes against main" that a running stack contradicted. The same preflight checks the tests against the *executor's* runtime — sandbox ports, environment, clock and timezone — not the planner's laptop.
 
 A blocking test is end-to-end against the milestone's pinned Surface. When the live stack cannot exercise a job (the pilot's case: scope enforcement is invisible under the sandbox's dev auth mode), an **integration-level** blocking test is legal, labeled with the reason and its measured baseline, so the human sees at sign-off exactly how strong the grader is.
 

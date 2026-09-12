@@ -15,8 +15,9 @@ that contradicts its job. -->
 
 ## Evidence
 
-<Current code, command output, or observable behavior — from the running stack, on
-main, not only your branch. Keep this reproducible.>
+<Reproducible: for a runtime claim, command output from the running stack (the sandbox
+when the project has one); for a code or test contradiction, the lines and the command
+that shows it. Measured on main, not only your branch.>
 
 ## Why implementation stopped
 

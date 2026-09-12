@@ -99,3 +99,23 @@ class TestStartCommandReusesMaterialisedSecrets:
         code, msg, resolve = self._run(wt, registry, refresh=False)
         assert code == 0, msg
         resolve.assert_called_once()
+
+
+class TestRetryHintKeepsRefresh:
+    def test_failed_refresh_says_refresh_again(self, tmp_path: Path) -> None:
+        """A failed --refresh-secrets must not suggest a retry that reuses."""
+        from devops_ai.provision import SecretResolutionError
+
+        wt, slot_dir, registry = _worktree_with_slot(tmp_path)
+        (slot_dir / ".env.secrets").write_text("T=materialised\n")
+        err = SecretResolutionError("T", "op://v/i/f", "T: 1Password timed out")
+        with (
+            patch("devops_ai.cli.sandbox_cmd.REGISTRY_PATH", registry),
+            patch("devops_ai.cli.sandbox_cmd.resolve_all_secrets",
+                  return_value=({}, [err])),
+        ):
+            code, msg = sandbox_start_command(
+                worktree_path=wt, refresh_secrets=True
+            )
+        assert code == 1
+        assert "kinfra sandbox start --refresh-secrets" in msg

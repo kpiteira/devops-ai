@@ -331,3 +331,42 @@ class TestStopFallbackRemovesVolumes:
         assert cmds[3][:3] == ["docker", "volume", "ls"]
         assert "label=com.docker.compose.project=p-slot-3" in cmds[3]
         assert cmds[4] == ["docker", "volume", "rm", "-f", "p-slot-3_data"]
+
+
+class TestStartFailureFallsBackToLabels:
+    def test_failed_down_after_failed_up_cleans_by_label(
+        self, tmp_path: Path
+    ) -> None:
+        """up fails, down fails → label-based container + volume cleanup."""
+        wt = tmp_path / "worktree"
+        wt.mkdir()
+        slot_dir = tmp_path / "slot"
+        slot_dir.mkdir()
+        (wt / "docker-compose.yml").write_text("services: {}")
+        (slot_dir / "docker-compose.override.yml").write_text("services: {}")
+        (slot_dir / ".env.sandbox").write_text("X=1\n")
+        config = _config()
+        slot = _slot(
+            slot_dir=str(slot_dir),
+            compose_file_copy=str(slot_dir / "docker-compose.yml"),
+        )
+        up = MagicMock(returncode=1, stderr="up failed")
+        down = MagicMock(returncode=1, stderr="down failed")
+        ps = MagicMock(stdout="c1\n")
+        rm = MagicMock()
+        vol_ls = MagicMock(stdout="myproj-slot-1_data\n")
+        vol_rm = MagicMock()
+        with patch(
+            "devops_ai.sandbox.subprocess.run",
+            side_effect=[up, down, ps, rm, vol_ls, vol_rm],
+        ) as mock_run:
+            try:
+                start_sandbox(config, slot, wt)
+            except RuntimeError:
+                pass
+            else:
+                raise AssertionError("start_sandbox should raise on a failed up")
+        cmds = [c[0][0] for c in mock_run.call_args_list]
+        assert cmds[1][-2:] == ["down", "--volumes"]
+        assert cmds[2][:3] == ["docker", "ps", "-a"]
+        assert cmds[5] == ["docker", "volume", "rm", "-f", "myproj-slot-1_data"]

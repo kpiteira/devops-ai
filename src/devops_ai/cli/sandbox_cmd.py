@@ -114,6 +114,8 @@ def _sandbox_up(
     cwd = (worktree_path or Path.cwd()).resolve()
     verb = "rebuilt" if build else "started"
     retry_cmd = "kinfra sandbox rebuild" if build else "kinfra sandbox start"
+    if refresh_secrets:
+        retry_cmd += " --refresh-secrets"
 
     # Walk up to find the worktree root (registered path)
     wt_path = cwd

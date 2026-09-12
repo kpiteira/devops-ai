@@ -13,7 +13,12 @@ from devops_ai.registry import (
     load_registry,
     release_slot,
 )
-from devops_ai.sandbox import remove_slot_dir, stop_sandbox
+from devops_ai.sandbox import (
+    compose_project_name,
+    force_cleanup_project,
+    remove_slot_dir,
+    stop_sandbox,
+)
 from devops_ai.worktree import (
     check_dirty,
     list_worktrees,
@@ -129,10 +134,13 @@ def done_command(
                 )
             remove_slot_dir(slot_dir)
         else:
+            # No compose files to run `down` with: clean by label so the
+            # slot's containers and volumes cannot outlive the slot.
             logger.warning(
-                "Slot dir %s missing, skipping Docker stop",
+                "Slot dir %s missing; cleaning containers and volumes by label",
                 slot_dir,
             )
+            force_cleanup_project(compose_project_name(slot))
         release_slot(registry, slot.slot_id)
 
     # Remove worktree

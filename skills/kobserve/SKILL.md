@@ -42,8 +42,9 @@ whose dependencies are `delivered`.
    is coming; if provisioning fails on secrets, the slot stays allocated and
    `kinfra sandbox start` retries.
 2. **Kickoff: brief + environment facts only.** `kinfra impl --session` sends
-   `/kbuild <feature>/M<N>` to the new session; follow it with one message carrying
-   the sandbox's facts (`kinfra status`: slot, ports) — sent from the background, since
+   `/kbuild <feature>/M<N>` to the new session (bounded: kinfra's agent-deck calls time
+   out after 60 s rather than hang); follow it with one message carrying the sandbox's
+   facts (`kinfra status`: slot, ports) — sent from the background, since
    `agent-deck session send` blocks while the target is busy. Nothing the harness
    already sets: no attribution trailers, no model names; the executor's harness owns
    those and a conflicting kickoff is noise it has to resolve (pilot, 2026-09-11). The
@@ -77,9 +78,12 @@ review rounds converged (`kbabysit` report present).
    wiring in the evolutions backlog lands, this is what "verifiable by a stranger"
    means in practice. Record the command and output in a PR comment.
 2. **Guard.** If the project's contract-integrity guard did not run (not deployed, or
-   the PR predates it), run it by hand from the base commit:
+   the PR predates it), run it by hand: the *script* comes from the base commit, the
+   *diff* it judges is `<base>...HEAD`, so run it in a checkout of the PR head:
    ```bash
-   git show <base>:.devops-ai/check_contract_integrity.py > /tmp/guard.py && python3 /tmp/guard.py <base> <branch>
+   git worktree add --detach "$SCRATCH/pr-head" origin/<pr-branch>
+   git -C "$SCRATCH/pr-head" show <base>:.devops-ai/check_contract_integrity.py > "$SCRATCH/guard.py"
+   (cd "$SCRATCH/pr-head" && python3 "$SCRATCH/guard.py" <base> <pr-branch>)
    ```
    The guard covers briefs and the acceptance tree only; `SPEC.md` is not guard-
    protected, so diff it yourself: only the Decomposition status row and its

@@ -21,16 +21,16 @@ The workflow for a new feature — **rigid about outcomes, silent about paths**:
                  → Produces a signed intent spec + one work brief per milestone
                  → Authors each milestone's acceptance tests BEFORE implementation
 
-2. Build        /kbuild docs/specs/reminders/briefs/M1-daily-nudge.md
-                 → Executor session: the brief + the code is its entire context
-                 → Goal loop until the planner's blocking tests pass
-                 → Escape valve: contradictions escalate, never get coded around
-                 → Delivers the milestone as a PR
+2. Launch       /kobserve launch reminders/M1
+                 → Observer seat: worktree + sandbox + executor session in one step
+                   (the executor session itself runs /kbuild on the brief)
+                 → Executor: the brief + the code is its entire context; goal loop
+                   until the planner's blocking tests pass; escape valve for
+                   contradictions; delivers the milestone as a PR
 
-3. Observe      /kobserve launch reminders/M1 · verify 214 · land 214
-                 → The seat between the human and the sessions: launch each executor,
-                   re-run its blocking tests independently, put "For the human" to
-                   the human before merge, land the merge, tear down
+3. Land         /kobserve verify 214 · /kobserve land 214
+                 → Independent re-run of the blocking tests, "For the human" put to
+                   the human before merge; after his merge, spec row + teardown
 
 4. Close        /kspec close reminders
                  → Fresh-context review: does the whole diff satisfy the INTENT?

@@ -71,11 +71,13 @@ exists rather than to anyone's discipline. The synthesis itself is
 
 - Wiring the independent re-run into CI (EVOLUTIONS #5).
 - 1Password announce-before-wait and single-approval resolution: routed to the in-flight
-  `secret-providers` feature, which replaces the resolver.
+  `secret-providers` feature, which replaces the resolver — a note Karl carries into that
+  spec; this session does not touch that branch.
 - agent-deck's group cap, blocking `session send`, and model loss on restart: third-party;
   workaround notes only.
-- Guard hardening via GitHub rulesets: filed as an issue.
-- khealth product items (`BACKEND_URL` default, per-slot notifier destination): khealth's.
+- Guard hardening via GitHub rulesets: filed as devops-ai #28 by this session.
+- khealth product items (`BACKEND_URL` default, per-slot notifier destination, scope
+  picker): khealth's; listed in `REVIEW.md` for Karl, not filed by this session.
 - A mechanical spec↔test lint: not machine-definable in general; the spec PR review is the
   event that catches it.
 
@@ -104,7 +106,7 @@ Executed in this planning session (decision T4); rows are cross-session state on
 | kspec skill + templates | PR | devops-ai #27 |
 | kbuild + kbabysit + kreview + kworktree | PR | devops-ai #27 |
 | kobserve skill | PR | devops-ai #27 |
-| kinfra: done volumes, --group, rebuild reuse, guard labels | PR | devops-ai #27 — `make check` → unit 324 passed; `uv run pytest tests/integration/test_sandbox_secrets_reuse.py` → 5 passed |
+| kinfra: done volumes, --group, rebuild reuse, guard labels | PR | devops-ai #27 — `make check` → unit 327 passed; `uv run pytest tests/integration/test_sandbox_secrets_reuse.py` → 6 passed |
 | README, EVOLUTIONS, issue | PR | devops-ai #27; guard hardening filed as devops-ai #28 |
 
 ## Decisions
@@ -121,10 +123,12 @@ Each with the rejected alternative.
   stack cannot exercise the job, labeled with the reason and its measured baseline.
   *Rejected:* strict E2E (M3 would have needed an entra-mode sandbox); per-test human
   directive (ceremony for a label the human already sees at sign-off).
-- **T3 — Observer seat.** Its own short skill, `kobserve`. *Rejected:* notes spread over
-  three skills; folding the merge side into kbabysit.
-- **T4 — Who edits.** This session, one PR, no briefs. *Rejected:* executor milestones
-  (stranger test of the contract, more ceremony); contract here and the rest by executors.
+- **T3 — Observer seat.** Its own short skill, named `kobserve` after the log's own word
+  for the seat. *Rejected:* notes spread over three skills; folding the merge side into
+  kbabysit.
+- **T4 — Who edits.** This session, one PR, no briefs; the kinfra fixes ride in that PR as
+  their own commit. *Rejected:* executor milestones (stranger test of the contract, more
+  ceremony); contract here and the rest by executors.
 - **T5 — Guard hardening.** An issue; only the annotation mislabel is fixed here.
   *Rejected:* kinfra prints the ruleset step; a `kinfra guard protect` command via `gh`.
 - **Escalated consequences.** An executor's *For the human* item is put to Karl before
@@ -141,15 +145,7 @@ Each with the rejected alternative.
 
 ## Assumptions
 
-<!-- none — A1–A4 confirmed 2026-09-12 and promoted: -->
-
-- The observer seat's skill is `kobserve`, after the log's own word for the seat.
-- The kinfra fixes ride in this feature's PR as their own commit.
-- Guard hardening is a devops-ai issue filed by this session; the khealth items
-  (`BACKEND_URL` default, per-slot notifier chat, scope picker) are listed in `REVIEW.md`
-  for Karl, not filed.
-- The 1Password announce-before-wait and single-approval items are a note for Karl to
-  carry into `secret-providers`; this session does not touch that branch.
+<!-- none — A1–A4 confirmed 2026-09-12 and promoted into Decisions (T3, T4) and Non-goals -->
 
 ## Amendments
 

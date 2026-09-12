@@ -104,8 +104,9 @@ No fixed script — loop freely between these obligations until sign-off is earn
   sharpest ambiguity detector you have; what they surface belongs in front of him.
   Durable structural invariants additionally become architecture tests
   (`structural-gates` rule), not prose.
-- **Measure, don't assert.** Run the tests against a *running sandbox in the executor's
-  runtime* — sandbox ports, environment, clock — before sign-off. They must fail because
+- **Measure, don't assert.** Run the tests in the *executor's runtime* — a running
+  sandbox where the project has one (ports, environment, clock), otherwise the runtime
+  the brief's Working environment states — before sign-off. They must fail because
   the surface doesn't exist yet, not because the test is broken. Every "passes/fails on
   main" claim in a Blocking table is measured; the table's **Measured on main** column
   carries the command and its output. The pilot's one divergence was an inferred claim.

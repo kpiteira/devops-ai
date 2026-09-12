@@ -236,7 +236,9 @@ def start_sandbox(
             compose_file, override_file, env_files, ["down", "--volumes"],
             project_name=project_name,
         )
-        subprocess.run(down_cmd, capture_output=True, text=True)
+        down = subprocess.run(down_cmd, capture_output=True, text=True)
+        if down.returncode != 0:
+            force_cleanup_project(project_name)
         raise RuntimeError(
             f"Sandbox failed to start: {result.stderr.strip()}"
         )
@@ -301,6 +303,17 @@ def _force_remove_volumes(project_name: str) -> bool:
         return False
 
 
+def force_cleanup_project(project_name: str) -> bool:
+    """Label-based cleanup of a compose project's containers and volumes.
+
+    The path that needs no compose files: a failed ``down``, or a slot whose
+    directory is already gone. Returns True if anything was removed.
+    """
+    removed_containers = _force_remove_containers(project_name)
+    removed_volumes = _force_remove_volumes(project_name)
+    return removed_containers or removed_volumes
+
+
 def stop_sandbox(slot: SlotInfo) -> bool:
     """Stop sandbox containers using slot dir's compose copy.
 
@@ -334,8 +347,7 @@ def stop_sandbox(slot: SlotInfo) -> bool:
             result.returncode, result.stderr.strip(),
         )
         # Fall back: force-remove containers, then volumes, by project label
-        _force_remove_containers(project_name)
-        _force_remove_volumes(project_name)
+        force_cleanup_project(project_name)
         return False
 
     return True

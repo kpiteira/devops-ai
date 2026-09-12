@@ -24,16 +24,30 @@ def is_available() -> bool:
     return shutil.which("agent-deck") is not None
 
 
+COMMAND_TIMEOUT = 60  # seconds; `session send` blocks while the target is busy
+
+
 def _run_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     """Run an agent-deck command, logging warnings on failure.
 
-    Never raises — all failures are logged and returned.
+    Never raises — all failures are logged and returned. Bounded by
+    ``COMMAND_TIMEOUT`` so a busy target cannot park the caller.
     """
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=COMMAND_TIMEOUT
+        )
     except FileNotFoundError:
         logger.warning("agent-deck not found on PATH")
         return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="")
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "agent-deck command timed out after %ds: %s",
+            COMMAND_TIMEOUT, " ".join(cmd),
+        )
+        return subprocess.CompletedProcess(
+            cmd, returncode=1, stdout="", stderr="timed out"
+        )
     if result.returncode != 0 and result.stderr:
         logger.warning(
             "agent-deck command failed: %s — %s",
