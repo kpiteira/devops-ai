@@ -29,6 +29,8 @@ def project(tmp_path: Path) -> Path:
         "# comment line\n"
         f"FROM_DOTENV={SECRET}\n"
         f'QUOTED="{SECRET}"\n'
+        f"SINGLE='{SECRET}'\n"
+        f"export EXPORTED_KEY={SECRET}\n"
         f"KSECRET_T_FALLBACK={FALLBACK}\n"
         "\n"
     )
@@ -59,6 +61,9 @@ def test_read_env_dotenv_and_literal(project: Path) -> None:
 
     r = ksecret("read", "--print", "dotenv://.env#QUOTED", cwd=project, env=env)
     assert (r.code, r.out) == (0, f"{SECRET}\n"), "quotes must be stripped"
+    for key in ("SINGLE", "EXPORTED_KEY"):
+        r = ksecret("read", "--print", f"dotenv://.env#{key}", cwd=project, env=env)
+        assert (r.code, r.out) == (0, f"{SECRET}\n"), f"{key}: single quotes / export"
 
     # $VAR not exported → falls back to ./.env
     r = ksecret("read", "--print", "$KSECRET_T_FALLBACK", cwd=project, env=env)
@@ -154,7 +159,9 @@ def test_run_injects_resolved_env_without_disk(project: Path) -> None:
 
 def test_run_refuses_when_any_ref_fails(project: Path) -> None:
     refs = project / "refs.env"
-    refs.write_text("GOOD=dotenv://.env#FROM_DOTENV\nBAD=dotenv://.env#NOPE\n")
+    refs.write_text(
+        "GOOD=dotenv://.env#FROM_DOTENV\nBAD=dotenv://.env#NOPE\nWORSE=$KSECRET_T_UNSET\n"
+    )
     marker = project / "ran.marker"
     r = ksecret(
         "run", "--env-file", "refs.env", "--",
@@ -163,7 +170,7 @@ def test_run_refuses_when_any_ref_fails(project: Path) -> None:
     )
     assert r.code == 1
     assert not marker.exists(), "command must not run when a reference fails"
-    assert "BAD" in r.err
+    assert "BAD" in r.err and "WORSE" in r.err, "every failing key is reported"
     assert SECRET not in r.err and SECRET not in r.out
 
 
@@ -242,6 +249,13 @@ def test_kinfra_sandbox_resolves_dotenv_and_env_fallback(
     assert f"FROM_FILE={SECRET}\n" in content
     assert f"FB={FALLBACK}\n" in content
     assert stat.S_IMODE(os.stat(secrets_file).st_mode) == 0o600
+
+
+def test_help_lists_the_three_commands(tmp_path: Path) -> None:
+    r = ksecret("--help", cwd=tmp_path, env=clean_env())
+    assert r.code == 0, r.err
+    for cmd in ("read", "run", "check"):
+        assert cmd in r.out, f"ksecret --help must list {cmd}"
 
 
 # ------------------------------------------------------ provider package shape

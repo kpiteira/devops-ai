@@ -100,6 +100,14 @@ def test_run_and_check_accept_akv_refs(
     assert "ok" in r.out and expected not in r.out
 
 
+def test_akv_is_a_provider_module() -> None:
+    """The scheme is owned by exactly one provider module, not by the resolver."""
+    from tests.architecture.test_secret_providers import provider_modules, schemes_in
+
+    owners = [m.name for m in provider_modules() if "akv://" in schemes_in(m)]
+    assert len(owners) == 1, owners
+
+
 def test_readme_documents_akv() -> None:
     text = README.read_text()
     assert "akv://" in text

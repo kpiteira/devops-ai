@@ -73,6 +73,7 @@ def test_write_then_read_openbao(bao: BaoServer, tmp_path: Path) -> None:
         "write", f"bao://secret/{path}#token", cwd=tmp_path, env=env, stdin=VALUE
     )
     assert r.code == 0, r.err
+    assert r.out.strip() == f"bao://secret/{path}#token", "canonical ref echoed"
     assert bao.read("secret", path) == {"sibling": "must-survive", "token": VALUE}
     r = ksecret(
         "read",
@@ -96,6 +97,7 @@ def test_write_then_read_akv(akv: AkvVault, tmp_path: Path) -> None:
             stdin=VALUE
         )
         assert r.code == 0, r.err
+        assert r.out.strip() == f"akv://{akv.name}/{name}", "canonical ref echoed"
         r = ksecret(
             "read", "--print",
             "--no-newline",
@@ -136,6 +138,7 @@ def test_write_op_creates_and_updates_item(tmp_path: Path) -> None:
         # second write to the same reference updates the field in place
         r = ksecret("write", ref, cwd=tmp_path, env=clean_env(), stdin=VALUE + "-v2")
         assert r.code == 0, r.err
+        assert r.out.strip() == canonical and VALUE not in r.out
         r = ksecret(
             "read",
             "--print",

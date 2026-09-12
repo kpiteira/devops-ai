@@ -20,9 +20,11 @@ OTHER = "other-key-value-1a9f"
 def test_read_kv2_secret_from_dev_server(bao: BaoServer, tmp_path: Path) -> None:
     path = fresh_name("apps/ksecret")
     bao.write("secret", path, {"token": VALUE, "other": OTHER})
-    env = clean_env(BAO_ADDR=bao.addr, BAO_TOKEN=bao.token)
-    env.pop("VAULT_ADDR", None)
-    env.pop("VAULT_TOKEN", None)
+    # BAO_* wins over conflicting VAULT_* spellings
+    env = clean_env(
+        BAO_ADDR=bao.addr, BAO_TOKEN=bao.token,
+        VAULT_ADDR="http://127.0.0.1:9", VAULT_TOKEN="wrong-token",
+    )
 
     r = ksecret(
         "read",
@@ -58,6 +60,19 @@ def test_token_file_fallback_and_missing_key(bao: BaoServer, tmp_path: Path) -> 
     env = clean_env(BAO_ADDR=bao.addr, HOME=str(home))
     for k in ("BAO_TOKEN", "VAULT_TOKEN", "VAULT_ADDR"):
         env.pop(k, None)
+
+    # precedence: an env token beats the file, and BAO_TOKEN beats VAULT_TOKEN
+    (tmp_path / "wrong-home").mkdir()
+    (tmp_path / "wrong-home" / ".vault-token").write_text("wrong-file-token")
+    env_prec = clean_env(
+        BAO_ADDR=bao.addr, BAO_TOKEN=bao.token, VAULT_TOKEN="wrong-token",
+        HOME=str(tmp_path / "wrong-home"),
+    )
+    r = ksecret(
+        "read", "--print", "--no-newline", f"bao://secret/{path}#token",
+        cwd=tmp_path, env=env_prec,
+    )
+    assert (r.code, r.out) == (0, VALUE), r.err
 
     r = ksecret(
         "read",
@@ -116,6 +131,14 @@ def test_run_and_check_accept_bao_refs(bao: BaoServer, tmp_path: Path) -> None:
     r = ksecret("check", "--env-file", "refs.env", cwd=tmp_path, env=env)
     assert r.code == 0, r.err
     assert "ok" in r.out and VALUE not in r.out
+
+
+def test_bao_is_a_provider_module() -> None:
+    """The scheme is owned by exactly one provider module, not by the resolver."""
+    from tests.architecture.test_secret_providers import provider_modules, schemes_in
+
+    owners = [m.name for m in provider_modules() if "bao://" in schemes_in(m)]
+    assert len(owners) == 1, owners
 
 
 def test_readme_documents_bao() -> None:

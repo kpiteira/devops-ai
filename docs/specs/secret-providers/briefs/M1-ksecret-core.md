@@ -81,9 +81,10 @@ recommendation ladder (vault-backed over `.env`), and the one-time
 | J1 | `test_m1_ksecret_core.py::test_read_without_print_confirms_only` | Bare `read` → exit 0 and `ok <ref>` when resolvable, exit 1 when not; the value never appears in stdout or stderr |
 | J1 | `test_m1_ksecret_core.py::test_read_op_reference` | An item the test creates in 1Password reads back; skips when Karl does not grant `op` access (there is no scriptable sign-in — A3) |
 | J2 | `test_m1_ksecret_core.py::test_run_injects_resolved_env_without_disk` | Child sees resolved values; literal lines pass through and are visible to later references in the same file (`D=$OP_ACCOUNT`); no new file appears; child exit code propagates |
-| J2 | `test_m1_ksecret_core.py::test_run_refuses_when_any_ref_fails` | Command not executed, exit 1, stderr names the failing key |
+| J2 | `test_m1_ksecret_core.py::test_run_refuses_when_any_ref_fails` | Command not executed, exit 1, stderr names every failing key (two failures, both reported) |
 | J3 | `test_m1_ksecret_core.py::test_check_reports_without_values` | Output classifies ok/literal/error; the secret value string is absent from stdout and stderr |
 | J4 | `test_m1_ksecret_core.py::test_kinfra_sandbox_resolves_dotenv_and_env_fallback` | `kinfra impl` on a project with `.env` + `dotenv://` and `$VAR` refs writes both values to the slot's `.env.secrets`, mode 0600 |
+| J1 | `test_m1_ksecret_core.py::test_help_lists_the_three_commands` | `ksecret --help` exits 0 and names `read`, `run`, `check` |
 | J5 | `test_m1_ksecret_core.py::test_readme_documents_every_scheme` | README has a Secrets section naming each scheme and the reinstall step |
 | — | `test_m1_ksecret_core.py::test_providers_package_is_in_place` | The providers package exists with at least three modules (env, dotenv, 1Password) |
 | — | `tests/architecture/test_secret_providers.py` | AST-checked: each scheme literal lives in exactly one provider module and `env://`, `dotenv://`, `op://` are all covered; no scheme literal in the resolver or `provision.py`; nothing outside the package imports a provider by name (static, multiline, or dynamic); providers import neither each other nor `devops_ai.cli` (this standing gate skips itself until the package exists — the row above is what makes that skip safe) |

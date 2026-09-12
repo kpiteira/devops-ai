@@ -80,10 +80,13 @@ def imports_of(path: Path) -> set[str]:
                 base = node.module or ""
             names.add(base)
             names.update(f"{base}.{alias.name}" for alias in node.names)
-    # dynamic imports: any string literal that spells a provider module path
+    # dynamic imports: any string literal that spells a provider module path,
+    # absolute ("devops_ai.secrets.providers.op") or relative to the package (".op")
     for text in string_constants(tree):
-        if "providers." in text or text.startswith("."):
-            names.add(text.lstrip("."))
+        if "providers." in text:
+            names.add(text)
+        elif text.startswith(".") and text[1:].isidentifier():
+            names.add(f"{PROVIDERS_PKG}.{text[1:]}")
     return names
 
 
@@ -94,9 +97,14 @@ def schemes_in(path: Path) -> set[str]:
 
 def test_one_scheme_per_provider_module_and_required_schemes_covered() -> None:
     owners: dict[str, list[str]] = {}
+    multi = {}
     for module in provider_modules():
-        for scheme in schemes_in(module):
+        found = schemes_in(module)
+        if len(found) != 1:
+            multi[module.name] = sorted(found)
+        for scheme in found:
             owners.setdefault(scheme, []).append(module.name)
+    assert not multi, f"a provider module carries exactly one scheme literal: {multi}"
     shared = {s: m for s, m in owners.items() if len(m) > 1}
     assert not shared, f"a scheme literal must appear in exactly one provider: {shared}"
     missing = REQUIRED_SCHEMES - set(owners)
@@ -104,14 +112,18 @@ def test_one_scheme_per_provider_module_and_required_schemes_covered() -> None:
 
 
 def test_scheme_literals_live_only_in_the_providers_package() -> None:
-    """The resolver and kinfra provisioning discover providers, never name a scheme."""
-    known = {s for m in provider_modules() for s in schemes_in(m)}
+    """The resolver and kinfra provisioning discover providers, never name a scheme.
+
+    Any scheme literal at all — not only the ones a provider module owns — so a later
+    scheme (bao://, akv://) cannot be hard-coded in the resolver instead of added as
+    a provider module.
+    """
     core = [p for p in SECRETS.rglob("*.py") if PROVIDERS not in p.parents]
     core.append(SRC / "provision.py")
     offenders = {
-        str(p.relative_to(ROOT)): sorted(schemes_in(p) & known)
+        str(p.relative_to(ROOT)): sorted(schemes_in(p))
         for p in core
-        if p.exists() and schemes_in(p) & known
+        if p.exists() and schemes_in(p)
     }
     assert not offenders, f"scheme literals outside providers/: {offenders}"
 

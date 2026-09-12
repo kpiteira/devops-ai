@@ -39,8 +39,8 @@ blocking: uv run pytest tests/acceptance/secret_providers/test_m4_write.py tests
 | Job | Planner-authored test | Observable proof |
 |-----|-----------------------|------------------|
 | J8 | `test_m4_write.py::test_write_then_read_dotenv` | Round-trip via a dotenv file whose full content afterwards is exactly the original lines with the one target replaced; a new file is created 0600; the canonical ref is echoed |
-| J8 | `test_m4_write.py::test_write_then_read_openbao` | Round-trip against the dev container; a sibling key in the same secret survives |
-| J8 | `test_m4_write.py::test_write_then_read_akv` | Round-trip against the real vault (same skip rules as M3); the test deletes what it wrote |
+| J8 | `test_m4_write.py::test_write_then_read_openbao` | Round-trip against the dev container; the canonical ref is echoed; a sibling key in the same secret survives |
+| J8 | `test_m4_write.py::test_write_then_read_akv` | Round-trip against the real vault (same skip rules as M3); the canonical ref is echoed; the test deletes what it wrote |
 | J8 | `test_m4_write.py::test_write_op_creates_and_updates_item` | A fresh 1Password item is created; stdout is the item-ID reference; both the ID and title references read back; a second write updates in place; the test deletes the item (skips when `op` access is not granted — A3) |
 | J8 | `test_m4_write.py::test_write_env_is_refused` | `env://` write exits 1 with a read-only message; nothing is printed |
 | — | `tests/architecture/test_secret_providers.py` | Shape unchanged |

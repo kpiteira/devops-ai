@@ -34,10 +34,11 @@ blocking: uv run pytest tests/acceptance/secret_providers/test_m2_openbao.py tes
 
 | Job | Planner-authored test | Observable proof |
 |-----|-----------------------|------------------|
-| J6 | `test_m2_openbao.py::test_read_kv2_secret_from_dev_server` | Against a dev-mode `openbao/openbao` container started by the test, a secret written via HTTP reads back through `ksecret read bao://secret/<path>#<key>` |
-| J6 | `test_m2_openbao.py::test_token_file_fallback_and_missing_key` | With the token only in a `HOME/.vault-token`, `read` succeeds; a wrong `#key` → exit 1, stderr names the key, no other value leaks; a reference with no `#key` → exit 1, nothing leaks; no token anywhere → exit 1 with login guidance |
+| J6 | `test_m2_openbao.py::test_read_kv2_secret_from_dev_server` | Against a dev-mode `openbao/openbao` container started by the test, a secret written via HTTP reads back through `ksecret read bao://secret/<path>#<key>`; `BAO_*` wins over conflicting `VAULT_*` values, and `VAULT_*` alone works |
+| J6 | `test_m2_openbao.py::test_token_file_fallback_and_missing_key` | With the token only in a `HOME/.vault-token`, `read` succeeds; an env token beats a wrong file token and `BAO_TOKEN` beats a wrong `VAULT_TOKEN`; a wrong `#key` → exit 1, stderr names the key, no other value leaks; a reference with no `#key` → exit 1, nothing leaks; no token anywhere → exit 1 with login guidance |
 | J6 | `test_m2_openbao.py::test_run_and_check_accept_bao_refs` | `run` injects the value; `check` reports `ok` without the value |
 | J6 | `test_m2_openbao.py::test_readme_documents_bao` | README names `bao://`, `BAO_ADDR`, `BAO_TOKEN`, and the `.vault-token` file |
+| J6 | `test_m2_openbao.py::test_bao_is_a_provider_module` | Exactly one provider module owns the `bao://` literal — the resolver cannot hard-code it |
 | — | `tests/architecture/test_secret_providers.py` | The provider is one new module; no other module names it |
 
 Plus the standing gates: `make check` exits 0.

@@ -35,6 +35,7 @@ blocking: uv run pytest tests/acceptance/secret_providers/test_m3_azure_key_vaul
 | J7 | `test_m3_azure_key_vault.py::test_missing_secret_names_ref_not_value` | Unknown secret name → exit 1, stderr names the reference and says not found |
 | J7 | `test_m3_azure_key_vault.py::test_run_and_check_accept_akv_refs` | `run` injects the value; `check` reports `ok` without it |
 | J7 | `test_m3_azure_key_vault.py::test_readme_documents_akv` | README names `akv://` and `az login` |
+| J7 | `test_m3_azure_key_vault.py::test_akv_is_a_provider_module` | Exactly one provider module owns the `akv://` literal |
 | — | `tests/architecture/test_secret_providers.py` | One new module; nothing else names it |
 
 Plus the standing gates: `make check` exits 0.
