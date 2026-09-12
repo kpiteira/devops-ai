@@ -11,6 +11,7 @@ import pytest
 
 from devops_ai.provision import (
     SecretResolutionError,
+    describe_secret_source,
     generate_secrets_file,
     provision_files,
     resolve_all_secrets,
@@ -317,3 +318,26 @@ class TestSecretsFilePermissions:
         path = generate_secrets_file({"TOKEN": "secret-val"}, tmp_path)
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
         assert path.read_text() == "TOKEN=secret-val\n"
+
+
+class TestDescribeSecretSource:
+    """A reference names a provider and is shown; a literal is a value and is not."""
+
+    def test_references_are_shown(self) -> None:
+        for ref in ("op://vault/item/field", "$MY_TOKEN", "env://MY_TOKEN"):
+            assert describe_secret_source(ref) == ref
+
+    def test_every_scheme_a_provider_claims_is_shown(self) -> None:
+        """Not a hard-coded list: a scheme added later is described correctly."""
+        assert describe_secret_source("dotenv://.env#KEY") == "dotenv://.env#KEY"
+
+    def test_literal_value_is_never_echoed(self) -> None:
+        shown = describe_secret_source("hunter2-literal-value")
+        assert "hunter2" not in shown
+        assert "literal" in shown
+
+    def test_an_unregistered_scheme_is_a_literal_and_is_not_echoed(self) -> None:
+        """A connection string is a literal (A8) — and is exactly what must not leak."""
+        shown = describe_secret_source("postgres://user:hunter2@host/db")
+        assert "hunter2" not in shown
+        assert "literal" in shown

@@ -15,6 +15,7 @@ from pathlib import Path
 from devops_ai.secrets import (
     ResolveContext,
     SecretResolutionError,
+    provider_for,
     resolve,
     resolve_all,
 )
@@ -25,6 +26,7 @@ SECRETS_FILE_MODE = 0o600
 
 __all__ = [
     "FileProvisionError",
+    "describe_secret_source",
     "SecretResolutionError",
     "generate_secrets_file",
     "provision_files",
@@ -41,6 +43,17 @@ class FileProvisionError(Exception):
         self.source = source
         self.message = message
         super().__init__(message)
+
+
+def describe_secret_source(ref: str) -> str:
+    """A display-safe description of where a secret comes from.
+
+    A reference names a provider and is safe to show; a literal is its own
+    value, so it is never echoed. Which is which comes from the providers, not
+    from a list of schemes here, so every scheme a provider claims — today's and
+    the ones M2 and M3 add — is shown rather than mistaken for a literal.
+    """
+    return ref if provider_for(ref) is not None else "(literal, not shown)"
 
 
 def resolve_secret(var_name: str, ref: str, base_dir: Path | None = None) -> str:

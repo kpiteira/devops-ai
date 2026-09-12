@@ -21,15 +21,21 @@ The workflow for a new feature — **rigid about outcomes, silent about paths**:
                  → Produces a signed intent spec + one work brief per milestone
                  → Authors each milestone's acceptance tests BEFORE implementation
 
-2. Build        /kbuild docs/specs/reminders/briefs/M1-daily-nudge.md
-                 → Executor session: the brief + the code is its entire context
-                 → Goal loop until the planner's blocking tests pass
-                 → Escape valve: contradictions escalate, never get coded around
-                 → Delivers the milestone as a PR
+2. Launch       /kobserve launch reminders/M1
+                 → Observer seat: worktree + executor session in one step, plus a
+                   sandbox where the project has one (the executor session itself
+                   runs /kbuild on the brief)
+                 → Executor: the brief + the code is its entire context; goal loop
+                   until the planner's blocking tests pass; escape valve for
+                   contradictions; delivers the milestone as a PR
 
-3. Close        /kspec close reminders
+3. Land         /kobserve verify <pr> · /kobserve land <pr>
+                 → Independent re-run of the blocking tests, "For the human" put to
+                   the human before merge; after his merge, spec row + teardown
+
+4. Close        /kspec close reminders
                  → Fresh-context review: does the whole diff satisfy the INTENT?
-                 → Spec archived; acceptance tests optionally promoted to e2e suite
+                 → Spec archived; acceptance tests promoted by kind (e2e/integration/unit)
 ```
 
 There are no task lists — the path from brief to delivered milestone is the executor's
@@ -150,6 +156,7 @@ kinfra done auth-M1                  # Clean up worktree, sandbox, containers
 |---------|---------|
 | `/kspec` | Planner sessions: intent → signed spec + work briefs + acceptance tests; also `replan`, `triage`, and `close` modes |
 | `/kbuild` | Executor sessions: one work brief in, goal loop against its blocking tests, milestone PR out |
+| `/kobserve` | Observer seat: launch executors, verify deliveries (independent re-run, *For the human* gate), land merges |
 
 ### Issue workflow
 
@@ -365,6 +372,7 @@ devops-ai/
 ├── skills/                 # AI tool skills (symlinked on install)
 │   ├── kspec/              # Planner: spec + briefs + acceptance tests, triage, close
 │   ├── kbuild/             # Executor: one brief → goal loop → milestone PR
+│   ├── kobserve/           # Observer: launch, verify, land
 │   ├── kissue/             # Bounded issue lane (defects, chores)
 │   ├── kreview/            # PR review comment assessment (single round)
 │   ├── kbabysit/           # PR review loop orchestration to merge-ready

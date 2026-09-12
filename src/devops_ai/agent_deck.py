@@ -24,34 +24,50 @@ def is_available() -> bool:
     return shutil.which("agent-deck") is not None
 
 
+COMMAND_TIMEOUT = 60  # seconds; `session send` blocks while the target is busy
+
+
 def _run_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     """Run an agent-deck command, logging warnings on failure.
 
-    Never raises — all failures are logged and returned.
+    Never raises — all failures are logged and returned. Bounded by
+    ``COMMAND_TIMEOUT`` so a busy target cannot park the caller.
     """
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=COMMAND_TIMEOUT
+        )
     except FileNotFoundError:
         logger.warning("agent-deck not found on PATH")
         return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="")
-    if result.returncode != 0 and result.stderr:
+    except subprocess.TimeoutExpired:
         logger.warning(
-            "agent-deck command failed: %s — %s",
+            "agent-deck command timed out after %ds: %s",
+            COMMAND_TIMEOUT, " ".join(cmd),
+        )
+        return subprocess.CompletedProcess(
+            cmd, returncode=1, stdout="", stderr="timed out"
+        )
+    if result.returncode != 0:
+        logger.warning(
+            "agent-deck command failed (rc=%s): %s — %s",
+            result.returncode,
             " ".join(cmd),
-            result.stderr.strip(),
+            result.stderr.strip() or "(no output)",
         )
     return result
 
 
-def add_session(title: str, *, group: str, path: str) -> None:
-    """Add an agent-deck session."""
+def add_session(title: str, *, group: str, path: str) -> bool:
+    """Add an agent-deck session. Returns True on success."""
     if not is_available():
-        return
-    _run_command([
+        return False
+    result = _run_command([
         "agent-deck", "add", path,
         "-t", title,
         "-g", group,
     ])
+    return result.returncode == 0
 
 
 def remove_session(title: str) -> None:
@@ -61,19 +77,23 @@ def remove_session(title: str) -> None:
     _run_command(["agent-deck", "remove", title])
 
 
-def start_session(title: str) -> None:
+def start_session(title: str) -> bool:
     """Start an agent-deck session (launches Claude in a tmux pane)."""
     if not is_available():
-        return
-    _run_command(["agent-deck", "session", "start", title])
+        return False
+    result = _run_command(["agent-deck", "session", "start", title])
+    return result.returncode == 0
 
 
-def send_to_session(title: str, message: str, delay: float = 3) -> None:
+def send_to_session(title: str, message: str, delay: float = 3) -> bool:
     """Send a message to a running agent-deck session.
 
     Waits ``delay`` seconds before sending to allow the agent to start.
+    Returns True if agent-deck accepted the message (a busy target times
+    out and returns False — the message was NOT delivered).
     """
     if not is_available():
-        return
+        return False
     time.sleep(delay)
-    _run_command(["agent-deck", "session", "send", title, message])
+    result = _run_command(["agent-deck", "session", "send", title, message])
+    return result.returncode == 0

@@ -204,6 +204,7 @@ class TestDoneWithSandbox:
                 return_value=slot,
             ),
             patch("devops_ai.cli.done.stop_sandbox") as mock_stop,
+            patch("devops_ai.cli.done.force_cleanup_project") as mock_force,
             patch("devops_ai.cli.done.remove_slot_dir"),
             patch("devops_ai.cli.done.release_slot") as mock_rel,
             patch("devops_ai.cli.done.remove_worktree"),
@@ -212,9 +213,39 @@ class TestDoneWithSandbox:
             code, msg = done_command("feat-M1", repo_root=tmp_path)
 
         assert code == 0
-        # Stop should NOT be called (slot dir missing)
+        # Stop should NOT be called (slot dir missing) — but the slot's
+        # containers and volumes are still cleaned by label
         mock_stop.assert_not_called()
-        # But release should still happen
+        mock_force.assert_called_once_with("test-slot-1")
+        # And release should still happen
+        mock_rel.assert_called_once()
+
+    def test_missing_slot_dir_unclean_cleanup_warns(self, tmp_path: Path) -> None:
+        """Label cleanup could not confirm → done says so, still releases."""
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        slot = _slot(worktree_path=str(wt_path), slot_dir="/nonexistent/slot")
+        registry = _registry_with_slot(slot)
+
+        with (
+            patch(
+                "devops_ai.cli.done.list_worktrees",
+                return_value=_mock_worktrees(wt_path, "test"),
+            ),
+            patch("devops_ai.cli.done.check_dirty") as mock_dirty,
+            patch("devops_ai.cli.done.load_registry", return_value=registry),
+            patch("devops_ai.cli.done.get_slot_for_worktree", return_value=slot),
+            patch("devops_ai.cli.done.stop_sandbox"),
+            patch("devops_ai.cli.done.force_cleanup_project", return_value=False),
+            patch("devops_ai.cli.done.remove_slot_dir"),
+            patch("devops_ai.cli.done.release_slot") as mock_rel,
+            patch("devops_ai.cli.done.remove_worktree"),
+        ):
+            mock_dirty.return_value = MagicMock(is_dirty=False)
+            code, msg = done_command("feat-M1", repo_root=tmp_path)
+
+        assert code == 0
+        assert "could not confirm" in msg
         mock_rel.assert_called_once()
 
     def test_spec_worktree_no_sandbox(self, tmp_path: Path) -> None:

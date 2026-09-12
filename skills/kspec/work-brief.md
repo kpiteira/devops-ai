@@ -31,18 +31,36 @@ aspiration, not a contract; a test with no job is process leaking back in. -->
 
 <!-- The observable surface the acceptance tests exercise, pinned at planning time:
 the CLI command, HTTP route, file format, UI flow. The tests are unwritable without
-this — and the surface IS the outcome; everything behind it is the executor's. -->
+this — and the surface IS the outcome; everything behind it is the executor's.
+
+Self-contained and complete, or not pinned:
+- every field named here is defined HERE, not in a later brief;
+- anything that enumerates, renders or lists the thing this brief adds is Surface too
+  (add a scope → the UI that lists scopes is Surface);
+- a dev-only seam pinned for the tests carries its semantics (replace vs append, what
+  it returns) like any route;
+- if a test asserts a shape or value, this section states it — a grader that pins more
+  than the brief is the planner deciding silently;
+- for every external side effect (a message, a webhook, a job): what happens when the
+  channel is down;
+- a UX shape that IS the product intent is labeled **directive — human:** with the
+  reason, so the executor knows it is an outcome, not an implementation constraint. -->
 
 ## Blocking
 
 <!-- Planner-authored acceptance tests, committed at planning time, before any
 implementation exists. Delivered means the command above exits 0. Scoped runs, not
 general-CI members: they run in the executor's goal loop and as a gate on this
-milestone's PR, nowhere else. -->
+milestone's PR, nowhere else.
 
-| Job | Planner-authored test | Observable proof |
-|-----|-----------------------|------------------|
-| J1 | `tests/acceptance/<feature>/test_m<N>_<slug>.py::test_<job>` | <what a passing assertion proves> |
+Measured on main: every claim here about the current code is measured on a running
+sandbox in the executor's runtime (sandbox ports, env, clock) before sign-off — the
+command and its output, not an inference. A test that is integration-level because the
+live stack cannot exercise the job says so here, with the reason. -->
+
+| Job | Planner-authored test | Observable proof | Measured on main |
+|-----|-----------------------|------------------|------------------|
+| J1 | `tests/acceptance/<feature>/test_m<N>_<slug>.py::test_<job>` | <what a passing assertion proves> | `<command>` → `1 failed` (<first failing assertion>) |
 
 Plus the standing gates: `make check` exits 0.
 
@@ -56,16 +74,28 @@ Plus the standing gates: `make check` exits 0.
 
 ## Non-goals
 
+## Working environment
+
+<!-- Facts the executor otherwise discovers by pushing:
+- standing PR gates beyond make check, WITH their scope (e.g. "gitleaks — scans commit
+  history, not the tree: a placeholder token in any commit fails the PR");
+- every toolchain's setup step (uv sync, npm ci, …);
+- the runtime the tests assume: sandbox port formula, env vars, timezone the server
+  judges in. -->
+
 ## Context
 
 <!-- What the planner knows that the executor won't cheaply rediscover — adjacent
 features sharing this state, the job that reads the same query helper, the reason
-an odd-looking thing is load-bearing. -->
+an odd-looking thing is load-bearing. Facts only: a mechanism described here lands
+as a change the executor never chose. -->
 
 ## Decisions
 
 <!-- Contained, reversible choices the planner made — challengeable by the executor
-through the escape valve. A path the HUMAN prescribes is labeled:
+through the escape valve. Each with its rejected alternative:
+- **D1** — <decision>. *Rejected:* <alternative, and why>.
+A path the HUMAN prescribes is labeled:
 **Directive — human:** <path, and the reason outside the codebase>. -->
 
 ---
@@ -77,4 +107,8 @@ and don't classify the problem yourself.**
 <!-- The escape valve, verbatim in every brief. Classification (fact vs decision vs
 outcome) needs cross-feature context the executor doesn't have; triage belongs to the
 planner. The executor writes a divergence report (kbuild's template) and sets the
-spec's Decomposition row to diverged. -->
+spec's Decomposition row to diverged.
+
+One exception, stated in the outcome-contracts rule: a wrong annotation about the
+current code on an otherwise unambiguous requirement is a fact-correction — build the
+requirement, record it under "Facts I corrected" in the PR. -->

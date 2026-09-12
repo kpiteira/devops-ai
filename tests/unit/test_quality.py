@@ -774,3 +774,32 @@ class TestGenerateConftest:
 
         # No tests/unit/ directory
         assert should_generate_conftest(tmp_path) is False
+
+
+class TestGuardLabelsItsOwnPaths:
+    def test_guard_paths_are_not_called_contract_files(self) -> None:
+        """Pilot 2026-09-05: the annotation mislabeled the guard's own paths."""
+        namespace: dict[str, object] = {}
+        exec(generate_contract_integrity_check(), namespace)
+        change_label = namespace["change_label"]
+        assert callable(change_label)
+        contract = "Planner-owned contract file changed"
+        guard = "Contract guard file changed"
+        assert change_label(
+            "docs/specs/f/briefs/M1-x.md", "tests/acceptance"
+        ) == contract
+        assert change_label(
+            "tests/acceptance/f/test_x.py", "tests/acceptance"
+        ) == contract
+        assert change_label(
+            ".github/workflows/ci.yml", "tests/acceptance"
+        ) == guard
+        assert change_label(
+            ".devops-ai/check_contract_integrity.py", "tests/acceptance"
+        ) == guard
+        # A root configured over a guard directory does not relabel the guard
+        assert change_label(".github/workflows/ci.yml", ".github/workflows") == guard
+        assert change_label(
+            "./.devops-ai/check_contract_integrity.py", ".devops-ai"
+        ) == guard
+        assert change_label(".devops-ai/other.py", ".devops-ai") == contract

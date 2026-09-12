@@ -15,6 +15,7 @@ to adapt workflows to this project's specific tooling and conventions.
 - **Quality checks:** uv run ruff check src/ tests/ && uv run mypy src/
 - **Lint (fast):** uv run ruff check src/ tests/
 - **Integration tests:** uv run pytest tests/integration
+- **Standing PR gates:** contract-integrity guard (run from the PR's base commit; briefs and tests/acceptance writable only on spec/* and replan/*), new-public-surface report (advisory), CodeQL Python analysis on every PR (security.yml; reporting only — findings land as code-scanning alerts, the check itself does not fail on a finding)
 
 ## Infrastructure
 

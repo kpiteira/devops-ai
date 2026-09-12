@@ -8,7 +8,7 @@ Tests are classified by what they exercise and what they need to run.
 |------|-----------|-------|-------------|---------|
 | Unit | tests/unit/ | <100ms each | None (no I/O; fakes at the seams) | Pre-commit, CI |
 | Integration | tests/integration/ | <5s each | Real services | CI |
-| Acceptance | tests/acceptance/<feature>/ | <30s each | Full running system | Scoped: goal loop + own milestone's PR gate |
+| Acceptance | tests/acceptance/<feature>/ | <30s each | Full running system (or labeled integration-level) | Scoped: goal loop + own milestone's PR gate |
 | E2E | tests/e2e/ | <30s each | Full running system | Standing suite; milestone validation |
 
 ## Unit tests
@@ -39,7 +39,13 @@ Acceptance tests are planner-authored blocking criteria for a milestone (the
 general-CI members**: they execute in the executor's goal loop and as a gate on their
 own milestone's PR, nowhere else — a not-yet-implemented milestone's tests are
 *supposed* to be failing. At feature close the human decides whether they're promoted
-into the standing `tests/e2e/` suite.
+into the standing suites — by kind: `tests/e2e/`, `tests/integration/`, or `tests/unit/`.
+
+An acceptance test is E2E. When the full running system cannot exercise a job (the
+pilot: scope enforcement invisible under the sandbox's dev auth mode), an
+**integration-level** acceptance test is legal if its brief's Blocking table labels it so,
+states the reason, and records a measured baseline. The label is the point: the human
+sees at sign-off how strong the grader is.
 
 ## E2E tests
 
