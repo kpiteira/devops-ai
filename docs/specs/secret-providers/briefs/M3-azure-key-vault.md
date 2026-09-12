@@ -66,13 +66,15 @@ Plus the standing gates: `make check` exits 0.
 - khealth's `infra/scripts/seed-secrets.sh` already uses `az keyvault secret
   show --vault-name <v> --name <n> --query value -o tsv` and `secret set`; that is the
   known-working invocation shape on Karl's machine.
-- `az` exit codes: not logged in and not found both exit 1 — the failure class must
-  come from stderr text (e.g. `SecretNotFound`, `Forbidden`, `Please run 'az login'`).
-- The acceptance vault: **directive — human:** Karl provisions a Key Vault in his
-  tenant for this purpose (a separate task, not part of this milestone) and sets
-  `KSECRET_ACCEPTANCE_AKV_VAULT=<name>` in the environment before M3 runs; the test
-  creates and deletes secrets prefixed `ksecret-acceptance-` and touches nothing
-  else. Until the variable is set the vault tests skip, and a milestone whose only
+- `az keyvault secret show` on a missing secret exits **3** with `Code: SecretNotFound`
+  on stderr (verified 2026-09-12 against the acceptance vault); an unresolvable vault
+  host exits 1. Failure classes come from stderr text, not exit codes.
+- The acceptance vault exists: `kv-devops-ai-accept` in resource group
+  `devops-ai-test-rg` (westus3, RBAC mode, soft-delete 7 days, no purge protection —
+  disposable; created 2026-09-12). Karl holds Key Vault Secrets Officer on it. The
+  tests read its name from `KSECRET_ACCEPTANCE_AKV_VAULT`, which Karl exports in his
+  shell; they create and delete secrets prefixed `ksecret-acceptance-` and touch
+  nothing else. Until the variable is set the vault tests skip, and a milestone whose only
   evidence is skips is not delivered (A2).
 - Soft-delete: a deleted AKV secret name stays reserved until purged; the test uses a
   fresh random suffix per run, so purging is not needed.
