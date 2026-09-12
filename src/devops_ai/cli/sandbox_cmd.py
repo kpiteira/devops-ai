@@ -115,7 +115,7 @@ def _sandbox_up(
 
     # Mark slot as running
     slot_info.status = "running"
-    save_registry(registry)
+    save_registry(registry, REGISTRY_PATH)
 
     # Health gate
     healthy = run_health_gate(config, slot_info)
