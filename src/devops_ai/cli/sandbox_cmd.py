@@ -14,6 +14,7 @@ from devops_ai.provision import (
     generate_secrets_file,
     provision_files,
     resolve_all_secrets,
+    secure_secrets_file,
 )
 from devops_ai.registry import (
     DEFAULT_REGISTRY_PATH,
@@ -210,6 +211,7 @@ def _sandbox_up(
             source = describe_secret_source(config.secrets.get(var_name, ""))
             lines.append(f"  {var_name} \u2190 {source} \u2713")
     elif secrets_plan is SecretsPlan.REUSE:
+        secure_secrets_file(slot_dir)
         lines.append(
             "Secrets: reused the slot's materialised .env.secrets "
             "(--refresh-secrets to re-resolve)"

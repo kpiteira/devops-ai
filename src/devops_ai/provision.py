@@ -22,11 +22,13 @@ from devops_ai.secrets import (
 
 logger = logging.getLogger(__name__)
 
+SECRETS_FILE_NAME = ".env.secrets"
 SECRETS_FILE_MODE = 0o600
 
 __all__ = [
     "FileProvisionError",
     "describe_secret_source",
+    "secure_secrets_file",
     "SecretResolutionError",
     "generate_secrets_file",
     "provision_files",
@@ -43,6 +45,22 @@ class FileProvisionError(Exception):
         self.source = source
         self.message = message
         super().__init__(message)
+
+
+def secure_secrets_file(slot_dir: Path) -> Path | None:
+    """Tighten an existing .env.secrets to owner-only. Returns it, or None.
+
+    The reuse path (`plan_secrets` -> REUSE) hands an already-materialised file
+    straight to compose without regenerating it, so a file written before the
+    mode was enforced would keep its old permissions for the life of the slot.
+    The invariant is that this file *is* 0600, not that it is 0600 when freshly
+    written.
+    """
+    path = slot_dir / SECRETS_FILE_NAME
+    if not path.is_file():
+        return None
+    path.chmod(SECRETS_FILE_MODE)
+    return path
 
 
 def describe_secret_source(ref: str) -> str:
@@ -170,7 +188,7 @@ def generate_secrets_file(
     lines = [
         f"{key}={value}" for key, value in sorted(resolved_secrets.items())
     ]
-    path = slot_dir / ".env.secrets"
+    path = slot_dir / SECRETS_FILE_NAME
     path.touch(mode=SECRETS_FILE_MODE, exist_ok=True)
     path.chmod(SECRETS_FILE_MODE)
     path.write_text("\n".join(lines) + "\n")

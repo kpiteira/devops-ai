@@ -16,6 +16,7 @@ from devops_ai.provision import (
     provision_files,
     resolve_all_secrets,
     resolve_secret,
+    secure_secrets_file,
 )
 
 # --- Secret resolution ---
@@ -318,6 +319,26 @@ class TestSecretsFilePermissions:
         path = generate_secrets_file({"TOKEN": "secret-val"}, tmp_path)
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
         assert path.read_text() == "TOKEN=secret-val\n"
+
+
+class TestSecureSecretsFile:
+    """The invariant is that .env.secrets IS 0600 — not that a fresh one is."""
+
+    def test_tightens_a_file_written_before_the_mode_was_enforced(
+        self, tmp_path: Path
+    ) -> None:
+        legacy = tmp_path / ".env.secrets"
+        legacy.write_text("TOKEN=from-an-older-slot\n")
+        legacy.chmod(0o644)
+
+        path = secure_secrets_file(tmp_path)
+
+        assert path == legacy
+        assert stat.S_IMODE(legacy.stat().st_mode) == 0o600
+        assert legacy.read_text() == "TOKEN=from-an-older-slot\n", "content untouched"
+
+    def test_absent_file_is_not_an_error(self, tmp_path: Path) -> None:
+        assert secure_secrets_file(tmp_path) is None
 
 
 class TestDescribeSecretSource:
