@@ -18,12 +18,12 @@ class TestSessionGroup:
             agent_deck, "add_session",
             lambda title, *, group, path: calls.append(
                 {"title": title, "group": group, "path": path}
-            ),
+            ) or True,
         )
-        monkeypatch.setattr(agent_deck, "start_session", lambda title: None)
+        monkeypatch.setattr(agent_deck, "start_session", lambda title: True)
         monkeypatch.setattr(
             agent_deck, "send_to_session",
-            lambda title, message, delay=3: None,
+            lambda title, message, delay=3: True,
         )
         _setup_session("feat", "M2", tmp_path, group="khealth")
         assert calls == [
@@ -35,12 +35,30 @@ class TestSessionGroup:
         monkeypatch.setattr(agent_deck, "is_available", lambda: True)
         monkeypatch.setattr(
             agent_deck, "add_session",
-            lambda title, *, group, path: seen.append(group),
+            lambda title, *, group, path: seen.append(group) or True,
         )
-        monkeypatch.setattr(agent_deck, "start_session", lambda title: None)
+        monkeypatch.setattr(agent_deck, "start_session", lambda title: True)
         monkeypatch.setattr(
             agent_deck, "send_to_session",
-            lambda title, message, delay=3: None,
+            lambda title, message, delay=3: True,
         )
         _setup_session("feat", "M1", tmp_path)
         assert seen == ["dev"]
+
+    def test_undelivered_kickoff_is_reported(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A timed-out send must not read as 'session started'."""
+        monkeypatch.setattr(agent_deck, "is_available", lambda: True)
+        monkeypatch.setattr(
+            agent_deck, "add_session", lambda title, *, group, path: True
+        )
+        monkeypatch.setattr(agent_deck, "start_session", lambda title: True)
+        monkeypatch.setattr(
+            agent_deck, "send_to_session",
+            lambda title, message, delay=3: False,
+        )
+        msg = _setup_session("feat", "M1", tmp_path)
+        assert "not delivered" in msg
+        assert "agent-deck session send feat/M1" in msg
+        assert "session started:" not in msg

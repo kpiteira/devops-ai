@@ -22,8 +22,9 @@ The workflow for a new feature — **rigid about outcomes, silent about paths**:
                  → Authors each milestone's acceptance tests BEFORE implementation
 
 2. Launch       /kobserve launch reminders/M1
-                 → Observer seat: worktree + sandbox + executor session in one step
-                   (the executor session itself runs /kbuild on the brief)
+                 → Observer seat: worktree + executor session in one step, plus a
+                   sandbox where the project has one (the executor session itself
+                   runs /kbuild on the brief)
                  → Executor: the brief + the code is its entire context; goal loop
                    until the planner's blocking tests pass; escape valve for
                    contradictions; delivers the milestone as a PR

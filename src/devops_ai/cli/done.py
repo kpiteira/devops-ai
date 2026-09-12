@@ -136,11 +136,17 @@ def done_command(
         else:
             # No compose files to run `down` with: clean by label so the
             # slot's containers and volumes cannot outlive the slot.
+            project = compose_project_name(slot)
             logger.warning(
                 "Slot dir %s missing; cleaning containers and volumes by label",
                 slot_dir,
             )
-            force_cleanup_project(compose_project_name(slot))
+            if not force_cleanup_project(project):
+                sandbox_warning = (
+                    f"  Warning: could not confirm that containers and "
+                    f"volumes of {project} are gone; check "
+                    f"`docker ps -a` / `docker volume ls`"
+                )
         release_slot(registry, slot.slot_id)
 
     # Remove worktree

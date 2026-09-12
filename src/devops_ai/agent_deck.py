@@ -57,15 +57,16 @@ def _run_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def add_session(title: str, *, group: str, path: str) -> None:
-    """Add an agent-deck session."""
+def add_session(title: str, *, group: str, path: str) -> bool:
+    """Add an agent-deck session. Returns True on success."""
     if not is_available():
-        return
-    _run_command([
+        return False
+    result = _run_command([
         "agent-deck", "add", path,
         "-t", title,
         "-g", group,
     ])
+    return result.returncode == 0
 
 
 def remove_session(title: str) -> None:
@@ -75,19 +76,23 @@ def remove_session(title: str) -> None:
     _run_command(["agent-deck", "remove", title])
 
 
-def start_session(title: str) -> None:
+def start_session(title: str) -> bool:
     """Start an agent-deck session (launches Claude in a tmux pane)."""
     if not is_available():
-        return
-    _run_command(["agent-deck", "session", "start", title])
+        return False
+    result = _run_command(["agent-deck", "session", "start", title])
+    return result.returncode == 0
 
 
-def send_to_session(title: str, message: str, delay: float = 3) -> None:
+def send_to_session(title: str, message: str, delay: float = 3) -> bool:
     """Send a message to a running agent-deck session.
 
     Waits ``delay`` seconds before sending to allow the agent to start.
+    Returns True if agent-deck accepted the message (a busy target times
+    out and returns False — the message was NOT delivered).
     """
     if not is_available():
-        return
+        return False
     time.sleep(delay)
-    _run_command(["agent-deck", "session", "send", title, message])
+    result = _run_command(["agent-deck", "session", "send", title, message])
+    return result.returncode == 0

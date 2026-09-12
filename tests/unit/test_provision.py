@@ -262,3 +262,18 @@ class TestProvisionFilesPathTraversal:
         )
         assert len(errors) == 1
         assert "escapes worktree" in errors[0].message
+
+
+class TestDescribeSecretSource:
+    def test_references_are_shown(self) -> None:
+        from devops_ai.provision import describe_secret_source
+
+        assert describe_secret_source("op://vault/item/field") == "op://vault/item/field"
+        assert describe_secret_source("$MY_TOKEN") == "$MY_TOKEN"
+
+    def test_literal_value_is_never_echoed(self) -> None:
+        from devops_ai.provision import describe_secret_source
+
+        shown = describe_secret_source("hunter2-literal-value")
+        assert "hunter2" not in shown
+        assert "literal" in shown

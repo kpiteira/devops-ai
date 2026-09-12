@@ -28,7 +28,8 @@ and a child carries its parent's. A planner seat on the executor tier stops.
 **In:** a signed spec (`Signed off` filled, no unchecked amendment) and a milestone
 whose dependencies are `delivered`.
 
-1. **Worktree, sandbox, session in one step**, with an explicit group:
+1. **Worktree, session, and — where the project has one — sandbox, in one step**,
+   with an explicit group:
    ```bash
    kinfra impl <feature>/M<N> --session --group <project>
    ```
@@ -43,9 +44,12 @@ whose dependencies are `delivered`.
    `kinfra sandbox start` retries.
 2. **Kickoff: brief + environment facts only.** `kinfra impl --session` sends
    `/kbuild <feature>/M<N>` to the new session (bounded: kinfra's agent-deck calls time
-   out after 60 s rather than hang); follow it with one message carrying the sandbox's
-   facts (`kinfra status`: slot, ports) — sent from the background, since
-   `agent-deck session send` blocks while the target is busy. Nothing the harness
+   out after 60 s rather than hang, and kinfra says so if the kickoff was not
+   delivered — then send it yourself). Where the project has a sandbox, follow with one
+   message carrying its facts (`kinfra status`: slot, ports) — sent from the
+   background, since `agent-deck session send` blocks while the target is busy; a
+   project without a sandbox has no such facts and the brief's Working environment is
+   the whole environment. Nothing the harness
    already sets: no attribution trailers, no model names; the executor's harness owns
    those and a conflicting kickoff is noise it has to resolve (pilot, 2026-09-11). The
    brief's Working environment carries the gates; the kickoff does not restate them.

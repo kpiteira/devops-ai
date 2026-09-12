@@ -12,6 +12,7 @@ from devops_ai.observability import ObservabilityManager
 from devops_ai.provision import (
     FileProvisionError,
     SecretResolutionError,
+    describe_secret_source,
     generate_secrets_file,
     provision_files,
     resolve_all_secrets,
@@ -207,13 +208,17 @@ def _setup_session(
     if not agent_deck.is_available():
         return "  agent-deck not found, skipping session management"
     title = f"{feature}/{milestone}"
-    agent_deck.add_session(
-        title, group=group, path=str(wt_path)
-    )
-    agent_deck.start_session(title)
-    agent_deck.send_to_session(
-        title, f"/kbuild {feature}/{milestone}", delay=3
-    )
+    kickoff = f"/kbuild {feature}/{milestone}"
+    if not agent_deck.add_session(title, group=group, path=str(wt_path)):
+        return f"  Warning: agent-deck could not add session {title}"
+    if not agent_deck.start_session(title):
+        return f"  Warning: agent-deck session {title} added but not started"
+    if not agent_deck.send_to_session(title, kickoff, delay=3):
+        return (
+            f"  Warning: agent-deck session {title} started but the kickoff "
+            f"was not delivered (busy or timed out) — send it yourself: "
+            f"agent-deck session send {title} '{kickoff}'"
+        )
     return f"  agent-deck session started: {title}"
 
 
@@ -285,7 +290,10 @@ def _setup_sandbox(
 
     # Start sandbox
     try:
-        start_sandbox(config, slot_info, wt_path)
+        # Fresh slot: on failure the slot is released, so its volumes go too
+        start_sandbox(
+            config, slot_info, wt_path, remove_volumes_on_failure=True
+        )
     except RuntimeError as e:
         # Cleanup: release slot, remove slot dir, keep worktree
         release_slot(registry, slot_id)
@@ -320,8 +328,8 @@ def _setup_sandbox(
     if resolved_secrets:
         lines.append("Resolved secrets:")
         for var_name in sorted(resolved_secrets.keys()):
-            ref = config.secrets.get(var_name, "")
-            lines.append(f"  {var_name} \u2190 {ref} \u2713")
+            source = describe_secret_source(config.secrets.get(var_name, ""))
+            lines.append(f"  {var_name} \u2190 {source} \u2713")
 
     if not healthy:
         lines.append(

@@ -31,6 +31,17 @@ class FileProvisionError(Exception):
         super().__init__(message)
 
 
+def describe_secret_source(ref: str) -> str:
+    """A display-safe description of where a secret comes from.
+
+    ``op://`` and ``$VAR`` references are references, not values, and safe to
+    show; anything else is a literal value and is never echoed.
+    """
+    if ref.startswith("op://") or ref.startswith("$"):
+        return ref
+    return "(literal, not shown)"
+
+
 def resolve_secret(var_name: str, ref: str) -> str:
     """Resolve a single secret reference to its value.
 

@@ -11,6 +11,7 @@ from devops_ai.config import find_project_root, load_config
 from devops_ai.provision import (
     FileProvisionError,
     SecretResolutionError,
+    describe_secret_source,
     generate_secrets_file,
     provision_files,
     resolve_all_secrets,
@@ -212,8 +213,8 @@ def _sandbox_up(
     if resolved_secrets:
         lines.append("Resolved secrets:")
         for var_name in sorted(resolved_secrets.keys()):
-            ref = config.secrets.get(var_name, "")
-            lines.append(f"  {var_name} \u2190 {ref} \u2713")
+            source = describe_secret_source(config.secrets.get(var_name, ""))
+            lines.append(f"  {var_name} \u2190 {source} \u2713")
     elif secrets_plan is SecretsPlan.REUSE:
         lines.append(
             "Secrets: reused the slot's materialised .env.secrets "
