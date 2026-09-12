@@ -181,11 +181,12 @@ what materially improved, final state — merge-ready / needs decision on X / bl
 **Verdict:** ✅ merge-ready | ⚠️ needs human decision | ❌ blocked
 
 ### Rounds
-| Round | Reviewers | Findings (anchored+unanchored) | On original diff | On fix commits | Unknown | Implemented | Pushed back | Out of scope | Discuss | Commits |
-|-------|-----------|--------------------------------|------------------|----------------|---------|-------------|-------------|--------------|---------|---------|
+| Round | Reviewers | Findings | On original diff | On fix commits | Unknown | Unanchored | Implemented | Pushed back | Out of scope | Discuss | Commits |
+|-------|-----------|----------|------------------|----------------|---------|------------|-------------|-------------|--------------|---------|---------|
 
-Unknown provenance is its own column because it is what keeps the second-order stop from
-firing; a report that hides it cannot explain why the loop kept going.
+The four provenance columns sum to Findings. Unknown is its own column because it is what
+keeps the second-order stop from firing, and Unanchored because it is excluded from that
+stop; a report that hides either cannot show a human why a stop was safe.
 
 ### What changed because of review
 - <material improvement, one line each — the value the loop added>
