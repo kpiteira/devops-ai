@@ -91,6 +91,21 @@ class TestCheckCollectsFromEveryInput:
         assert result.exit_code == 2
         assert "nothing to check" in result.output
 
+    def test_an_env_file_that_collects_nothing_is_still_a_usage_error(
+        self, project: Path
+    ) -> None:
+        """Passing --env-file is not the same as having something to check."""
+        (project / "empty.env").write_text("# only a comment\n\n")
+        result = runner.invoke(app, ["check", "--env-file", "empty.env"])
+        assert result.exit_code == 2
+        assert "nothing to check" in result.output
+
+    def test_a_nonempty_env_file_is_checked_normally(self, project: Path) -> None:
+        (project / "one.env").write_text("# a comment\nA=dotenv://.env#DB_PASSWORD\n")
+        result = runner.invoke(app, ["check", "--env-file", "one.env"])
+        assert result.exit_code == 0, result.output
+        assert "A: ok" in result.output
+
     def test_an_undecodable_env_file_is_an_error_not_a_traceback(
         self, project: Path
     ) -> None:

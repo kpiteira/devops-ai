@@ -41,7 +41,7 @@ def read(path: Path) -> dict[str, str]:
     escaping to the top is a traceback instead of one.
     """
     try:
-        return parse(path.read_text())
+        return parse(path.read_text(encoding="utf-8"))
     except UnicodeDecodeError:
         raise OSError(
             errno.EILSEQ, "not valid UTF-8 text", str(path)

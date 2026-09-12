@@ -157,6 +157,11 @@ def _sandbox_up(
         resolved_secrets, secret_errors = resolve_all_secrets(
             config.secrets, main_repo
         )
+    elif secrets_plan is SecretsPlan.REUSE:
+        # Before compose reads it, not after the sandbox is up: a file written
+        # before the mode was enforced would otherwise stay world-readable for
+        # the whole of startup — and for good, if startup fails.
+        secure_secrets_file(slot_dir)
 
     all_errors: list[SecretResolutionError | FileProvisionError] = (
         file_errors + secret_errors  # type: ignore[operator]
@@ -211,7 +216,6 @@ def _sandbox_up(
             source = describe_secret_source(config.secrets.get(var_name, ""))
             lines.append(f"  {var_name} \u2190 {source} \u2713")
     elif secrets_plan is SecretsPlan.REUSE:
-        secure_secrets_file(slot_dir)
         lines.append(
             "Secrets: reused the slot's materialised .env.secrets "
             "(--refresh-secrets to re-resolve)"

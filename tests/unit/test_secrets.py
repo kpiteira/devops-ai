@@ -180,6 +180,13 @@ class TestUnreadableFiles:
         assert "binary.env" in exc.value.message
         assert "UTF-8" in exc.value.message
 
+    def test_utf8_is_read_as_utf8_whatever_the_locale_says(
+        self, tmp_path: Path
+    ) -> None:
+        """The reader promises UTF-8; the locale default is not a promise."""
+        (tmp_path / ".env").write_bytes("K=caf\u00e9-\u00fcber\n".encode())
+        assert resolve("K", "dotenv://.env#K", ctx(tmp_path)) == "caf\u00e9-\u00fcber"
+
     def test_the_env_fallback_survives_an_undecodable_dotenv(
         self, tmp_path: Path
     ) -> None:

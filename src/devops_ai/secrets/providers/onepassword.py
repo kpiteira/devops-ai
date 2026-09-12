@@ -7,6 +7,7 @@ reach `op` exactly as they would from a shell.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 
@@ -24,9 +25,11 @@ def handles(ref: str) -> bool:
 def resolve(ref: str, ctx: ResolveContext) -> str:
     """Read the item through `op`, translating its failures into guidance."""
     # The child is spawned with `env=ctx.env`, and exec resolves the program on
-    # *that* environment's PATH — so discovery has to use the same one, or it
-    # answers about a different PATH than the one that will run `op`.
-    if shutil.which("op", path=ctx.env.get("PATH")) is None:
+    # *that* environment's PATH — including its fallback when the variable is
+    # absent. Resolve here on the same PATH and hand the child the absolute
+    # path, so there is no second search that could disagree with this one.
+    executable = shutil.which("op", path=ctx.env.get("PATH", os.defpath))
+    if executable is None:
         raise ProviderError(
             "1Password CLI (op) not found. "
             "Install: brew install 1password-cli "
@@ -35,7 +38,7 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
 
     try:
         result = subprocess.run(
-            ["op", "read", "--no-newline", ref],
+            [executable, "read", "--no-newline", ref],
             capture_output=True,
             text=True,
             timeout=TIMEOUT,

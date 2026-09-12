@@ -67,7 +67,10 @@ class TestResolveSecretOnePassword:
             assert result == "resolved-secret"
             mock_run.assert_called_once()
             args = mock_run.call_args[0][0]
-            assert args == ["op", "read", "--no-newline", "op://vault/item/field"]
+            # argv[0] is the resolved path, so exec does no second PATH search
+            # that could disagree with discovery.
+            assert args[0] == "/usr/local/bin/op"
+            assert args[1:] == ["read", "--no-newline", "op://vault/item/field"]
 
     def test_op_not_authenticated(self) -> None:
         with (
