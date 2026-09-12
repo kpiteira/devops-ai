@@ -234,11 +234,14 @@ ksecret check --env-file .env.prod              # ok / literal / error — never
 ksecret check --infra                           # the current project's sandbox secrets
 ```
 
-Nothing here prints a secret unless you pass `--print`, so an agent can confirm that a
-project's secrets resolve without putting any of them in its transcript.
+`ksecret` itself never prints a value unless you pass `--print` — not in confirmations,
+not in error messages — so an agent can establish that a project's secrets resolve
+without putting any of them in its transcript. What a command run under `ksecret run`
+does with the values it is handed is that command's own business.
 
 `ksecret` is a second console script of the same package, so an existing install does
-not have it yet. After pulling a version that adds it, reinstall once:
+not have it yet. After pulling a version that adds it, reinstall once (re-running
+`./install.sh` does the same job):
 
 ```bash
 cd ~/Documents/dev/devops-ai && uv tool install -e . --reinstall

@@ -34,6 +34,9 @@ app = typer.Typer(
     name="ksecret",
     help="Resolve secret references through pluggable providers.",
     no_args_is_help=True,
+    # A resolved value lives in a frame local. Typer's rich traceback renders
+    # frame locals, which would print secrets to stderr on any unhandled error.
+    pretty_exceptions_show_locals=False,
 )
 
 
@@ -82,8 +85,7 @@ def run(
         typer.echo(f"ksecret run: {exc.strerror}: {exc.filename}", err=True)
         raise typer.Exit(1) from None
 
-    environ = dict(os.environ)
-    environ.update(_literals(entries))
+    environ = _base_environment(entries)
     resolved, errors = resolve_all(
         _references(entries), ResolveContext(env=environ)
     )
@@ -93,7 +95,13 @@ def run(
         raise typer.Exit(1)
     environ.update(resolved)
 
-    completed = subprocess.run(command, env=environ)
+    try:
+        completed = subprocess.run(command, env=environ)
+    except OSError as exc:
+        typer.echo(
+            f"ksecret run: cannot execute {command[0]}: {exc.strerror}", err=True
+        )
+        raise typer.Exit(127) from None
     raise typer.Exit(completed.returncode)
 
 
@@ -116,9 +124,7 @@ def check(
         typer.echo(f"ksecret check: {exc.strerror}: {exc.filename}", err=True)
         raise typer.Exit(1) from None
 
-    environ = dict(os.environ)
-    environ.update(_literals(entries))
-    context = ResolveContext(env=environ)
+    context = ResolveContext(env=_base_environment(entries))
 
     results = [check_ref(key, ref, context) for key, ref in entries.items()]
     results += [check_ref(ref, ref, context) for ref in refs or []]
@@ -131,7 +137,7 @@ def check(
 
 
 def _check_infra() -> list[CheckResult]:
-    """Classify [sandbox.secrets] exactly as `kinfra impl` would resolve it."""
+    """Classify the project's sandbox secrets the way kinfra resolves them."""
     project_root = find_project_root()
     if project_root is None:
         typer.echo("ksecret check: no .devops-ai/ directory found.", err=True)
@@ -158,13 +164,20 @@ def _collect(env_files: list[Path]) -> dict[str, str]:
     return entries
 
 
-def _literals(entries: dict[str, str]) -> dict[str, str]:
-    """The lines no provider claims.
+def _base_environment(entries: dict[str, str]) -> dict[str, str]:
+    """The environment references resolve in: the parent's, literal lines on top.
 
-    They land in the environment before resolution and override the parent's,
-    so a reference can name a variable declared beside it (`OP_ACCOUNT=` in
-    agent-memory's env file) and the provider it feeds will see it.
+    Literal lines are placed before resolution and beat the parent's values, so
+    a reference can name a variable declared beside it — that is what carries
+    agent-memory's `OP_ACCOUNT=` line into the `op` process the next line needs.
     """
+    environ = dict(os.environ)
+    environ.update(_literals(entries))
+    return environ
+
+
+def _literals(entries: dict[str, str]) -> dict[str, str]:
+    """The lines no provider claims."""
     return {k: v for k, v in entries.items() if provider_for(v) is None}
 
 

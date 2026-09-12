@@ -1,8 +1,9 @@
 """One module per provider; the resolver discovers them, never names them.
 
-A module in this package is a provider when it exports `SCHEME`, `handles` and
-`resolve`. Adding a backend means adding a module here and nothing else.
-Modules whose name starts with `_` are shared helpers, not providers.
+Every module here whose name does not start with `_` is loaded as a provider and
+must export `SCHEME`, `handles` and `resolve`; `_`-prefixed modules are shared
+helpers the resolver skips. Adding a backend means adding a module here and
+nothing else — the architecture test pins exactly that.
 """
 
 from __future__ import annotations

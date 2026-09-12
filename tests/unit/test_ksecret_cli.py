@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from devops_ai.cli.ksecret import app
+from devops_ai.cli.ksecret import _base_environment, app
 
 runner = CliRunner()
 
@@ -95,3 +95,47 @@ class TestRunRefuses:
     def test_no_command_is_a_usage_error(self, project: Path) -> None:
         result = runner.invoke(app, ["run"])
         assert result.exit_code == 2
+
+    def test_an_unexecutable_command_is_a_message_not_a_crash(
+        self, project: Path
+    ) -> None:
+        (project / "refs.env").write_text("A=dotenv://.env#DB_PASSWORD\n")
+        result = runner.invoke(
+            app, ["run", "--env-file", "refs.env", "--", "definitely-not-a-command"]
+        )
+        assert result.exit_code == 127
+        assert "cannot execute definitely-not-a-command" in result.output
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert "hunter2" not in result.output
+
+    def test_a_non_executable_file_is_the_same_clean_failure(
+        self, project: Path
+    ) -> None:
+        target = project / "not-a-program"
+        target.write_text("data\n")
+        result = runner.invoke(app, ["run", "--", str(target)])
+        assert result.exit_code == 127
+        assert "cannot execute" in result.output
+
+
+class TestTheEnvironmentReferencesResolveIn:
+    """Literal lines are declarations, so they beat whatever the shell exported."""
+
+    def test_a_literal_line_overrides_the_parent_environment(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OP_ACCOUNT", "stale-from-the-shell")
+        environ = _base_environment({"OP_ACCOUNT": "declared.1password.com"})
+        assert environ["OP_ACCOUNT"] == "declared.1password.com"
+
+    def test_the_parent_environment_still_passes_through(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("UNRELATED", "from-the-shell")
+        assert _base_environment({"K": "literal"})["UNRELATED"] == "from-the-shell"
+
+    def test_references_are_not_placed_before_they_resolve(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("A", raising=False)
+        assert "A" not in _base_environment({"A": "dotenv://.env#A"})

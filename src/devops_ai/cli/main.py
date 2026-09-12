@@ -15,6 +15,9 @@ app = typer.Typer(
     name="kinfra",
     help="Developer infrastructure CLI for worktree and sandbox management.",
     no_args_is_help=True,
+    # Provisioning holds resolved secrets in frame locals, and Typer's rich
+    # traceback renders frame locals. Never let an unhandled error print them.
+    pretty_exceptions_show_locals=False,
 )
 
 observability_app = typer.Typer(

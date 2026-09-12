@@ -1,9 +1,9 @@
 """Provision module — secret resolution and file provisioning for sandboxes.
 
 Secret resolution itself lives in `devops_ai.secrets`, shared with the `ksecret`
-CLI: kinfra resolves exactly what `ksecret read` would, so every scheme a
-provider adds reaches `[sandbox.secrets]` with no wiring here. This module keeps
-kinfra's side of it — the main-repo base directory, and the slot's secrets file.
+CLI: kinfra resolves through the same providers, so every scheme a provider adds
+reaches `[sandbox.secrets]` with no wiring here. This module keeps kinfra's side
+of it — the main-repo base directory, and the slot's secrets file.
 """
 
 from __future__ import annotations
