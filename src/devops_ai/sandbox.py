@@ -161,16 +161,30 @@ def _env_files_for_slot(slot_dir: Path) -> list[Path]:
     return files
 
 
+def compose_project_name(slot: SlotInfo) -> str:
+    """The compose project a slot owns: <project>-slot-<id>."""
+    return f"{slot.project}-slot-{slot.slot_id}"
+
+
 def _compose_cmd(
     compose_file: str | Path,
     override_file: str | Path,
     env_files: Sequence[str | Path],
     action: list[str],
+    *,
+    project_name: str,
 ) -> list[str]:
-    """Build a docker compose command with absolute paths."""
+    """Build a docker compose command with absolute paths.
+
+    The project name is passed explicitly with ``-p`` so that an ambient
+    ``COMPOSE_PROJECT_NAME`` can never point a destructive ``down --volumes``
+    at another project's resources.
+    """
     cmd = [
         "docker",
         "compose",
+        "-p",
+        project_name,
         "-f",
         str(compose_file),
         "-f",
@@ -199,8 +213,12 @@ def start_sandbox(
     override_file = slot_dir / "docker-compose.override.yml"
     env_files = _env_files_for_slot(slot_dir)
 
+    project_name = compose_project_name(slot)
     action = ["up", "--build", "-d"] if build else ["up", "-d"]
-    cmd = _compose_cmd(compose_file, override_file, env_files, action)
+    cmd = _compose_cmd(
+        compose_file, override_file, env_files, action,
+        project_name=project_name,
+    )
     logger.info("Starting sandbox: %s", " ".join(cmd))
 
     try:
@@ -215,7 +233,8 @@ def start_sandbox(
         # Cleanup partial containers and their volumes — the slot is about to
         # be released, and a stale volume blocks its next launch
         down_cmd = _compose_cmd(
-            compose_file, override_file, env_files, ["down", "--volumes"]
+            compose_file, override_file, env_files, ["down", "--volumes"],
+            project_name=project_name,
         )
         subprocess.run(down_cmd, capture_output=True, text=True)
         raise RuntimeError(
@@ -296,8 +315,10 @@ def stop_sandbox(slot: SlotInfo) -> bool:
 
     # --volumes: the compose project name is per slot, so only this slot's
     # named volumes go. A stale volume blocked a relaunch in the v2 pilot.
+    project_name = compose_project_name(slot)
     cmd = _compose_cmd(
-        compose_file, override_file, env_files, ["down", "--volumes"]
+        compose_file, override_file, env_files, ["down", "--volumes"],
+        project_name=project_name,
     )
     logger.info("Stopping sandbox: %s", " ".join(cmd))
 
@@ -313,7 +334,6 @@ def stop_sandbox(slot: SlotInfo) -> bool:
             result.returncode, result.stderr.strip(),
         )
         # Fall back: force-remove containers, then volumes, by project label
-        project_name = f"{slot.project}-slot-{slot.slot_id}"
         _force_remove_containers(project_name)
         _force_remove_volumes(project_name)
         return False

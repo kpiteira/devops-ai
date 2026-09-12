@@ -55,10 +55,17 @@ class SecretsPlan(Enum):
     RESOLVE = "resolve"  # resolve references (may prompt a keychain)
 
 
-def _materialised_names(secrets_file: Path) -> set[str]:
-    """Variable names in a materialised env file. Names only — never values."""
+def _materialised_names(secrets_file: Path) -> set[str] | None:
+    """Variable names in a materialised env file, or None if unreadable.
+
+    Names only — never values.
+    """
+    try:
+        text = secrets_file.read_text()
+    except (OSError, UnicodeDecodeError):
+        return None
     names: set[str] = set()
-    for line in secrets_file.read_text().splitlines():
+    for line in text.splitlines():
         if "=" in line and not line.startswith("#"):
             names.add(line.split("=", 1)[0].strip())
     return names
@@ -69,18 +76,25 @@ def plan_secrets(
 ) -> SecretsPlan:
     """Decide whether to reuse the slot's materialised secrets.
 
-    Default is reuse when the file exists and covers every configured name:
-    the running containers already use it, and re-resolving can park an
-    unattended session on a human's keychain (v2 pilot, 2026-09-08). A secret
-    added to infra.toml since the file was written forces resolution, as does
-    ``refresh``.
+    Default is reuse when the file exists and its variable names are exactly
+    the configured ones: the running containers already use it, and
+    re-resolving can park an unattended session on a human's keychain (v2
+    pilot, 2026-09-08). A name added or removed in infra.toml, an unreadable
+    file, or ``refresh`` forces resolution; an empty configuration removes a
+    leftover file.
     """
-    if not secrets:
-        return SecretsPlan.NONE
     materialised = slot_dir / ".env.secrets"
+    if not secrets:
+        # Nothing configured: a leftover file must not reach compose.
+        materialised.unlink(missing_ok=True)
+        return SecretsPlan.NONE
     if refresh or not materialised.exists():
         return SecretsPlan.RESOLVE
-    if set(secrets) - _materialised_names(materialised):
+    names = _materialised_names(materialised)
+    if names is None or names != set(secrets):
+        # Unreadable, or the configured set changed (a name added or
+        # removed) — re-resolve. A changed *reference* under an unchanged
+        # name is invisible here; that is what --refresh-secrets is for.
         return SecretsPlan.RESOLVE
     return SecretsPlan.REUSE
 

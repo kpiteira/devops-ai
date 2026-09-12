@@ -84,5 +84,5 @@ records the alternative it rejected.
 
 - [x] YYYY-MM-DD (M2) fact-correction: <what was wrong, what is true now>
 - [ ] YYYY-MM-DD (M3) decision-change: <what changed, via re-planning pass>. *Rejected:* <alternative>
-- [ ] YYYY-MM-DD (M1) outcome-change: <a job changed — decided by the human, never a model>
+- [ ] YYYY-MM-DD (M1) outcome-change: <a job changed — decided by the human, never a model>. *Rejected:* <alternative>
 -->

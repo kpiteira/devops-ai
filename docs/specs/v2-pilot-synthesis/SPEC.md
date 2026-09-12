@@ -104,7 +104,7 @@ Executed in this planning session (decision T4); rows are cross-session state on
 | kspec skill + templates | PR | devops-ai #27 |
 | kbuild + kbabysit + kreview + kworktree | PR | devops-ai #27 |
 | kobserve skill | PR | devops-ai #27 |
-| kinfra: done volumes, --group, rebuild reuse, guard labels | PR | devops-ai #27 — `make check` → unit 324 passed |
+| kinfra: done volumes, --group, rebuild reuse, guard labels | PR | devops-ai #27 — `make check` → unit 324 passed; `uv run pytest tests/integration/test_sandbox_secrets_reuse.py` → 5 passed |
 | README, EVOLUTIONS, issue | PR | devops-ai #27; guard hardening filed as devops-ai #28 |
 
 ## Decisions

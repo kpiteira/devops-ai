@@ -81,7 +81,10 @@ review rounds converged (`kbabysit` report present).
    ```bash
    git show <base>:.devops-ai/check_contract_integrity.py > /tmp/guard.py && python3 /tmp/guard.py <base> <branch>
    ```
-   Only the spec's status row may have changed among planner-owned files.
+   The guard covers briefs and the acceptance tree only; `SPEC.md` is not guard-
+   protected, so diff it yourself: only the Decomposition status row and its
+   Evidence may have changed. Anything else in the spec from an `impl/*` branch is
+   a divergence to hand to `/kspec triage`.
 3. **The "For the human" gate.** Read the PR's three sections. *Decisions I made
    alone*: sanity-read, note anything that looks like a product semantic misfiled.
    *Facts I corrected*: verify each against main; if one changed what was built, it is

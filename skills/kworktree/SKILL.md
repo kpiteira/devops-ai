@@ -98,7 +98,7 @@ kinfra status
 
 ### `kinfra sandbox start [--refresh-secrets]`
 
-Restart sandbox for an existing worktree. Re-provisions files; **reuses** the slot's materialised `.env.secrets` when present (so an unattended restart never waits on a keychain approval) and resolves secrets only when none are materialised or `--refresh-secrets` is passed.
+Restart sandbox for an existing worktree. Re-provisions files; **reuses** the slot's materialised `.env.secrets` (so an unattended restart never waits on a keychain approval) and resolves secrets only when none are materialised, a configured secret name was added or removed, the file is unreadable, or `--refresh-secrets` is passed. A changed reference under an unchanged name needs `--refresh-secrets`.
 
 ### `kinfra sandbox rebuild [--refresh-secrets]`
 
@@ -163,7 +163,9 @@ Source code is COPY'd into Docker images at build time. There is NO hot reload. 
 ```bash
 # From the worktree directory:
 kinfra sandbox rebuild
-# Re-provisions secrets/files, then runs docker compose up --build -d
+# Re-provisions files, reuses materialised secrets (resolves only when none are
+# materialised, a configured name was added/removed, or --refresh-secrets),
+# then runs docker compose up --build -d
 ```
 
 Do NOT run raw `docker compose` commands. `kinfra sandbox rebuild` handles compose files, override files, env files, and secrets correctly.
@@ -172,7 +174,8 @@ Do NOT run raw `docker compose` commands. `kinfra sandbox rebuild` handles compo
 
 ```bash
 kinfra sandbox start
-# Re-provisions secrets/files, restarts containers with existing images
+# Re-provisions files, same secrets rule as rebuild, restarts containers with
+# existing images
 ```
 
 ### Discovering the sandbox

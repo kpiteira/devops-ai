@@ -81,6 +81,9 @@ class TestStartSandbox:
         args = mock_run.call_args_list[0]
         cmd = args[0][0]  # first positional arg
         assert "docker" in cmd[0]
+        # Explicit project name: an ambient COMPOSE_PROJECT_NAME can never
+        # redirect a destructive down --volumes at another project
+        assert cmd[cmd.index("-p") + 1] == "myproj-slot-1"
         assert "-f" in cmd
         # Compose file from worktree (absolute)
         compose_idx = cmd.index("-f")
@@ -299,6 +302,7 @@ class TestStopRemovesVolumes:
             assert stop_sandbox(slot) is True
         cmd = mock_run.call_args_list[0][0][0]
         assert cmd[-2:] == ["down", "--volumes"]
+        assert cmd[cmd.index("-p") + 1] == "p-slot-2"
 
 
 class TestStopFallbackRemovesVolumes:

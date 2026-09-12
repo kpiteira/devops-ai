@@ -300,9 +300,11 @@ class TestComposeCmdMultipleEnvFiles:
         cmd = _compose_cmd(
             "compose.yml", "override.yml",
             ["/slot/.env.sandbox"], ["up", "-d"],
+            project_name="myproj-slot-1",
         )
         assert cmd == [
             "docker", "compose",
+            "-p", "myproj-slot-1",
             "-f", "compose.yml",
             "-f", "override.yml",
             "--env-file", "/slot/.env.sandbox",
@@ -314,9 +316,11 @@ class TestComposeCmdMultipleEnvFiles:
             "compose.yml", "override.yml",
             ["/slot/.env.sandbox", "/slot/.env.secrets"],
             ["up", "-d"],
+            project_name="myproj-slot-1",
         )
         assert cmd == [
             "docker", "compose",
+            "-p", "myproj-slot-1",
             "-f", "compose.yml",
             "-f", "override.yml",
             "--env-file", "/slot/.env.sandbox",
