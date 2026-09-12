@@ -125,7 +125,7 @@ class TestStartSandbox:
         # Two calls: up then down
         assert mock_run.call_count == 2
         down_cmd = mock_run.call_args_list[1][0][0]
-        assert "down" in down_cmd
+        assert down_cmd[-2:] == ["down", "--volumes"]
 
 
 class TestStopSandbox:

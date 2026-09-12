@@ -88,8 +88,9 @@ exists rather than to anyone's discipline. The synthesis itself is
   workaround notes go in `kobserve`.
 - `secret-providers` (branch `spec/secret-providers`, A1–A8 confirmed, unsigned) keeps
   `.env.secrets` residency unchanged, so a rebuild path that reuses that file survives it.
-- The guard prints "Planner-owned contract file changed" for `.github/workflows/ci.yml`
-  and its own script, which are guard paths, not contract paths.
+- Before this feature the guard printed "Planner-owned contract file changed" for
+  `.github/workflows/ci.yml` and its own script, which are guard paths, not contract
+  paths; it now prints "Contract guard file changed" for those.
 - The pilot briefs already carried a Working environment section the template lacks.
 
 ## Decomposition

@@ -41,7 +41,8 @@ the test, or classify the problem. A planner session triages it with cross-featu
 
 **Fact corrections** are the one exception: when the requirement is unambiguous and only an
 annotation about the current code is false, the executor builds the requirement and records
-the correction under *Facts I corrected* in the PR; the planner amends the spec at review.
+the correction under *Facts I corrected* in the PR; the observer seat (`kobserve verify`)
+verifies each and amends the spec before merge.
 A false fact that changes what to build is still the escape valve.
 
 ## The executor's PR
@@ -49,8 +50,9 @@ A false fact that changes what to build is still the escape valve.
 Three mandatory sections, none optional even when empty: **Decisions I made alone** (each
 with the alternative it rejected), **For the human** (consequences that are the human's —
 product semantics above all: what a user-visible state means), **Facts I corrected**. Before
-merge, the planner puts *For the human* to the human as a decision — fix now via replan, or
-defer to close — and never argues the executor's case for a product semantic. Merge is also
+merge, the observer seat (`kobserve verify`, a planner-tier session) puts *For the human* to
+the human as a decision — fix now via replan, or defer to close — and never argues the
+executor's case for a product semantic. Merge is also
 preceded by **independent verification**: the blocking command re-run by a stranger at the
 PR head, matching the executor's output.
 

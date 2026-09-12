@@ -212,9 +212,10 @@ def start_sandbox(
 
     if result.returncode != 0:
         logger.error("Sandbox start failed: %s", result.stderr)
-        # Cleanup partial containers
+        # Cleanup partial containers and their volumes — the slot is about to
+        # be released, and a stale volume blocks its next launch
         down_cmd = _compose_cmd(
-            compose_file, override_file, env_files, ["down"]
+            compose_file, override_file, env_files, ["down", "--volumes"]
         )
         subprocess.run(down_cmd, capture_output=True, text=True)
         raise RuntimeError(

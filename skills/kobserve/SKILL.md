@@ -56,6 +56,7 @@ whose dependencies are `delivered`.
    refuses a second worktree on a branch that is already checked out, so detach and
    push explicitly:
    ```bash
+   SCRATCH=$(mktemp -d)
    git -C <repo> fetch origin main
    git -C <repo> worktree add --detach "$SCRATCH/main-bookkeeping" origin/main
    # …edit, commit…
@@ -84,7 +85,10 @@ review rounds converged (`kbabysit` report present).
 3. **The "For the human" gate.** Read the PR's three sections. *Decisions I made
    alone*: sanity-read, note anything that looks like a product semantic misfiled.
    *Facts I corrected*: verify each against main; if one changed what was built, it is
-   a divergence — stop and hand to `/kspec triage`. *For the human*: put every item to
+   a divergence — stop and hand to `/kspec triage`; otherwise append each as a
+   pre-checked fact-correction amendment to the spec on `main` (the bookkeeping
+   worktree above) now, so the signed spec is true before the merge, not after.
+   *For the human*: put every item to
    the human **before merge**, options-first — fix now (a `replan` for this milestone)
    or defer to the feature close — and never argue the executor's case. Record his
    answers in the PR thread. The pilot's "silence is a miss" reached him three exchanges
@@ -96,9 +100,8 @@ review rounds converged (`kbabysit` report present).
 
 **In:** the human merged the PR.
 
-1. Through a temporary worktree on `main`, set the spec's Decomposition row to
-   `delivered` with the merge commit in Evidence (unless the executor's PR already did),
-   append any pre-checked fact-correction amendments from *Facts I corrected*, commit,
+1. Through the bookkeeping worktree, set the spec's Decomposition row to `delivered`
+   with the merge commit in Evidence (unless the executor's PR already did), commit,
    push.
 2. Tear down: `kinfra done <feature>-M<N>` (stops containers, removes the slot's
    volumes, releases the slot, removes the agent-deck session, removes the worktree).
