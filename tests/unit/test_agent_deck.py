@@ -211,3 +211,35 @@ class TestSubprocessFailureWarns:
                 start_session("my-feature/M1")
 
             assert "something went wrong" in caplog.text
+
+
+class TestCommandsAreBounded:
+    def test_send_has_a_timeout(self) -> None:
+        """`session send` blocks on a busy target; kinfra must not hang."""
+        from unittest.mock import patch
+
+        from devops_ai import agent_deck
+
+        with (
+            patch("devops_ai.agent_deck.is_available", return_value=True),
+            patch("devops_ai.agent_deck.time.sleep"),
+            patch("devops_ai.agent_deck.subprocess.run") as mock_run,
+        ):
+            agent_deck.send_to_session("s", "/kbuild x/M1")
+        assert mock_run.call_args.kwargs["timeout"] == agent_deck.COMMAND_TIMEOUT
+
+    def test_timeout_is_a_warning_not_an_exception(self) -> None:
+        import subprocess
+        from unittest.mock import patch
+
+        from devops_ai import agent_deck
+
+        with (
+            patch("devops_ai.agent_deck.is_available", return_value=True),
+            patch("devops_ai.agent_deck.time.sleep"),
+            patch(
+                "devops_ai.agent_deck.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd="x", timeout=1),
+            ),
+        ):
+            agent_deck.send_to_session("s", "hello")  # must not raise

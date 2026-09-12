@@ -51,7 +51,7 @@ kinfra spec wellness-reminders
 # Spec dir: docs/specs/wellness-reminders/
 ```
 
-### `kinfra impl <feature>/<milestone> [--no-session]`
+### `kinfra impl <feature>/<milestone> [--no-session] [--group <name>]`
 
 Create an implementation worktree with sandbox. Automatically creates an agent-deck session and launches Claude with `/kbuild`.
 
@@ -96,13 +96,13 @@ kinfra status
 # Shows: project, slot ID, status, ports
 ```
 
-### `kinfra sandbox start`
+### `kinfra sandbox start [--refresh-secrets]`
 
-Restart sandbox for an existing worktree (re-provisions secrets and files).
+Restart sandbox for an existing worktree. Re-provisions files; **reuses** the slot's materialised `.env.secrets` (so an unattended restart never waits on a keychain approval) and resolves secrets only when none are materialised, a configured secret name was added or removed, the file is unreadable, or `--refresh-secrets` is passed. A changed reference under an unchanged name needs `--refresh-secrets`.
 
-### `kinfra sandbox rebuild`
+### `kinfra sandbox rebuild [--refresh-secrets]`
 
-Rebuild sandbox with latest code changes. Re-provisions secrets/files AND rebuilds Docker images from source. **Use this after code changes** — `start` only restarts existing images.
+Same provisioning as `start` (files re-provisioned, secrets reused unless `--refresh-secrets`) AND rebuilds Docker images from source. **Use this after code changes** — `start` only restarts existing images.
 
 ### `kinfra observability up|down|status`
 
@@ -114,34 +114,26 @@ Manage the shared observability stack.
 
 ### Implementation (the main workflow)
 
-Every `kinfra impl` MUST produce three things: worktree + sandbox + agent-deck child session.
-
-**Step 1: Create worktree**
-```bash
-kinfra impl <feature>/<milestone> --no-session
-```
-
-**Step 2: Create agent-deck child session (MANDATORY)**
-
-This is NOT optional. After every `kinfra impl`, immediately create the session:
+One command produces the worktree, the sandbox (where the project has one) and the
+executor session with its `/kbuild` kickoff — this is what `/kobserve launch` runs:
 
 ```bash
-# Get current session name
-agent-deck session current
-
-# Create child session (substitute actual values)
-agent-deck add -t "<feature>/<milestone>" -c claude --parent <current-session-name> <worktree-path>
-
-# Example:
-agent-deck add -t "health-advisor/M2" -c claude --parent khealth /Users/karl/Documents/dev/wellness-agent-impl-health-advisor-M2
+kinfra impl <feature>/<milestone> --session --group <project>
 ```
 
-The `--parent` flag links the child to the current session — this is how agent-deck tracks which sessions spawned which.
+Always pass `--group`: a session added without one inherits its parent's group, and
+groups default to a running-session cap of 1 (the parent counts), so the child queues
+and errors. If kinfra reports the kickoff was not delivered, send it yourself with the
+command it prints. Verifying and landing the milestone is `kobserve verify` / `land`.
 
-**Step 3: Report to user**
-Tell the user the session is ready and how to start it:
-```
-agent-deck session start <feature>/<milestone>
+**Manual fallback** (only when `--session` cannot be used, or provisioning failed and
+the session was never created):
+
+```bash
+kinfra impl <feature>/<milestone> --no-session      # or: kinfra sandbox start (retry)
+agent-deck add <worktree-path> -t "<feature>/<milestone>" -c claude -g <project>
+agent-deck session start "<feature>/<milestone>"
+agent-deck session send "<feature>/<milestone>" '/kbuild <feature>/<milestone>'
 ```
 
 ### Design (spec)
@@ -163,7 +155,9 @@ Source code is COPY'd into Docker images at build time. There is NO hot reload. 
 ```bash
 # From the worktree directory:
 kinfra sandbox rebuild
-# Re-provisions secrets/files, then runs docker compose up --build -d
+# Re-provisions files, reuses materialised secrets (resolves only when none are
+# materialised, a configured name was added/removed, or --refresh-secrets),
+# then runs docker compose up --build -d
 ```
 
 Do NOT run raw `docker compose` commands. `kinfra sandbox rebuild` handles compose files, override files, env files, and secrets correctly.
@@ -172,7 +166,8 @@ Do NOT run raw `docker compose` commands. `kinfra sandbox rebuild` handles compo
 
 ```bash
 kinfra sandbox start
-# Re-provisions secrets/files, restarts containers with existing images
+# Re-provisions files, same secrets rule as rebuild, restarts containers with
+# existing images
 ```
 
 ### Discovering the sandbox

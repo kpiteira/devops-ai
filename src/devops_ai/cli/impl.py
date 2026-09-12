@@ -12,26 +12,32 @@ from devops_ai.observability import ObservabilityManager
 from devops_ai.provision import (
     FileProvisionError,
     SecretResolutionError,
+    describe_secret_source,
     generate_secrets_file,
     provision_files,
     resolve_all_secrets,
 )
 from devops_ai.registry import (
+    DEFAULT_REGISTRY_PATH,
+    SlotClaimedError,
     SlotInfo,
     allocate_slot,
     claim_slot,
     clean_stale_entries,
     load_registry,
     release_slot,
-    save_registry,
+    update_slot_status,
 )
 from devops_ai.sandbox import (
+    compose_project_name,
     copy_compose_to_slot,
     create_slot_dir,
+    force_cleanup_project,
     generate_env_file,
     generate_override,
     remove_slot_dir,
     run_health_gate,
+    slot_dir_path,
     start_sandbox,
 )
 from devops_ai.worktree import (
@@ -41,6 +47,9 @@ from devops_ai.worktree import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Injectable so tests never touch ~/.devops-ai/registry.json
+REGISTRY_PATH = DEFAULT_REGISTRY_PATH
 
 
 def parse_feature_milestone(arg: str) -> tuple[str, str]:
@@ -84,8 +93,13 @@ def impl_command(
     arg: str,
     repo_root: Path | None = None,
     session: bool = True,
+    group: str = "dev",
 ) -> tuple[int, str]:
     """Create an impl worktree with optional sandbox.
+
+    ``group`` is the agent-deck group for the session — always passed
+    explicitly, because a session added without one inherits its parent's
+    group and that group's concurrency cap.
 
     Returns (exit_code, message).
     """
@@ -143,7 +157,7 @@ def impl_command(
         )
         if session:
             session_msg = _setup_session(
-                feature, milestone, wt_path
+                feature, milestone, wt_path, group=group
             )
             if session_msg:
                 msg += f"\n{session_msg}"
@@ -168,7 +182,7 @@ def impl_command(
 
     # --- Sandbox setup ---
     return _setup_sandbox(
-        config, repo_root, wt_path, feature, milestone, session
+        config, repo_root, wt_path, feature, milestone, session, group
     )
 
 
@@ -196,18 +210,25 @@ def _setup_session(
     feature: str,
     milestone: str,
     wt_path: Path,
+    group: str = "dev",
 ) -> str:
     """Set up agent-deck session. Returns status message."""
     if not agent_deck.is_available():
         return "  agent-deck not found, skipping session management"
     title = f"{feature}/{milestone}"
-    agent_deck.add_session(
-        title, group="dev", path=str(wt_path)
-    )
-    agent_deck.start_session(title)
-    agent_deck.send_to_session(
-        title, f"/kbuild {feature}/{milestone}", delay=3
-    )
+    kickoff = f"/kbuild {feature}/{milestone}"
+    if not agent_deck.add_session(title, group=group, path=str(wt_path)):
+        return f"  Warning: agent-deck could not add session {title}"
+    if not agent_deck.start_session(title):
+        return f"  Warning: agent-deck session {title} added but not started"
+    if not agent_deck.send_to_session(title, kickoff, delay=3):
+        return (
+            f"  Warning: agent-deck session {title} started but the kickoff "
+            f"was not delivered: `agent-deck session send` exited non-zero "
+            f"(a busy target times out after 60 s; other errors are logged "
+            f"above). Send it yourself: "
+            f"agent-deck session send {title} '{kickoff}'"
+        )
     return f"  agent-deck session started: {title}"
 
 
@@ -218,10 +239,11 @@ def _setup_sandbox(
     feature: str,
     milestone: str,
     session: bool = False,
+    group: str = "dev",
 ) -> tuple[int, str]:
     """Set up sandbox for an impl worktree."""
-    registry = load_registry()
-    clean_stale_entries(registry)
+    registry = load_registry(REGISTRY_PATH)
+    clean_stale_entries(registry, REGISTRY_PATH, persist=True)
 
     # Allocate slot
     try:
@@ -229,13 +251,13 @@ def _setup_sandbox(
     except RuntimeError as e:
         return 1, f"Slot allocation failed: {e}"
 
-    # Create slot dir
-    slot_dir = create_slot_dir(config.project_name, slot_id)
-
-    # Claim slot
+    # Paths are computed, not created: nothing touches the slot directory
+    # until the claim below succeeds — a losing concurrent `impl` must not
+    # unlink the winner's secrets or overwrite its compose copy.
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    slot_dir = slot_dir_path(config.project_name, slot_id)
     compose_path = repo_root / config.compose_file
-    compose_copy = copy_compose_to_slot(compose_path, slot_dir)
+    compose_copy = slot_dir / compose_path.name
 
     slot_info = SlotInfo(
         slot_id=slot_id,
@@ -247,7 +269,37 @@ def _setup_sandbox(
         claimed_at=now,
         status="provisioning",
     )
-    claim_slot(registry, slot_info)
+    try:
+        claim_slot(registry, slot_info, REGISTRY_PATH)
+    except SlotClaimedError as e:
+        # The other process owns the slot dir; nothing of it was touched.
+        return 1, (
+            f"{e}.\n  Retry `kinfra done {feature}-{milestone}` then "
+            f"`kinfra impl {feature}/{milestone}`."
+        )
+
+    # Claimed: now the directory is ours to write
+    create_slot_dir(config.project_name, slot_id)
+    copy_compose_to_slot(compose_path, slot_dir)
+
+    # A slot id can be reused after a crash left containers or volumes
+    # labeled with its project name; compose up would reattach them. If the
+    # clean state cannot be confirmed, stop: a sandbox on a dirty slot is
+    # worse than no sandbox.
+    project = compose_project_name(slot_info)
+    if not force_cleanup_project(project):
+        release_slot(registry, slot_id, REGISTRY_PATH)
+        remove_slot_dir(slot_dir)
+        return 1, (
+            f"Could not confirm a clean slot for {project}: containers or "
+            f"volumes with that label remain, or docker could not list "
+            f"them. Check `docker ps -a --filter label=com.docker.compose."
+            f"project={project}` / `docker volume ls --filter label=com."
+            f"docker.compose.project={project}`, remove what is there, then "
+            f"`kinfra done {feature}-{milestone}` and retry "
+            f"`kinfra impl {feature}/{milestone}`.\n"
+            f"  Worktree preserved at {wt_path} until then"
+        )
 
     # Generate files
     generate_env_file(config, slot_info, slot_dir)
@@ -278,19 +330,22 @@ def _setup_sandbox(
 
     # Start sandbox
     try:
-        start_sandbox(config, slot_info, wt_path)
+        # Fresh slot: on failure the slot is released, so its volumes go too
+        start_sandbox(
+            config, slot_info, wt_path, remove_volumes_on_failure=True
+        )
     except RuntimeError as e:
         # Cleanup: release slot, remove slot dir, keep worktree
-        release_slot(registry, slot_id)
+        release_slot(registry, slot_id, REGISTRY_PATH)
         remove_slot_dir(slot_dir)
         return 1, (
             f"Sandbox failed to start: {e}\n"
             f"  Worktree preserved at {wt_path}"
         )
 
-    # Mark slot as running now that containers are up
-    slot_info.status = "running"
-    save_registry(registry)
+    # Mark slot as running now that containers are up (locked: another
+    # process may have claimed a slot since this snapshot was read)
+    update_slot_status(registry, slot_id, "running", REGISTRY_PATH)
 
     # Health gate
     healthy = run_health_gate(config, slot_info)
@@ -313,8 +368,8 @@ def _setup_sandbox(
     if resolved_secrets:
         lines.append("Resolved secrets:")
         for var_name in sorted(resolved_secrets.keys()):
-            ref = config.secrets.get(var_name, "")
-            lines.append(f"  {var_name} \u2190 {ref} \u2713")
+            source = describe_secret_source(config.secrets.get(var_name, ""))
+            lines.append(f"  {var_name} \u2190 {source} \u2713")
 
     if not healthy:
         lines.append(
@@ -323,7 +378,9 @@ def _setup_sandbox(
         )
 
     if session:
-        session_msg = _setup_session(feature, milestone, wt_path)
+        session_msg = _setup_session(
+            feature, milestone, wt_path, group=group
+        )
         if session_msg:
             lines.append(session_msg)
 

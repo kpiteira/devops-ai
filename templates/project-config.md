@@ -15,6 +15,7 @@ to adapt workflows to this project's specific tooling and conventions.
 - **Quality checks:** [command, e.g., "uv run ruff check . && uv run mypy ."]
 - **Lint (fast):** [fast lint only, e.g., "uv run ruff check ."]
 - **Integration tests:** [command, or "Not configured"]
+- **Standing PR gates:** [every gate a PR must pass beyond the checks above, WITH its scope — e.g. "gitleaks (scans commit history, not the tree)", "CodeQL"; kspec copies this into each brief's Working environment, or "None"]
 
 ## Infrastructure
 

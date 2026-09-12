@@ -21,13 +21,29 @@ logger = logging.getLogger(__name__)
 DEFAULT_SLOTS_BASE = Path.home() / ".devops-ai" / "slots"
 
 
+def slot_dir_path(
+    project: str, slot_id: int, *, base: Path | None = None
+) -> Path:
+    """Where a slot's directory lives: ~/.devops-ai/slots/<project>-<slot_id>/.
+
+    Pure — computed before the slot is claimed, so nothing is written to a
+    directory another process may own.
+    """
+    return (base or DEFAULT_SLOTS_BASE) / f"{project}-{slot_id}"
+
+
 def create_slot_dir(
     project: str, slot_id: int, *, base: Path | None = None
 ) -> Path:
-    """Create slot directory at ~/.devops-ai/slots/<project>-<slot_id>/."""
-    base = base or DEFAULT_SLOTS_BASE
-    slot_dir = base / f"{project}-{slot_id}"
+    """Create the slot directory. Call only after the slot is claimed.
+
+    A freshly allocated slot never inherits a previous occupant's secrets:
+    if the directory survived an earlier teardown, its materialised
+    ``.env.secrets`` is removed before anything else is written.
+    """
+    slot_dir = slot_dir_path(project, slot_id, base=base)
     slot_dir.mkdir(parents=True, exist_ok=True)
+    (slot_dir / ".env.secrets").unlink(missing_ok=True)
     return slot_dir
 
 
@@ -161,16 +177,30 @@ def _env_files_for_slot(slot_dir: Path) -> list[Path]:
     return files
 
 
+def compose_project_name(slot: SlotInfo) -> str:
+    """The compose project a slot owns: <project>-slot-<id>."""
+    return f"{slot.project}-slot-{slot.slot_id}"
+
+
 def _compose_cmd(
     compose_file: str | Path,
     override_file: str | Path,
     env_files: Sequence[str | Path],
     action: list[str],
+    *,
+    project_name: str,
 ) -> list[str]:
-    """Build a docker compose command with absolute paths."""
+    """Build a docker compose command with absolute paths.
+
+    The project name is passed explicitly with ``-p`` so that an ambient
+    ``COMPOSE_PROJECT_NAME`` can never point a destructive ``down --volumes``
+    at another project's resources.
+    """
     cmd = [
         "docker",
         "compose",
+        "-p",
+        project_name,
         "-f",
         str(compose_file),
         "-f",
@@ -188,19 +218,27 @@ def start_sandbox(
     worktree_path: Path,
     *,
     build: bool = False,
+    remove_volumes_on_failure: bool = False,
 ) -> None:
     """Start sandbox containers using worktree's compose file.
 
     If ``build`` is True, passes ``--build`` to rebuild images from source.
     On failure, runs compose down to clean partial containers, then raises.
+    Volumes are removed on failure only when the caller is about to release
+    the slot (a fresh ``kinfra impl``); on the existing-slot ``start``/
+    ``rebuild`` path a transient failure must not destroy persisted state.
     """
     slot_dir = Path(slot.slot_dir)
     compose_file = worktree_path / config.compose_file
     override_file = slot_dir / "docker-compose.override.yml"
     env_files = _env_files_for_slot(slot_dir)
 
+    project_name = compose_project_name(slot)
     action = ["up", "--build", "-d"] if build else ["up", "-d"]
-    cmd = _compose_cmd(compose_file, override_file, env_files, action)
+    cmd = _compose_cmd(
+        compose_file, override_file, env_files, action,
+        project_name=project_name,
+    )
     logger.info("Starting sandbox: %s", " ".join(cmd))
 
     try:
@@ -212,33 +250,68 @@ def start_sandbox(
 
     if result.returncode != 0:
         logger.error("Sandbox start failed: %s", result.stderr)
-        # Cleanup partial containers
+        # Cleanup partial containers; volumes too when the slot is being
+        # released (a stale volume blocks its next launch)
+        # --remove-orphans: compose exits 0 while keeping containers of
+        # services no longer in the model; they would collide with the next
+        # occupant of this slot
+        action = ["down", "--remove-orphans"]
+        if remove_volumes_on_failure:
+            action.append("--volumes")
         down_cmd = _compose_cmd(
-            compose_file, override_file, env_files, ["down"]
+            compose_file, override_file, env_files, action,
+            project_name=project_name,
         )
-        subprocess.run(down_cmd, capture_output=True, text=True)
+        down = subprocess.run(down_cmd, capture_output=True, text=True)
+        cleanup_note = ""
+        if down.returncode != 0 and not force_cleanup_project(
+            project_name, volumes=remove_volumes_on_failure
+        ):
+            cleanup_note = (
+                f"; cleanup of {project_name} could not be confirmed — "
+                f"check `docker ps -a` / `docker volume ls`"
+            )
         raise RuntimeError(
-            f"Sandbox failed to start: {result.stderr.strip()}"
+            f"Sandbox failed to start: {result.stderr.strip()}{cleanup_note}"
         )
+
+
+def _labeled(
+    kind: list[str], project_name: str, fmt: str
+) -> list[str] | None:
+    """IDs/names of docker resources labeled with the compose project.
+
+    None when the listing itself failed (docker down, access denied): the
+    state is unknown, which is not the same as "nothing there".
+    """
+    result = subprocess.run(
+        ["docker", *kind, "--filter",
+         f"label=com.docker.compose.project={project_name}",
+         "--format", fmt],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        logger.warning(
+            "docker %s failed (rc=%s): %s",
+            " ".join(kind), result.returncode, result.stderr.strip(),
+        )
+        return None
+    return result.stdout.strip().split()
 
 
 def _force_remove_containers(project_name: str) -> bool:
     """Fall back to docker rm -f for containers matching project name.
 
     Used when compose down fails but containers are still running.
-    Returns True if any containers were removed.
+    Returns True if the project has no containers left afterwards —
+    "clean", verified by re-listing, not "a command was issued".
     """
     try:
-        result = subprocess.run(
-            ["docker", "ps", "-a", "--filter",
-             f"label=com.docker.compose.project={project_name}",
-             "--format", "{{.ID}}"],
-            capture_output=True, text=True,
-        )
-        container_ids = result.stdout.strip().split()
-        if not container_ids:
+        container_ids = _labeled(["ps", "-a"], project_name, "{{.ID}}")
+        if container_ids is None:
             return False
-
+        if not container_ids:
+            return True
         logger.warning(
             "Force-removing %d orphaned containers for %s",
             len(container_ids), project_name,
@@ -247,24 +320,72 @@ def _force_remove_containers(project_name: str) -> bool:
             ["docker", "rm", "-f", *container_ids],
             capture_output=True, text=True,
         )
-        return True
+        return _labeled(["ps", "-a"], project_name, "{{.ID}}") == []
     except FileNotFoundError:
         return False
 
 
+def _force_remove_volumes(project_name: str) -> bool:
+    """Remove named volumes labeled with the compose project.
+
+    The fallback for a failed ``compose down --volumes``: without it a stale
+    volume survives teardown and blocks the slot's next launch.
+    Returns True if the project has no volumes left afterwards, verified by
+    re-listing (``volume rm -f`` still fails on a volume in use).
+    """
+    try:
+        names = _labeled(["volume", "ls"], project_name, "{{.Name}}")
+        if names is None:
+            return False
+        if not names:
+            return True
+        logger.warning(
+            "Force-removing %d volumes for %s", len(names), project_name,
+        )
+        subprocess.run(
+            ["docker", "volume", "rm", "-f", *names],
+            capture_output=True, text=True,
+        )
+        return _labeled(["volume", "ls"], project_name, "{{.Name}}") == []
+    except FileNotFoundError:
+        return False
+
+
+def force_cleanup_project(project_name: str, *, volumes: bool = True) -> bool:
+    """Label-based cleanup of a compose project's containers (and volumes).
+
+    The path that needs no compose files: a failed ``down``, or a slot whose
+    directory is already gone. Returns True only if every resource it was
+    asked to clean is gone afterwards.
+    """
+    containers_clean = _force_remove_containers(project_name)
+    volumes_clean = _force_remove_volumes(project_name) if volumes else True
+    return containers_clean and volumes_clean
+
+
 def stop_sandbox(slot: SlotInfo) -> bool:
-    """Stop sandbox containers using slot dir's compose copy.
+    """Stop sandbox containers and remove the slot's volumes.
 
     Uses the compose copy (not worktree) because the worktree might
-    already be removed. Falls back to force-removing containers if
-    compose down fails. Returns True if cleanup succeeded.
+    already be removed. Runs ``down --remove-orphans --volumes``; if that
+    fails, falls back to label-based removal of the project's containers
+    AND volumes, verified by re-listing. Returns True only when compose
+    down succeeded; False means the fallback ran and the caller should
+    report that cleanup may be unconfirmed.
     """
     slot_dir = Path(slot.slot_dir)
     compose_file = slot.compose_file_copy
     override_file = slot_dir / "docker-compose.override.yml"
     env_files = _env_files_for_slot(slot_dir)
 
-    cmd = _compose_cmd(compose_file, override_file, env_files, ["down"])
+    # --volumes: the compose project name is per slot, so only this slot's
+    # named volumes go. A stale volume blocked a relaunch in the v2 pilot.
+    project_name = compose_project_name(slot)
+    cmd = _compose_cmd(
+        compose_file, override_file, env_files,
+        ["down", "--remove-orphans", "--volumes"],
+        project_name=project_name,
+    )
     logger.info("Stopping sandbox: %s", " ".join(cmd))
 
     try:
@@ -278,9 +399,8 @@ def stop_sandbox(slot: SlotInfo) -> bool:
             "compose down failed (rc=%d): %s",
             result.returncode, result.stderr.strip(),
         )
-        # Fall back: force-remove containers by project label
-        project_name = f"{slot.project}-slot-{slot.slot_id}"
-        _force_remove_containers(project_name)
+        # Fall back: force-remove containers, then volumes, by project label
+        force_cleanup_project(project_name)
         return False
 
     return True

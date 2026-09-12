@@ -20,6 +20,12 @@ not when reviewers stop talking — an empty round and a round of pure nitpicks 
 **End state:** merge-ready (or explicitly blocked) + a detailed report with TL;DR. This skill
 never merges and never closes a DISCUSS item on its own — those are the human's calls.
 
+**Ownership.** A session that opens a PR owns its review rounds — every PR, milestone or
+not — until the PR is merge-ready or it hands off explicitly. The v2 pilot's one unread
+Copilot round sat overnight on a side PR nobody owned. For a milestone PR the executor's
+*For the human* section is not this loop's to close: it goes to the human before merge
+(`kobserve` verify).
+
 ---
 
 ## 0. Preflight
@@ -82,6 +88,9 @@ The babysitter's own rules on top:
   don't loop on it.
 - Keep the round's push to one coherent commit (or a few logical ones); in auto-review repos
   every push spends a review round.
+- After a rebase, replies that cite a SHA point at nothing — cite what changed (file, one
+  line) alongside the commit, and resolve every thread you handled; an unresolved handled
+  thread is what the next round re-raises.
 
 ## 4. Loop or stop
 

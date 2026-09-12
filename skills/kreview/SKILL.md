@@ -163,7 +163,7 @@ gh api graphql -f query='
 
 | Verdict | Reply with | Then |
 |---------|-----------|------|
-| IMPLEMENT | "Fixed in `<sha>`" + one line on what changed | Resolve the thread |
+| IMPLEMENT | "Fixed in `<sha>`" + one line on what changed (the line is what survives a rebase) | Resolve the thread |
 | PUSH BACK | Your reasoning, concretely — never a bare "won't fix" | Resolve the thread |
 | DISCUSS | The trade-off and what you'd need to decide | Leave open for the human |
 
