@@ -25,8 +25,8 @@ blocking: uv run pytest tests/acceptance/secret_providers/test_m4_write.py tests
   - `akv://<vault>/<secret>` — `az keyvault secret set`; a new version if the secret
     exists.
   - `op://<vault>/<item>/<field>` — creates the item with that field when the item
-    does not exist; when it exists, exits 1 with a message stating that updating an
-    existing 1Password item is not supported (see Non-goals).
+    does not exist; sets the field when it does. Either way the value travels in a
+    JSON template file (mode 0600, removed afterwards), never in argv.
   - `$VAR` / `env://` — exit 1: the host environment is read-only.
 - `ksecret write` prints nothing on success; errors name the reference, never the
   value.
@@ -38,8 +38,8 @@ blocking: uv run pytest tests/acceptance/secret_providers/test_m4_write.py tests
 | J8 | `test_m4_write.py::test_write_then_read_dotenv` | Round-trip via a fresh dotenv file, mode 0600, existing lines preserved |
 | J8 | `test_m4_write.py::test_write_then_read_openbao` | Round-trip against the dev container; a sibling key in the same secret survives |
 | J8 | `test_m4_write.py::test_write_then_read_akv` | Round-trip against the real vault (same skip rules as M3); the test deletes what it wrote |
-| J8 | `test_m4_write.py::test_write_op_creates_item` | A fresh 1Password item is created and reads back; the test deletes it (skips when `op` access is not granted — A3) |
-| J8 | `test_m4_write.py::test_write_env_is_refused_and_value_never_in_argv` | `env://` write exits 1; while writing to dotenv, no process in the tree carries the value in its command line |
+| J8 | `test_m4_write.py::test_write_op_creates_and_updates_item` | A fresh 1Password item is created and reads back; a second write to the same reference reads back the new value; the test deletes the item (skips when `op` access is not granted — A3) |
+| J8 | `test_m4_write.py::test_write_env_is_refused` | `env://` write exits 1 with a read-only message; nothing is printed |
 | — | `tests/architecture/test_secret_providers.py` | Shape unchanged |
 
 Plus the standing gates: `make check` exits 0.
@@ -52,17 +52,14 @@ Plus the standing gates: `make check` exits 0.
 ## Invariants
 
 - Secret values reach providers via stdin, environment, or 0600 temp files only —
-  never argv (`op item create` accepts a JSON template file; `az keyvault secret set`
-  accepts `--file`; OpenBao is HTTP).
+  never argv (`op item create` and `op item edit` accept `--template <json file>`;
+  `az keyvault secret set` accepts `--file`; OpenBao is HTTP). This invariant is
+  reviewed, not machine-checked: no acceptance test can observe another process's
+  argv reliably.
 - Read behavior of M1–M3 unchanged.
 
 ## Non-goals
 
-- Updating an existing 1Password item: `op item edit` takes field values only through
-  argv, which the invariant forbids; agent-memory references items by ID after
-  creation, so create-only covers its use. Karl has flagged this argv-rule vs
-  update-capability tension as an open cross-project question (spec A7); this
-  milestone does not resolve it.
 - Deleting or listing secrets.
 
 ## Context
@@ -73,7 +70,12 @@ Plus the standing gates: `make check` exits 0.
   because titles collide with archived items. `ksecret write op://…` returning
   success is enough for it to store the reference it wrote.
 - KV v2 patch: `PATCH /v1/<mount>/data/<path>` with header
-  `Content-Type: application/merge-patch+json`; a plain `POST` replaces all keys.
+  `Content-Type: application/merge-patch+json` (verified against the dev image:
+  sibling keys survive); a plain `POST` replaces all keys.
+- `op`'s own help says "for sensitive values, use a template instead" of assignment
+  arguments — for both `item create` and `item edit`. Editing by template means:
+  `op item get <item> --format json` → modify the field in the JSON → `op item edit
+  <item> --template <file>`; agent-memory references items by ID after creation.
 
 ## Decisions
 

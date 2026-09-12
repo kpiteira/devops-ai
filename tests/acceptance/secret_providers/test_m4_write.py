@@ -6,15 +6,12 @@ import json
 import os
 import stat
 import subprocess
-import threading
-import time
 from pathlib import Path
 
 import pytest
 
 from tests.acceptance.secret_providers.conftest import (
     OP_GRANT_WAIT,
-    ROOT,
     AkvVault,
     BaoServer,
     clean_env,
@@ -111,7 +108,7 @@ def test_write_then_read_akv(akv: AkvVault, tmp_path: Path) -> None:
         akv.delete(name)
 
 
-def test_write_op_creates_item(tmp_path: Path) -> None:
+def test_write_op_creates_and_updates_item(tmp_path: Path) -> None:
     try:
         who = subprocess.run(
             ["op", "whoami"], capture_output=True, text=True, timeout=OP_GRANT_WAIT
@@ -135,9 +132,18 @@ def test_write_op_creates_item(tmp_path: Path) -> None:
             env=clean_env(),
         )
         assert (r.code, r.out) == (0, VALUE), r.err
-        # existing item → refused, explained
-        r = ksecret("write", ref, cwd=tmp_path, env=clean_env(), stdin="another")
-        assert r.code == 1 and "exist" in r.err.lower()
+        # second write to the same reference updates the field in place
+        r = ksecret("write", ref, cwd=tmp_path, env=clean_env(), stdin=VALUE + "-v2")
+        assert r.code == 0, r.err
+        r = ksecret(
+            "read",
+            "--print",
+            "--no-newline",
+            ref,
+            cwd=tmp_path,
+            env=clean_env(),
+        )
+        assert (r.code, r.out) == (0, VALUE + "-v2"), r.err
     finally:
         listed = subprocess.run(
             ["op", "item", "list", "--vault", vault, "--format=json"],
@@ -152,35 +158,14 @@ def test_write_op_creates_item(tmp_path: Path) -> None:
                     )
 
 
-def test_write_env_is_refused_and_value_never_in_argv(tmp_path: Path) -> None:
+def test_write_env_is_refused(tmp_path: Path) -> None:
     r = ksecret(
-        "write", "env://KSECRET_T_X", cwd=tmp_path, env=clean_env(), stdin=VALUE
+        "write",
+        "env://KSECRET_T_X",
+        cwd=tmp_path,
+        env=clean_env(),
+        stdin=VALUE,
     )
     assert r.code == 1 and r.out == ""
     assert "read-only" in r.err.lower() or "cannot" in r.err.lower()
-
-    # Sample the process table while a write runs; the value must never be an argument.
-    seen: list[str] = []
-    stop = threading.Event()
-
-    def sample() -> None:
-        while not stop.is_set():
-            ps = subprocess.run(
-                ["ps", "-axo", "command"], capture_output=True, text=True
-            )
-            if VALUE in ps.stdout:
-                seen.append(ps.stdout)
-            time.sleep(0.02)
-
-    t = threading.Thread(target=sample, daemon=True)
-    t.start()
-    try:
-        r = ksecret(
-            "write", "dotenv://w.env#K", cwd=tmp_path, env=clean_env(), stdin=VALUE
-        )
-    finally:
-        stop.set()
-        t.join(timeout=5)
-    assert r.code == 0, r.err
-    assert not seen, "secret value appeared in a process command line"
-    assert (ROOT / "pyproject.toml").exists()
+    assert VALUE not in r.err

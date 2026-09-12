@@ -74,12 +74,11 @@ create` calls.
 - Secret rotation, listing, deletion, or any vault administration.
 - agent-memory's migration itself — that is a feature in the agent-memory repo whose
   contract is `ksecret run --env-file` accepting its existing `.env.prod` unchanged.
-- Updating an existing 1Password item through `ksecret write` (see M4 brief).
 
 ## Discovered context
 
-- All current secret handling is `src/devops_ai/provision.py` (~100 lines): three
-  forms, two callers (`cli/impl.py`, `cli/sandbox_cmd.py`), output `.env.secrets`
+- All current secret handling is `src/devops_ai/provision.py` (223 lines, about
+  half of it secrets, the rest file provisioning): three forms, two callers (`cli/impl.py`, `cli/sandbox_cmd.py`), output `.env.secrets`
   passed as a second `--env-file` (`sandbox.py:156`). `config.py` only checks that
   `[sandbox.secrets]` is a table.
 - `kinfra init` names the three legacy forms in its `--check` hint
@@ -151,12 +150,13 @@ briefs and tests reference them. -->
 - A6 — Provider modules live one-per-scheme under `src/devops_ai/secrets/providers/`;
   the resolver discovers them without naming any. The architecture test enforces
   exactly this.
-- A7 — Write (M4) covers 1Password (create only), OpenBao, Azure Key Vault, and
-  `.env` files; the host environment is read-only. Karl accepts this for now without
-  liking it: the create-only limit follows from the no-values-in-argv invariant,
-  which agent-memory's own `op item create` call does not honor today. **Open,
-  cross-project:** whether the argv rule or the 1Password update capability wins is
-  to be settled once, across projects — not in this feature.
+- A7 — Write (M4) covers 1Password, OpenBao, Azure Key Vault, and `.env` files; the
+  host environment is read-only. *Corrected by the 2026-09-12 amendment:* the draft
+  said 1Password was create-only because `op item edit` took values only via argv;
+  `op item edit --template <file>` exists precisely for sensitive values, so update
+  is in scope and the no-values-in-argv invariant holds for every provider.
+  **Open, cross-project:** agent-memory's own `op item create` call passes the value
+  in argv today — a migration item for that repo, not a conflict in this design.
 - A8 — An unregistered `word://` value passes through as a literal (so
   `postgres://…` connection strings in `[sandbox.secrets]` keep working);
   `ksecret check` labels it so typos are visible.
@@ -166,3 +166,9 @@ briefs and tests reference them. -->
 <!-- Empty: all eight promoted above on 2026-09-08. -->
 
 ## Amendments
+
+- [ ] 2026-09-12 (M4) fact-correction: `op item edit` accepts a JSON `--template`
+  file for sensitive values (verified against `op item edit --help`), so updating a
+  1Password item needs no argv. M4's `op://` write is create-or-update; the
+  "create-only" non-goal and the related A7 tension are removed. No milestone had
+  started. Pending Karl's acknowledgment.

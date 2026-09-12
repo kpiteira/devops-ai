@@ -56,9 +56,10 @@ optional single or double quotes around the value, optional `export ` prefix.
   resolution so providers see them. The parent environment passes through. Exit code
   is the child's. Any unresolvable reference: the command is not run, stderr lists
   every failing key, exit 1. Nothing is written to disk.
-- `ksecret check [<ref>…] [--env-file <file>]…` — one line per reference: the key
-  (or the ref when given bare), a status word — `ok`, `literal`, or `error` — and for
-  errors the reason; never a value. Exit 0 iff every reference resolves. `literal`
+- `ksecret check [<ref>…] [--env-file <file>]…` — one line per reference, formatted
+  `<key>: <status>` (the ref itself stands in for the key when given bare), status
+  being `ok`, `literal`, or `error`, with ` — <reason>` appended for errors; never a
+  value. Exit 0 iff every reference resolves. `literal`
   covers bare text and unregistered schemes.
 - `ksecret --help` lists the three commands.
 
@@ -133,7 +134,9 @@ Plus the standing gates: `make check` exits 0.
   many references, ok/literal/error classification).
 - Provider modules live one per scheme under `src/devops_ai/secrets/providers/`; the
   resolver discovers providers from that package without importing any by name; the
-  CLI imports only the resolver. (A6 — the architecture test pins exactly this.)
+  CLI imports only the resolver. Shared code inside the package (a base class, a
+  dotenv parser) lives in `_`-prefixed modules, which the gate neither counts as
+  providers nor treats as siblings. (A6 — the architecture test pins exactly this.)
 - `$VAR` stays supported as shorthand for `env://VAR`; both fall back to `./.env`
   (A4, A5).
 - Unregistered schemes pass through as literals (A8) — backward compatibility for
