@@ -1,7 +1,7 @@
 # Secret providers
 
-**Status:** planning
-**Signed off:**
+**Status:** in progress
+**Signed off:** 2026-09-12 — Karl (review conversation: A1–A8 confirmed, `read` prints only with `--print`, host-side resolution model; machine-credential provisioning flagged for a later discussion)
 
 ## Intent
 
