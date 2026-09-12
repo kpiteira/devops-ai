@@ -32,6 +32,28 @@ class WorktreeInfo:
     feature: str  # extracted feature name, or "" if unknown
 
 
+def main_repo_root(path: Path) -> Path | None:
+    """The main repository root for `path`, which may be a linked worktree.
+
+    Gitignored files — a project's `.env` among them — live in the main
+    checkout, not in a worktree cut from it.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=path,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            # --git-common-dir returns the .git dir of the main worktree
+            return Path(result.stdout.strip()).parent
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
 def validate_feature_name(name: str) -> None:
     """Validate feature name matches allowed pattern."""
     if not name or not FEATURE_NAME_RE.match(name):

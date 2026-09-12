@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 from pathlib import Path
 
 from devops_ai.config import find_project_root, load_config
@@ -21,29 +20,11 @@ from devops_ai.registry import (
     save_registry,
 )
 from devops_ai.sandbox import run_health_gate, start_sandbox
+from devops_ai.worktree import main_repo_root
 
 logger = logging.getLogger(__name__)
 
 REGISTRY_PATH = DEFAULT_REGISTRY_PATH
-
-
-def _find_main_repo_root(worktree_path: Path) -> Path | None:
-    """Find the main repo root from a worktree via git."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=worktree_path,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            # --git-common-dir returns the .git dir of the main worktree
-            git_dir = Path(result.stdout.strip())
-            return git_dir.parent
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    return None
 
 
 def _sandbox_up(
@@ -89,7 +70,7 @@ def _sandbox_up(
         return 1, "No infra.toml found in .devops-ai/."
 
     # Find main repo root for file provisioning
-    main_repo = _find_main_repo_root(wt_path)
+    main_repo = main_repo_root(wt_path)
     if main_repo is None:
         return 1, "Cannot determine main repository root."
 

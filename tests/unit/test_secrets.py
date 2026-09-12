@@ -212,10 +212,18 @@ class TestCheck:
         assert [r.status for r in results] == [OK, LITERAL, LITERAL, ERROR]
         assert all("plain-value" not in r.format() for r in results)
 
-    def test_an_error_line_carries_the_reason(self, project: Path) -> None:
+    def test_an_error_line_carries_the_reason_once(self, project: Path) -> None:
         line = check("BAD", "dotenv://.env#ABSENT", ctx(project)).format()
         assert line.startswith("BAD: error — ")
         assert "ABSENT" in line
+        assert line.count("BAD") == 1, f"the key is a column, not a prefix: {line}"
+
+    def test_the_stderr_form_of_the_same_failure_is_labelled(
+        self, project: Path
+    ) -> None:
+        with pytest.raises(SecretResolutionError) as exc:
+            resolve("BAD", "dotenv://.env#ABSENT", ctx(project))
+        assert exc.value.message == f"BAD: {exc.value.reason}"
 
     def test_an_ok_line_is_just_the_status(self, project: Path) -> None:
         assert check("A", "dotenv://.env#PLAIN", ctx(project)).format() == "A: ok"

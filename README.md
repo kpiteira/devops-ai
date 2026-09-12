@@ -231,7 +231,11 @@ ksecret read op://Private/deploy-key/password   # confirms it resolves, prints n
 ksecret read --print '$DATABASE_URL'            # printing a value is always explicit
 ksecret run --env-file .env.prod -- docker compose up -d
 ksecret check --env-file .env.prod              # ok / literal / error — never a value
+ksecret check --infra                           # the current project's sandbox secrets
 ```
+
+Nothing here prints a secret unless you pass `--print`, so an agent can confirm that a
+project's secrets resolve without putting any of them in its transcript.
 
 `ksecret` is a second console script of the same package, so an existing install does
 not have it yet. After pulling a version that adds it, reinstall once:

@@ -91,7 +91,10 @@ def resolve(
         return provider.resolve(ref, context)
     except ProviderError as exc:
         raise SecretResolutionError(
-            var_name=var_name, ref=ref, message=f"{var_name}: {exc}"
+            var_name=var_name,
+            ref=ref,
+            message=f"{var_name}: {exc}",
+            reason=str(exc),
         ) from None
 
 
@@ -119,5 +122,5 @@ def check(
     try:
         resolve(var_name, ref, ctx)
     except SecretResolutionError as exc:
-        return CheckResult(key=var_name, status=ERROR, reason=str(exc.message))
+        return CheckResult(key=var_name, status=ERROR, reason=exc.reason)
     return CheckResult(key=var_name, status=OK)

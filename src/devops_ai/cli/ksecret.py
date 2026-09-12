@@ -14,6 +14,7 @@ from pathlib import Path
 
 import typer
 
+from devops_ai.config import find_project_root, load_config
 from devops_ai.secrets import (
     ERROR,
     CheckResult,
@@ -27,6 +28,7 @@ from devops_ai.secrets import (
 from devops_ai.secrets import (
     check as check_ref,
 )
+from devops_ai.worktree import main_repo_root
 
 app = typer.Typer(
     name="ksecret",
@@ -81,8 +83,10 @@ def run(
         raise typer.Exit(1) from None
 
     environ = dict(os.environ)
-    refs = _apply_literals(entries, environ)
-    resolved, errors = resolve_all(refs, ResolveContext(env=environ))
+    environ.update(_literals(entries))
+    resolved, errors = resolve_all(
+        _references(entries), ResolveContext(env=environ)
+    )
     if errors:
         for error in errors:
             typer.echo(error.message, err=True)
@@ -99,6 +103,11 @@ def check(
     env_file: list[Path] = typer.Option(
         [], "--env-file", help="File of KEY=<reference> lines (repeatable)"
     ),
+    infra: bool = typer.Option(
+        False,
+        "--infra",
+        help="Also check the sandbox secrets of the project in the current directory",
+    ),
 ) -> None:
     """Report which references resolve — statuses only, never values."""
     try:
@@ -108,20 +117,37 @@ def check(
         raise typer.Exit(1) from None
 
     environ = dict(os.environ)
-    pending = _apply_literals(entries, environ)
+    environ.update(_literals(entries))
     context = ResolveContext(env=environ)
 
-    results: list[CheckResult] = [
-        CheckResult(key=key, status="literal")
-        if key not in pending
-        else check_ref(key, pending[key], context)
-        for key in entries
-    ]
-    results.extend(check_ref(ref, ref, context) for ref in refs or [])
+    results = [check_ref(key, ref, context) for key, ref in entries.items()]
+    results += [check_ref(ref, ref, context) for ref in refs or []]
+    if infra:
+        results += _check_infra()
 
     for result in results:
         sys.stdout.write(f"{result.format()}\n")
     raise typer.Exit(1 if any(r.status == ERROR for r in results) else 0)
+
+
+def _check_infra() -> list[CheckResult]:
+    """Classify [sandbox.secrets] exactly as `kinfra impl` would resolve it."""
+    project_root = find_project_root()
+    if project_root is None:
+        typer.echo("ksecret check: no .devops-ai/ directory found.", err=True)
+        raise typer.Exit(1)
+    config = load_config(project_root)
+    if config is None:
+        typer.echo("ksecret check: no infra.toml in .devops-ai/.", err=True)
+        raise typer.Exit(1)
+
+    # Gitignored files live in the main checkout, not in a worktree cut from it.
+    base_dir = main_repo_root(project_root) or project_root
+    context = ResolveContext(base_dir=base_dir)
+    return [
+        check_ref(key, config.secrets[key], context)
+        for key in sorted(config.secrets)
+    ]
 
 
 def _collect(env_files: list[Path]) -> dict[str, str]:
@@ -132,21 +158,19 @@ def _collect(env_files: list[Path]) -> dict[str, str]:
     return entries
 
 
-def _apply_literals(
-    entries: dict[str, str], environ: dict[str, str]
-) -> dict[str, str]:
-    """Put literal lines in the environment; return the ones needing resolution.
+def _literals(entries: dict[str, str]) -> dict[str, str]:
+    """The lines no provider claims.
 
-    Literals land first and override the parent environment, so a reference can
-    name a variable declared beside it (`OP_ACCOUNT=` in agent-memory's env file).
+    They land in the environment before resolution and override the parent's,
+    so a reference can name a variable declared beside it (`OP_ACCOUNT=` in
+    agent-memory's env file) and the provider it feeds will see it.
     """
-    refs: dict[str, str] = {}
-    for key, value in entries.items():
-        if provider_for(value) is None:
-            environ[key] = value
-        else:
-            refs[key] = value
-    return refs
+    return {k: v for k, v in entries.items() if provider_for(v) is None}
+
+
+def _references(entries: dict[str, str]) -> dict[str, str]:
+    """The lines a provider claims."""
+    return {k: v for k, v in entries.items() if provider_for(v) is not None}
 
 
 def main() -> None:
