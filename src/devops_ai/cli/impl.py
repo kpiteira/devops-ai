@@ -27,8 +27,10 @@ from devops_ai.registry import (
     save_registry,
 )
 from devops_ai.sandbox import (
+    compose_project_name,
     copy_compose_to_slot,
     create_slot_dir,
+    force_cleanup_project,
     generate_env_file,
     generate_override,
     remove_slot_dir,
@@ -261,6 +263,10 @@ def _setup_sandbox(
         status="provisioning",
     )
     claim_slot(registry, slot_info)
+
+    # A slot id can be reused after a crash left containers or volumes
+    # labeled with its project name; compose up would reattach them.
+    force_cleanup_project(compose_project_name(slot_info))
 
     # Generate files
     generate_env_file(config, slot_info, slot_dir)

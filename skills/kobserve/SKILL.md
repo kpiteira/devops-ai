@@ -72,9 +72,13 @@ whose dependencies are `delivered`.
    git -C <repo> fetch origin main
    git -C <repo> worktree add --detach "$SCRATCH/main-bookkeeping" origin/main
    # …edit, commit…
-   git -C "$SCRATCH/main-bookkeeping" push origin HEAD:main
+   until git -C "$SCRATCH/main-bookkeeping" push origin HEAD:main; do
+     git -C "$SCRATCH/main-bookkeeping" pull --rebase origin main || break
+   done
    git -C <repo> worktree remove "$SCRATCH/main-bookkeeping"
    ```
+   Parallel milestones mean parallel observers: a non-fast-forward push is
+   expected, hence the rebase-and-retry. Tear down only after the push landed.
    The pilot's observer once switched the checkout a triage planner was working in;
    staged edits rode along.
 

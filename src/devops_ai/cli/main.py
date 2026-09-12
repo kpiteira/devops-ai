@@ -149,7 +149,8 @@ _REFRESH_HELP = (
     "Re-resolve secrets. By default the slot's materialised .env.secrets is "
     "reused, so a restart normally needs no keychain prompt; secrets are "
     "resolved anyway when nothing is materialised, the configured names "
-    "changed, or the file is unreadable"
+    "changed, or the file is unreadable. A changed reference under an "
+    "unchanged name is not detected: pass this flag"
 )
 
 

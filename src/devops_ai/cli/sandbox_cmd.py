@@ -22,7 +22,11 @@ from devops_ai.registry import (
     load_registry,
     save_registry,
 )
-from devops_ai.sandbox import run_health_gate, start_sandbox
+from devops_ai.sandbox import (
+    copy_compose_to_slot,
+    run_health_gate,
+    start_sandbox,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +188,12 @@ def _sandbox_up(
     # Write secrets file
     if resolved_secrets:
         generate_secrets_file(resolved_secrets, slot_dir)
+
+    # Refresh the slot's compose copy: teardown runs `down` from the copy,
+    # and a rebuild may have added services or volumes since `impl`.
+    compose_src = wt_path / config.compose_file
+    if compose_src.exists():
+        copy_compose_to_slot(compose_src, slot_dir)
 
     # Start sandbox
     try:
