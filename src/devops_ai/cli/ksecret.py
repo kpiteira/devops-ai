@@ -118,6 +118,15 @@ def check(
     ),
 ) -> None:
     """Report which references resolve — statuses only, never values."""
+    if not refs and not env_file and not infra:
+        # A green that means "nothing was checked" is worse than no answer.
+        typer.echo(
+            "ksecret check: nothing to check \u2014 name a reference, or pass "
+            "--env-file / --infra.",
+            err=True,
+        )
+        raise typer.Exit(2)
+
     try:
         entries = _collect(env_file)
     except OSError as exc:

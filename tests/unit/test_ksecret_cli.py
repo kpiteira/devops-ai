@@ -83,6 +83,14 @@ class TestCheckCollectsFromEveryInput:
         assert "dotenv://.env#DB_PASSWORD: ok" in result.output
         assert "hunter2" not in result.output
 
+    def test_checking_nothing_is_a_usage_error_not_a_green(
+        self, project: Path
+    ) -> None:
+        """An empty success reads as "all secrets fine" to whoever runs it."""
+        result = runner.invoke(app, ["check"])
+        assert result.exit_code == 2
+        assert "nothing to check" in result.output
+
     def test_a_missing_env_file_is_an_error_not_a_traceback(
         self, project: Path
     ) -> None:
