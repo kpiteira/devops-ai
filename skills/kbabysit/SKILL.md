@@ -84,13 +84,6 @@ The babysitter's own rules on top:
 
 - **Never weaken a test, gate, or threshold to satisfy a reviewer** — that's a DISCUSS with
   the human, not an implement.
-- **Scope fence.** An IMPLEMENT item must serve one of the PR's stated outcomes (the spec's
-  jobs, or the PR body's purpose). A finding that is real but outside them becomes an
-  **issue with a link**, not a commit — however true it is, and even when the round cap has
-  been lifted. The convergence test below ("zero IMPLEMENT items") only works if this
-  judgment is applied first: a babysitter that implements everything can never converge.
-  The v2 pilot synthesis PR ran 13 rounds because the reviewer widened the scope one fix
-  at a time and the babysitter followed.
 - A reviewer comment that fights the architecture is an ACP-shaped question — escalate,
   don't loop on it.
 - Keep the round's push to one coherent commit (or a few logical ones); in auto-review repos
@@ -110,9 +103,6 @@ feedback prompted changes (in auto-review repos the push already triggered it).
 **Stop — converged** when any of:
 - The round produced **zero IMPLEMENT items** (all feedback was push-backs, nitpicks, or
   repeats of prior rounds).
-- **Oscillation:** every finding of the round lands on the *previous round's fix commit*.
-  The reviewer is chasing the loop's own tail, not reviewing the PR; each fix will breed
-  the next finding forever. Stop, and file anything real in the round as an issue.
 - Reviewers returned no new comments, or approved.
 - New comments only re-raise points already handled — reply linking the prior reasoning
   (kreview's cross-round memory), then stop. Copilot is *documented* to repeat comments on
