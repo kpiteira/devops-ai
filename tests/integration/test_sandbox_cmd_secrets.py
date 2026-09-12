@@ -42,7 +42,7 @@ def test_dotenv_reference_reads_the_main_repo_not_the_worktree(
 def test_a_reference_with_nowhere_to_resolve_fails_before_docker(
     tmp_path: Path,
 ) -> None:
-    main_repo, worktree = _main_repo_with_worktree(tmp_path)
+    _, worktree = _main_repo_with_worktree(tmp_path)
     registry_path, slot_dir = _registry_with_slot(tmp_path, worktree)
 
     with (

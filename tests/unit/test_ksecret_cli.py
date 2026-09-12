@@ -126,6 +126,49 @@ class TestRunRefuses:
         assert "cannot execute" in result.output
 
 
+class TestALiteralIsNeverEchoedWithoutPrint:
+    """A literal is its own value, so a confirmation that names it is a leak."""
+
+    LITERAL = "postgres://user:hunter2@host/db"
+
+    def test_read_confirms_a_literal_without_repeating_it(
+        self, project: Path
+    ) -> None:
+        result = runner.invoke(app, ["read", self.LITERAL])
+        assert result.exit_code == 0, result.output
+        assert "hunter2" not in result.output
+        assert result.output.strip() == "ok (literal)"
+
+    def test_check_reports_a_bare_literal_without_repeating_it(
+        self, project: Path
+    ) -> None:
+        result = runner.invoke(app, ["check", self.LITERAL])
+        assert result.exit_code == 0, result.output
+        assert "hunter2" not in result.output
+        assert "literal" in result.output
+
+    def test_print_still_emits_it_because_that_is_the_explicit_ask(
+        self, project: Path
+    ) -> None:
+        result = runner.invoke(app, ["read", "--print", self.LITERAL])
+        assert result.exit_code == 0
+        assert result.output.strip() == self.LITERAL
+
+    def test_a_real_reference_still_names_itself(self, project: Path) -> None:
+        """Redaction applies to values, not to references — those are not secret."""
+        ref = "dotenv://.env#DB_PASSWORD"
+        result = runner.invoke(app, ["read", ref])
+        assert result.output.strip() == f"ok {ref}"
+        assert "hunter2" not in result.output
+
+    def test_an_env_file_key_is_not_redacted(self, project: Path) -> None:
+        """Keys come from the file, not from the value — echoing them is safe."""
+        (project / "refs.env").write_text("CONN=postgres://user:hunter2@host/db\n")
+        result = runner.invoke(app, ["check", "--env-file", "refs.env"])
+        assert "CONN: literal" in result.output
+        assert "hunter2" not in result.output
+
+
 class TestTheEnvironmentReferencesResolveIn:
     """Literal lines are declarations, so they beat whatever the shell exported."""
 

@@ -30,6 +30,8 @@ from devops_ai.secrets import (
 )
 from devops_ai.worktree import main_repo_root
 
+LITERAL_LABEL = "(literal)"
+
 app = typer.Typer(
     name="ksecret",
     help="Resolve secret references through pluggable providers.",
@@ -60,7 +62,7 @@ def read(
     if print_value:
         sys.stdout.write(value if no_newline else f"{value}\n")
     else:
-        sys.stdout.write(f"ok {ref}\n")
+        sys.stdout.write(f"ok {_label(ref)}\n")
     raise typer.Exit(0)
 
 
@@ -136,7 +138,7 @@ def check(
     context = ResolveContext(env=_base_environment(entries))
 
     results = [check_ref(key, ref, context) for key, ref in entries.items()]
-    results += [check_ref(ref, ref, context) for ref in refs or []]
+    results += [check_ref(_label(ref), ref, context) for ref in refs or []]
     if infra:
         results += _check_infra()
 
@@ -163,6 +165,17 @@ def _check_infra() -> list[CheckResult]:
         check_ref(key, config.secrets[key], context)
         for key in sorted(config.secrets)
     ]
+
+
+def _label(ref: str) -> str:
+    """What a bare reference may be called in output.
+
+    A reference given on the command line stands in for its own key — fine while
+    it is a reference. A literal is not: it *is* its value, and
+    `postgres://user:password@host/db` is exactly the kind of literal
+    `[sandbox.secrets]` carries. Only `--print` may emit a value.
+    """
+    return ref if provider_for(ref) is not None else LITERAL_LABEL
 
 
 def _collect(env_files: list[Path]) -> dict[str, str]:
