@@ -204,10 +204,10 @@ class TestStopSandbox:
 class TestForceRemoveContainers:
     def test_removes_matching_containers(self) -> None:
         """Finds and removes containers by project label."""
-        ps_result = MagicMock()
+        ps_result = MagicMock(returncode=0)
         ps_result.stdout = "abc123\ndef456\n"
         rm_result = MagicMock()
-        ps_after = MagicMock()
+        ps_after = MagicMock(returncode=0)
         ps_after.stdout = ""
 
         with patch(
@@ -222,7 +222,7 @@ class TestForceRemoveContainers:
 
     def test_no_containers_found_is_clean(self) -> None:
         """No matching containers → nothing to do → clean."""
-        ps_result = MagicMock()
+        ps_result = MagicMock(returncode=0)
         ps_result.stdout = ""
 
         with patch(
@@ -235,12 +235,22 @@ class TestForceRemoveContainers:
 
     def test_survivor_after_rm_is_not_clean(self) -> None:
         """rm -f issued but a container is still there → False."""
-        ps_result = MagicMock(stdout="abc123\n")
+        ps_result = MagicMock(returncode=0, stdout="abc123\n")
         rm_result = MagicMock()
-        ps_after = MagicMock(stdout="abc123\n")
+        ps_after = MagicMock(returncode=0, stdout="abc123\n")
         with patch(
             "devops_ai.sandbox.subprocess.run",
             side_effect=[ps_result, rm_result, ps_after],
+        ):
+            assert _force_remove_containers("myproj-slot-1") is False
+
+
+    def test_failed_listing_is_not_clean(self) -> None:
+        """docker ps itself failed → unknown, never 'clean'."""
+        ps_result = MagicMock(returncode=1, stdout="", stderr="denied")
+        with patch(
+            "devops_ai.sandbox.subprocess.run",
+            return_value=ps_result,
         ):
             assert _force_remove_containers("myproj-slot-1") is False
 
@@ -250,10 +260,10 @@ class TestForceCleanupProject:
         """Containers gone but a volume survives rm -f → not clean."""
         from devops_ai.sandbox import force_cleanup_project
 
-        ps = MagicMock(stdout="")
-        vol_ls = MagicMock(stdout="v1\n")
+        ps = MagicMock(returncode=0, stdout="")
+        vol_ls = MagicMock(returncode=0, stdout="v1\n")
         vol_rm = MagicMock()
-        vol_ls_after = MagicMock(stdout="v1\n")
+        vol_ls_after = MagicMock(returncode=0, stdout="v1\n")
         with patch(
             "devops_ai.sandbox.subprocess.run",
             side_effect=[ps, vol_ls, vol_rm, vol_ls_after],
@@ -349,12 +359,12 @@ class TestStopFallbackRemovesVolumes:
             ports={}, claimed_at="2025-01-01T00:00:00", status="running",
         )
         down = MagicMock(returncode=1, stderr="boom")
-        ps = MagicMock(stdout="c1\n")
+        ps = MagicMock(returncode=0, stdout="c1\n")
         rm = MagicMock()
-        ps_after = MagicMock(stdout="")
-        vol_ls = MagicMock(stdout="p-slot-3_data\n")
+        ps_after = MagicMock(returncode=0, stdout="")
+        vol_ls = MagicMock(returncode=0, stdout="p-slot-3_data\n")
         vol_rm = MagicMock()
-        vol_ls_after = MagicMock(stdout="")
+        vol_ls_after = MagicMock(returncode=0, stdout="")
         with patch(
             "devops_ai.sandbox.subprocess.run",
             side_effect=[down, ps, rm, ps_after, vol_ls, vol_rm, vol_ls_after],
@@ -385,12 +395,12 @@ class TestStartFailureFallsBackToLabels:
         )
         up = MagicMock(returncode=1, stderr="up failed")
         down = MagicMock(returncode=1, stderr="down failed")
-        ps = MagicMock(stdout="c1\n")
+        ps = MagicMock(returncode=0, stdout="c1\n")
         rm = MagicMock()
-        vol_ls = MagicMock(stdout="myproj-slot-1_data\n")
+        vol_ls = MagicMock(returncode=0, stdout="myproj-slot-1_data\n")
         vol_rm = MagicMock()
-        ps_after = MagicMock(stdout="")
-        vol_ls_after = MagicMock(stdout="")
+        ps_after = MagicMock(returncode=0, stdout="")
+        vol_ls_after = MagicMock(returncode=0, stdout="")
         with patch(
             "devops_ai.sandbox.subprocess.run",
             side_effect=[up, down, ps, rm, ps_after, vol_ls, vol_rm, vol_ls_after],
@@ -407,3 +417,33 @@ class TestStartFailureFallsBackToLabels:
         assert cmds[1][-2:] == ["down", "--volumes"]
         assert cmds[2][:3] == ["docker", "ps", "-a"]
         assert cmds[6] == ["docker", "volume", "rm", "-f", "myproj-slot-1_data"]
+
+
+class TestStartFailureReportsUnconfirmedCleanup:
+    def test_error_names_the_unconfirmed_cleanup(self, tmp_path: Path) -> None:
+        wt = tmp_path / "worktree"
+        wt.mkdir()
+        slot_dir = tmp_path / "slot"
+        slot_dir.mkdir()
+        (wt / "docker-compose.yml").write_text("services: {}")
+        (slot_dir / "docker-compose.override.yml").write_text("services: {}")
+        (slot_dir / ".env.sandbox").write_text("X=1\n")
+        config = _config()
+        slot = _slot(
+            slot_dir=str(slot_dir),
+            compose_file_copy=str(slot_dir / "docker-compose.yml"),
+        )
+        up = MagicMock(returncode=1, stderr="up failed")
+        down = MagicMock(returncode=1, stderr="down failed")
+        ps_denied = MagicMock(returncode=1, stdout="", stderr="denied")
+        with patch(
+            "devops_ai.sandbox.subprocess.run",
+            side_effect=[up, down, ps_denied, ps_denied],
+        ):
+            try:
+                start_sandbox(config, slot, wt, remove_volumes_on_failure=True)
+            except RuntimeError as e:
+                assert "could not be confirmed" in str(e)
+                assert "myproj-slot-1" in str(e)
+            else:
+                raise AssertionError("expected RuntimeError")

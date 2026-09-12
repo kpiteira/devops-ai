@@ -216,7 +216,8 @@ def _setup_session(
     if not agent_deck.send_to_session(title, kickoff, delay=3):
         return (
             f"  Warning: agent-deck session {title} started but the kickoff "
-            f"was not delivered (busy or timed out) — send it yourself: "
+            f"was not delivered (agent-deck returned an error; see the "
+            f"warning above) — send it yourself: "
             f"agent-deck session send {title} '{kickoff}'"
         )
     return f"  agent-deck session started: {title}"

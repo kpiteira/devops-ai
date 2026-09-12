@@ -40,8 +40,15 @@ whose dependencies are `delivered`.
    1Password approval prompt shows nothing from the human's seat and `kinfra impl`
    does not announce it (the announce-and-batch fix lives in `secret-providers`). So
    before launching, make sure the keychain is unlocked and the human knows an approval
-   is coming; if provisioning fails on secrets, the slot stays allocated and
-   `kinfra sandbox start` retries.
+   is coming. If provisioning fails on secrets, the slot stays allocated and
+   `kinfra sandbox start` retries the sandbox — but no session was created (kinfra
+   stops before that step), and `kinfra impl` will not run again on the existing
+   worktree, so create the session by hand once the sandbox is up:
+   ```bash
+   agent-deck add <worktree-path> -t <feature>/M<N> -g <project>
+   agent-deck session start <feature>/M<N>
+   agent-deck session send <feature>/M<N> '/kbuild <feature>/M<N>'
+   ```
 2. **Kickoff: brief + environment facts only.** `kinfra impl --session` sends
    `/kbuild <feature>/M<N>` to the new session (bounded: kinfra's agent-deck calls time
    out after 60 s rather than hang, and kinfra says so if the kickoff was not

@@ -114,34 +114,26 @@ Manage the shared observability stack.
 
 ### Implementation (the main workflow)
 
-Every `kinfra impl` MUST produce three things: worktree + sandbox + agent-deck child session.
-
-**Step 1: Create worktree**
-```bash
-kinfra impl <feature>/<milestone> --no-session
-```
-
-**Step 2: Create agent-deck child session (MANDATORY)**
-
-This is NOT optional. After every `kinfra impl`, immediately create the session:
+One command produces the worktree, the sandbox (where the project has one) and the
+executor session with its `/kbuild` kickoff — this is what `/kobserve launch` runs:
 
 ```bash
-# Get current session name
-agent-deck session current
-
-# Create child session (substitute actual values) — ALWAYS with an explicit group
-agent-deck add -t "<feature>/<milestone>" -c claude --parent <current-session-name> -g <group> <worktree-path>
-
-# Example:
-agent-deck add -t "health-advisor/M2" -c claude --parent khealth -g khealth /Users/karl/Documents/dev/wellness-agent-impl-health-advisor-M2
+kinfra impl <feature>/<milestone> --session --group <project>
 ```
 
-The `--parent` flag links the child to the current session — this is how agent-deck tracks which sessions spawned which. Pass `-g` explicitly: a child without one inherits its parent's group, and groups default to a running-session cap of 1 (the parent counts), so the child queues and errors. `kinfra impl --session --group <group>` does the same in one step (default group `dev`).
+Always pass `--group`: a session added without one inherits its parent's group, and
+groups default to a running-session cap of 1 (the parent counts), so the child queues
+and errors. If kinfra reports the kickoff was not delivered, send it yourself with the
+command it prints. Verifying and landing the milestone is `kobserve verify` / `land`.
 
-**Step 3: Report to user**
-Tell the user the session is ready and how to start it:
-```
-agent-deck session start <feature>/<milestone>
+**Manual fallback** (only when `--session` cannot be used, or provisioning failed and
+the session was never created):
+
+```bash
+kinfra impl <feature>/<milestone> --no-session      # or: kinfra sandbox start (retry)
+agent-deck add <worktree-path> -t "<feature>/<milestone>" -c claude -g <project>
+agent-deck session start "<feature>/<milestone>"
+agent-deck session send "<feature>/<milestone>" '/kbuild <feature>/<milestone>'
 ```
 
 ### Design (spec)

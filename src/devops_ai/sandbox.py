@@ -242,23 +242,39 @@ def start_sandbox(
             project_name=project_name,
         )
         down = subprocess.run(down_cmd, capture_output=True, text=True)
-        if down.returncode != 0:
-            force_cleanup_project(
-                project_name, volumes=remove_volumes_on_failure
+        cleanup_note = ""
+        if down.returncode != 0 and not force_cleanup_project(
+            project_name, volumes=remove_volumes_on_failure
+        ):
+            cleanup_note = (
+                f"; cleanup of {project_name} could not be confirmed — "
+                f"check `docker ps -a` / `docker volume ls`"
             )
         raise RuntimeError(
-            f"Sandbox failed to start: {result.stderr.strip()}"
+            f"Sandbox failed to start: {result.stderr.strip()}{cleanup_note}"
         )
 
 
-def _labeled(kind: list[str], project_name: str, fmt: str) -> list[str]:
-    """IDs/names of docker resources labeled with the compose project."""
+def _labeled(
+    kind: list[str], project_name: str, fmt: str
+) -> list[str] | None:
+    """IDs/names of docker resources labeled with the compose project.
+
+    None when the listing itself failed (docker down, access denied): the
+    state is unknown, which is not the same as "nothing there".
+    """
     result = subprocess.run(
         ["docker", *kind, "--filter",
          f"label=com.docker.compose.project={project_name}",
          "--format", fmt],
         capture_output=True, text=True,
     )
+    if result.returncode != 0:
+        logger.warning(
+            "docker %s failed (rc=%s): %s",
+            " ".join(kind), result.returncode, result.stderr.strip(),
+        )
+        return None
     return result.stdout.strip().split()
 
 
@@ -271,6 +287,8 @@ def _force_remove_containers(project_name: str) -> bool:
     """
     try:
         container_ids = _labeled(["ps", "-a"], project_name, "{{.ID}}")
+        if container_ids is None:
+            return False
         if not container_ids:
             return True
         logger.warning(
@@ -281,7 +299,7 @@ def _force_remove_containers(project_name: str) -> bool:
             ["docker", "rm", "-f", *container_ids],
             capture_output=True, text=True,
         )
-        return not _labeled(["ps", "-a"], project_name, "{{.ID}}")
+        return _labeled(["ps", "-a"], project_name, "{{.ID}}") == []
     except FileNotFoundError:
         return False
 
@@ -296,6 +314,8 @@ def _force_remove_volumes(project_name: str) -> bool:
     """
     try:
         names = _labeled(["volume", "ls"], project_name, "{{.Name}}")
+        if names is None:
+            return False
         if not names:
             return True
         logger.warning(
@@ -305,7 +325,7 @@ def _force_remove_volumes(project_name: str) -> bool:
             ["docker", "volume", "rm", "-f", *names],
             capture_output=True, text=True,
         )
-        return not _labeled(["volume", "ls"], project_name, "{{.Name}}")
+        return _labeled(["volume", "ls"], project_name, "{{.Name}}") == []
     except FileNotFoundError:
         return False
 
