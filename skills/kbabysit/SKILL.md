@@ -135,8 +135,11 @@ auto-review repos the push already triggered it).
   where the loop runs, the report says so, names the unreviewed fix commits, and the verdict
   is ⚠️ needs human decision — never merge-ready. Measured: this fires at the 6th of
   14 Copilot reviews on devops-ai #27 and the 7th of 11 on homelab #18. Provenance that
-  `kreview` reports as unknown (blame failed, or the branch was rebased since the first
-  review) never fires this rule — an unknown is not a second-order finding.
+  `kreview` reports as unknown (blame failed, no *reachable* submitted review, a review
+  commit missing from the clone, unrelated commit) never
+  fires this rule — an unknown is not a second-order finding. A rebase resets the boundary
+  to the first review on the new history, so the round after a rebase reads as first-order
+  and cannot end the loop by itself.
 - **No in-scope IMPLEMENT items:** the round's findings were all push-backs, out-of-scope
   (now issues), repeats, or nitpicks.
 - Reviewers returned no new findings, or approved. A round of review-level remarks with no

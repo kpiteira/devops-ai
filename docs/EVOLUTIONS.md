@@ -18,7 +18,7 @@
 
 **Problem:** PR review currently demands ongoing human attention, and per the new contract, human PR-reading neither catches the failures that matter (cross-PR inconsistency) nor is a good use of energy.
 **Direction:** to be designed — likely builds on the Pi validator-agent architecture and the conformance review, with the human involved only at escalation.
-**Status:** first concrete step landed 2026-09-12 (devops-ai #34, data in #33): the babysit loop now requires a written `## Review scope` in the PR body, kreview has an OUT OF SCOPE disposition (true but not this PR's → issue), every finding carries a computed provenance (original diff / review-fix commit / unknown), and a round whose findings all sit on fix commits is the last one. Six criteria signed by Karl item by item; the pilot data (13- and 11-round loops) is in #33. The human-at-escalation design above is still open.
+**Status:** first concrete step landed 2026-09-12 (devops-ai #34, data in #33): the babysit loop now requires a written `## Review scope` in the PR body, kreview has an OUT OF SCOPE disposition (true but not this PR's → issue), every finding carries a computed provenance (original diff / review-fix commit / unknown; the boundary is the earliest review still in the branch's history, so a rebase resets it at the cost of at most one extra round), and a round whose findings all sit on fix commits is the last one. Six criteria signed by Karl item by item; the pilot data (13- and 11-round loops) is in #33. The human-at-escalation design above is still open.
 
 ## 4. Roadmap representation & grounding
 
