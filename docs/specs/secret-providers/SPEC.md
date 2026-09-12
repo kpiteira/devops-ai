@@ -136,9 +136,9 @@ briefs and tests reference them. -->
   (installed by the same `uv tool install`), not a new repo or package.
 - A2 — The Azure Key Vault acceptance test runs against a real Key Vault in Karl's
   tenant, named by `KSECRET_ACCEPTANCE_AKV_VAULT`, and skips when `az` is not logged
-  in or the variable is unset. **Prerequisite for M3:** Karl creates that vault (a
-  separate task he expects to do with help); M3 cannot be declared delivered on
-  skips alone.
+  in or the variable is unset. **Prerequisite for M3 — met 2026-09-12:** the vault
+  is `kv-devops-ai-accept` in `devops-ai-test-rg` (facts in the M3 brief); Karl
+  exports the variable in his shell. M3 cannot be declared delivered on skips alone.
 - A3 — The 1Password acceptance tests skip when access is not granted. There is no
   scriptable sign-in: `op` prompts Karl per access and he grants it, so the tests
   simply attempt access and wait long enough for a touch. No service account.
