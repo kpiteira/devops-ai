@@ -61,6 +61,18 @@ class TestCreateSlotDir:
         assert result == tmp_path / "myproj-3"
         assert result.is_dir()
 
+    def test_stale_secrets_of_a_previous_occupant_are_removed(
+        self, tmp_path: Path
+    ) -> None:
+        """A surviving slot dir must not hand its .env.secrets to the next slot."""
+        stale = tmp_path / "myproj-3"
+        stale.mkdir()
+        (stale / ".env.secrets").write_text("T=previous-occupant\n")
+        (stale / ".env.sandbox").write_text("X=1\n")
+        create_slot_dir("myproj", 3, base=tmp_path)
+        assert not (stale / ".env.secrets").exists()
+        assert (stale / ".env.sandbox").exists()
+
 
 class TestRemoveSlotDir:
     def test_removes_dir(self, tmp_path: Path) -> None:

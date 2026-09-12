@@ -24,10 +24,16 @@ DEFAULT_SLOTS_BASE = Path.home() / ".devops-ai" / "slots"
 def create_slot_dir(
     project: str, slot_id: int, *, base: Path | None = None
 ) -> Path:
-    """Create slot directory at ~/.devops-ai/slots/<project>-<slot_id>/."""
+    """Create slot directory at ~/.devops-ai/slots/<project>-<slot_id>/.
+
+    A freshly allocated slot never inherits a previous occupant's secrets:
+    if the directory survived an earlier teardown, its materialised
+    ``.env.secrets`` is removed before anything else is written.
+    """
     base = base or DEFAULT_SLOTS_BASE
     slot_dir = base / f"{project}-{slot_id}"
     slot_dir.mkdir(parents=True, exist_ok=True)
+    (slot_dir / ".env.secrets").unlink(missing_ok=True)
     return slot_dir
 
 
@@ -348,11 +354,14 @@ def force_cleanup_project(project_name: str, *, volumes: bool = True) -> bool:
 
 
 def stop_sandbox(slot: SlotInfo) -> bool:
-    """Stop sandbox containers using slot dir's compose copy.
+    """Stop sandbox containers and remove the slot's volumes.
 
     Uses the compose copy (not worktree) because the worktree might
-    already be removed. Falls back to force-removing containers if
-    compose down fails. Returns True if cleanup succeeded.
+    already be removed. Runs ``down --remove-orphans --volumes``; if that
+    fails, falls back to label-based removal of the project's containers
+    AND volumes, verified by re-listing. Returns True only when compose
+    down succeeded; False means the fallback ran and the caller should
+    report that cleanup may be unconfirmed.
     """
     slot_dir = Path(slot.slot_dir)
     compose_file = slot.compose_file_copy
