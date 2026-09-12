@@ -783,15 +783,17 @@ class TestGuardLabelsItsOwnPaths:
         exec(generate_contract_integrity_check(), namespace)
         change_label = namespace["change_label"]
         assert callable(change_label)
-        assert "contract" in change_label(
+        contract = "Planner-owned contract file changed"
+        guard = "Contract guard file changed"
+        assert change_label(
             "docs/specs/f/briefs/M1-x.md", "tests/acceptance"
-        ).lower()
-        assert "contract" in change_label(
+        ) == contract
+        assert change_label(
             "tests/acceptance/f/test_x.py", "tests/acceptance"
-        ).lower()
-        assert "guard" in change_label(
+        ) == contract
+        assert change_label(
             ".github/workflows/ci.yml", "tests/acceptance"
-        ).lower()
-        assert "guard" in change_label(
+        ) == guard
+        assert change_label(
             ".devops-ai/check_contract_integrity.py", "tests/acceptance"
-        ).lower()
+        ) == guard

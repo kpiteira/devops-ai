@@ -299,3 +299,31 @@ class TestStopRemovesVolumes:
             assert stop_sandbox(slot) is True
         cmd = mock_run.call_args_list[0][0][0]
         assert cmd[-2:] == ["down", "--volumes"]
+
+
+class TestStopFallbackRemovesVolumes:
+    def test_failed_down_still_removes_volumes(self, tmp_path: Path) -> None:
+        """compose down fails → containers AND this project's volumes go."""
+        slot_dir = tmp_path / "slot"
+        slot_dir.mkdir()
+        (slot_dir / ".env.sandbox").write_text("X=1\n")
+        slot = SlotInfo(
+            slot_id=3, project="p", worktree_path=str(tmp_path),
+            slot_dir=str(slot_dir),
+            compose_file_copy=str(slot_dir / "docker-compose.yml"),
+            ports={}, claimed_at="2025-01-01T00:00:00", status="running",
+        )
+        down = MagicMock(returncode=1, stderr="boom")
+        ps = MagicMock(stdout="c1\n")
+        rm = MagicMock()
+        vol_ls = MagicMock(stdout="p-slot-3_data\n")
+        vol_rm = MagicMock()
+        with patch(
+            "devops_ai.sandbox.subprocess.run",
+            side_effect=[down, ps, rm, vol_ls, vol_rm],
+        ) as mock_run:
+            assert stop_sandbox(slot) is False
+        cmds = [c[0][0] for c in mock_run.call_args_list]
+        assert cmds[3][:3] == ["docker", "volume", "ls"]
+        assert "label=com.docker.compose.project=p-slot-3" in cmds[3]
+        assert cmds[4] == ["docker", "volume", "rm", "-f", "p-slot-3_data"]

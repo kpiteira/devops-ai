@@ -149,9 +149,11 @@ is yours; so is skepticism.
    - **Wrong outcome** — a job itself doesn't hold up → the human, always,
      options-first. No model renegotiates what a feature is for.
 3. **Record:** fill the report's *Planner resolution* section, append an Amendment entry
-   (unchecked box — pending his acknowledgment), reset the milestone's status, commit.
-   The executor won't start the next milestone while a box is unchecked; your job is to
-   make the pending flag impossible to miss.
+   of the right kind — a false fact is a **pre-checked fact-correction** (`- [x]`, blocks
+   nothing); an untenable decision or a changed outcome is an **unchecked** entry pending
+   his acknowledgment — reset the milestone's status, commit. The executor won't start
+   the next milestone while a box is unchecked; your job is to make the pending flag
+   impossible to miss.
 
 **Fact corrections that arrive in a PR** (an executor's *Facts I corrected* section, per
 the `outcome-contracts` rule) are not divergences: verify each against the code, amend

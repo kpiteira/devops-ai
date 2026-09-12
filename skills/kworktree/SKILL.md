@@ -96,15 +96,13 @@ kinfra status
 # Shows: project, slot ID, status, ports
 ```
 
-### `kinfra sandbox start`
+### `kinfra sandbox start [--refresh-secrets]`
 
-Restart sandbox for an existing worktree (re-provisions secrets and files).
+Restart sandbox for an existing worktree. Re-provisions files; **reuses** the slot's materialised `.env.secrets` when present (so an unattended restart never waits on a keychain approval) and resolves secrets only when none are materialised or `--refresh-secrets` is passed.
 
 ### `kinfra sandbox rebuild [--refresh-secrets]`
 
-Reuses the slot's materialised `.env.secrets` when present, so an unattended rebuild never waits on a keychain approval; `--refresh-secrets` re-resolves the references (also on `sandbox start`).
-
-Rebuild sandbox with latest code changes. Re-provisions secrets/files AND rebuilds Docker images from source. **Use this after code changes** — `start` only restarts existing images.
+Same provisioning as `start` (files re-provisioned, secrets reused unless `--refresh-secrets`) AND rebuilds Docker images from source. **Use this after code changes** — `start` only restarts existing images.
 
 ### `kinfra observability up|down|status`
 

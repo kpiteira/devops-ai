@@ -35,25 +35,35 @@ whose dependencies are `delivered`.
    Always pass the group: a session added without one inherits its parent's, and
    groups default to a running-session cap of 1 — the parent counts — so the child
    queues and errors (pilot, 2026-09-06). Parallel milestones need a group whose cap
-   allows them, or their own groups. If `kinfra impl` provisioned secrets, it says so
-   before it waits; a 1Password approval prompt is silent from the human's seat.
-2. **Kickoff message: brief + environment facts only.** The brief path, the sandbox's
-   facts (`kinfra status`: slot, ports), and nothing the harness already sets — no
-   attribution trailers, no model names; the executor's harness owns those and a
-   conflicting kickoff is noise it has to resolve (pilot, 2026-09-11). The brief's
-   Working environment carries the gates; the kickoff does not restate them.
+   allows them, or their own groups. Secret resolution is **silent while it waits**: a
+   1Password approval prompt shows nothing from the human's seat and `kinfra impl`
+   does not announce it (the announce-and-batch fix lives in `secret-providers`). So
+   before launching, make sure the keychain is unlocked and the human knows an approval
+   is coming; if provisioning fails on secrets, the slot stays allocated and
+   `kinfra sandbox start` retries.
+2. **Kickoff: brief + environment facts only.** `kinfra impl --session` sends
+   `/kbuild <feature>/M<N>` to the new session; follow it with one message carrying
+   the sandbox's facts (`kinfra status`: slot, ports) — sent from the background, since
+   `agent-deck session send` blocks while the target is busy. Nothing the harness
+   already sets: no attribution trailers, no model names; the executor's harness owns
+   those and a conflicting kickoff is noise it has to resolve (pilot, 2026-09-11). The
+   brief's Working environment carries the gates; the kickoff does not restate them.
 3. **Verify the session started on the executor tier** (status bar), then leave it
    alone. A parked question from an executor is a defect to fix in tooling or brief,
    not a reason to sit with it — note it for the planner.
 4. **Never share a checkout with a child.** The observer touches the project's main
-   checkout only through a temporary worktree it creates and removes:
+   checkout only through a temporary, detached worktree it creates and removes — git
+   refuses a second worktree on a branch that is already checked out, so detach and
+   push explicitly:
    ```bash
-   git -C <repo> worktree add "$SCRATCH/main-bookkeeping" main
+   git -C <repo> fetch origin main
+   git -C <repo> worktree add --detach "$SCRATCH/main-bookkeeping" origin/main
+   # …edit, commit…
+   git -C "$SCRATCH/main-bookkeeping" push origin HEAD:main
+   git -C <repo> worktree remove "$SCRATCH/main-bookkeeping"
    ```
    The pilot's observer once switched the checkout a triage planner was working in;
    staged edits rode along.
-5. `agent-deck session send` blocks while the target is busy — send from the
-   background.
 
 ## verify
 

@@ -252,6 +252,35 @@ def _force_remove_containers(project_name: str) -> bool:
         return False
 
 
+def _force_remove_volumes(project_name: str) -> bool:
+    """Remove named volumes labeled with the compose project.
+
+    The fallback for a failed ``compose down --volumes``: without it a stale
+    volume survives teardown and blocks the slot's next launch.
+    Returns True if any volumes were removed.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "volume", "ls", "--filter",
+             f"label=com.docker.compose.project={project_name}",
+             "--format", "{{.Name}}"],
+            capture_output=True, text=True,
+        )
+        names = result.stdout.strip().split()
+        if not names:
+            return False
+        logger.warning(
+            "Force-removing %d volumes for %s", len(names), project_name,
+        )
+        subprocess.run(
+            ["docker", "volume", "rm", "-f", *names],
+            capture_output=True, text=True,
+        )
+        return True
+    except FileNotFoundError:
+        return False
+
+
 def stop_sandbox(slot: SlotInfo) -> bool:
     """Stop sandbox containers using slot dir's compose copy.
 
@@ -282,9 +311,10 @@ def stop_sandbox(slot: SlotInfo) -> bool:
             "compose down failed (rc=%d): %s",
             result.returncode, result.stderr.strip(),
         )
-        # Fall back: force-remove containers by project label
+        # Fall back: force-remove containers, then volumes, by project label
         project_name = f"{slot.project}-slot-{slot.slot_id}"
         _force_remove_containers(project_name)
+        _force_remove_volumes(project_name)
         return False
 
     return True
