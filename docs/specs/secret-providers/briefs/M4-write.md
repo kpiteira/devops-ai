@@ -17,7 +17,11 @@ blocking: uv run pytest tests/acceptance/secret_providers/test_m4_write.py tests
 ## Surface
 
 - `ksecret write <ref>` — value read from stdin (trailing newline stripped); exit 0
-  when `ksecret read <ref>` would now return that value. Provider behavior:
+  when `ksecret read <ref>` would now return that value. On success stdout carries
+  exactly one line: the **canonical reference** — identical to the input for
+  `dotenv://`, `bao://`, `akv://`; for `op://` the item-ID form
+  (`op://<vault>/<item-id>/<field>`), which is what a caller should store, since
+  title references can collide with archived items. Never a value. Provider behavior:
   - `dotenv://<path>#<KEY>` — sets or replaces `KEY` in the file; creates the file
     with mode 0600 if absent; other lines preserved byte-for-byte.
   - `bao://<mount>/<path>#<key>` — KV v2 write that sets `key` and preserves the
@@ -28,17 +32,16 @@ blocking: uv run pytest tests/acceptance/secret_providers/test_m4_write.py tests
     does not exist; sets the field when it does. Either way the value travels in a
     JSON template file (mode 0600, removed afterwards), never in argv.
   - `$VAR` / `env://` — exit 1: the host environment is read-only.
-- `ksecret write` prints nothing on success; errors name the reference, never the
-  value.
+- Errors name the reference, never the value.
 
 ## Blocking
 
 | Job | Planner-authored test | Observable proof |
 |-----|-----------------------|------------------|
-| J8 | `test_m4_write.py::test_write_then_read_dotenv` | Round-trip via a fresh dotenv file, mode 0600, existing lines preserved |
+| J8 | `test_m4_write.py::test_write_then_read_dotenv` | Round-trip via a dotenv file whose full content afterwards is exactly the original lines with the one target replaced; a new file is created 0600; the canonical ref is echoed |
 | J8 | `test_m4_write.py::test_write_then_read_openbao` | Round-trip against the dev container; a sibling key in the same secret survives |
 | J8 | `test_m4_write.py::test_write_then_read_akv` | Round-trip against the real vault (same skip rules as M3); the test deletes what it wrote |
-| J8 | `test_m4_write.py::test_write_op_creates_and_updates_item` | A fresh 1Password item is created and reads back; a second write to the same reference reads back the new value; the test deletes the item (skips when `op` access is not granted — A3) |
+| J8 | `test_m4_write.py::test_write_op_creates_and_updates_item` | A fresh 1Password item is created; stdout is the item-ID reference; both the ID and title references read back; a second write updates in place; the test deletes the item (skips when `op` access is not granted — A3) |
 | J8 | `test_m4_write.py::test_write_env_is_refused` | `env://` write exits 1 with a read-only message; nothing is printed |
 | — | `tests/architecture/test_secret_providers.py` | Shape unchanged |
 

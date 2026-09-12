@@ -80,6 +80,11 @@ def test_token_file_fallback_and_missing_key(bao: BaoServer, tmp_path: Path) -> 
     assert "missing" in r.err
     assert VALUE not in r.err and OTHER not in r.err, "no sibling value may leak"
 
+    # a reference without #key is an error, and leaks nothing
+    r = ksecret("read", f"bao://secret/{path}", cwd=tmp_path, env=env)
+    assert r.code == 1 and r.out == ""
+    assert VALUE not in r.err and OTHER not in r.err
+
     # no token anywhere → guidance, no crash
     env_no = clean_env(BAO_ADDR=bao.addr, HOME=str(tmp_path / "empty-home"))
     for k in ("BAO_TOKEN", "VAULT_TOKEN", "VAULT_ADDR"):
@@ -115,5 +120,5 @@ def test_run_and_check_accept_bao_refs(bao: BaoServer, tmp_path: Path) -> None:
 
 def test_readme_documents_bao() -> None:
     text = README.read_text()
-    for needle in ("bao://", "BAO_ADDR", "BAO_TOKEN"):
+    for needle in ("bao://", "BAO_ADDR", "BAO_TOKEN", ".vault-token"):
         assert needle in text, f"README must document {needle}"

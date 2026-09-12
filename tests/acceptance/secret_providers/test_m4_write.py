@@ -33,10 +33,10 @@ def test_write_then_read_dotenv(tmp_path: Path) -> None:
         stdin=VALUE + "\n"
     )
     assert r.code == 0, r.err
-    assert r.out == ""
-    lines = env_file.read_text().splitlines()
-    assert "KEEP=untouched" in lines
-    assert sum(1 for ln in lines if ln.startswith("TARGET=")) == 1
+    assert r.out.strip() == "dotenv://secrets.env#TARGET", "canonical ref echoed"
+    assert env_file.read_text() == f"KEEP=untouched\nTARGET={VALUE}\n", (
+        "other lines preserved byte-for-byte, exactly one TARGET line, no extra blank"
+    )
 
     r = ksecret(
         "read", "--print",
@@ -123,15 +123,16 @@ def test_write_op_creates_and_updates_item(tmp_path: Path) -> None:
     try:
         r = ksecret("write", ref, cwd=tmp_path, env=clean_env(), stdin=VALUE)
         assert r.code == 0, r.err
-        r = ksecret(
-            "read",
-            "--print",
-            "--no-newline",
-            ref,
-            cwd=tmp_path,
-            env=clean_env(),
-        )
-        assert (r.code, r.out) == (0, VALUE), r.err
+        # stdout carries the canonical (item-ID) reference — never the value
+        canonical = r.out.strip()
+        assert canonical.startswith(f"op://{vault}/")
+        assert canonical.endswith("/password") and canonical != ref
+        assert VALUE not in r.out
+        for use in (canonical, ref):
+            r = ksecret(
+                "read", "--print", "--no-newline", use, cwd=tmp_path, env=clean_env()
+            )
+            assert (r.code, r.out) == (0, VALUE), r.err
         # second write to the same reference updates the field in place
         r = ksecret("write", ref, cwd=tmp_path, env=clean_env(), stdin=VALUE + "-v2")
         assert r.code == 0, r.err

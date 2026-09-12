@@ -64,6 +64,9 @@ def test_read_env_dotenv_and_literal(project: Path) -> None:
     r = ksecret("read", "--print", "$KSECRET_T_FALLBACK", cwd=project, env=env)
     assert (r.code, r.out) == (0, f"{FALLBACK}\n"), r.err
 
+    r = ksecret("read", "--print", "env://KSECRET_T_FALLBACK", cwd=project, env=env)
+    assert (r.code, r.out) == (0, f"{FALLBACK}\n"), "env:// falls back like $VAR"
+
     # exported wins over the file
     env2 = clean_env(KSECRET_T_FALLBACK="from-shell")
     r = ksecret("read", "--print", "$KSECRET_T_FALLBACK", cwd=project, env=env2)
@@ -125,6 +128,7 @@ def test_run_injects_resolved_env_without_disk(project: Path) -> None:
         "A=dotenv://.env#FROM_DOTENV\n"
         "B=$KSECRET_T_EXPORTED\n"
         "C=literal-c\n"
+        "D=$OP_ACCOUNT\n"  # literal lines are in the environment before resolution
     )
     before = sorted(p.name for p in project.iterdir())
     env = clean_env(KSECRET_T_EXPORTED="exported-value-2", KSECRET_T_PARENT="parent")
@@ -133,7 +137,8 @@ def test_run_injects_resolved_env_without_disk(project: Path) -> None:
         *python_cmd(
             "import os,sys;"
             "print(os.environ['A'], os.environ['B'], os.environ['C'],"
-            " os.environ['OP_ACCOUNT'], os.environ['KSECRET_T_PARENT']);"
+            " os.environ['OP_ACCOUNT'], os.environ['KSECRET_T_PARENT'],"
+            " os.environ['D']);"
             "sys.exit(7)"
         ),
         cwd=project, env=env,
@@ -141,6 +146,7 @@ def test_run_injects_resolved_env_without_disk(project: Path) -> None:
     assert r.code == 7, "child's exit code must propagate"
     assert r.out.strip() == (
         f"{SECRET} exported-value-2 literal-c my-account.1password.com parent"
+        " my-account.1password.com"
     )
     after = sorted(p.name for p in project.iterdir())
     assert before == after, "run must write nothing to disk"
@@ -194,7 +200,7 @@ def test_check_reports_without_values(project: Path) -> None:
 
 
 def test_kinfra_sandbox_resolves_dotenv_and_env_fallback(
-    e2e_project: dict, monkeypatch: pytest.MonkeyPatch,
+    sandbox_image: None, e2e_project: dict, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import subprocess
 

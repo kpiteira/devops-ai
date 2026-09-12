@@ -41,6 +41,34 @@ def test_read_secret_from_real_vault(
     assert (r.code, r.out) == (0, expected), r.err
 
 
+def test_versioned_reference_reads_that_version(akv: AkvVault, tmp_path: Path) -> None:
+    name = fresh_name("ksecret-acceptance-versions")
+    try:
+        v1 = akv.set(name, VALUE + "-v1", tmp_path)
+        akv.set(name, VALUE + "-v2", tmp_path)
+        env = clean_env()
+        r = ksecret(
+            "read",
+            "--print",
+            "--no-newline",
+            f"akv://{akv.name}/{name}",
+            cwd=tmp_path,
+            env=env,
+        )
+        assert (r.code, r.out) == (0, VALUE + "-v2"), r.err
+        r = ksecret(
+            "read",
+            "--print",
+            "--no-newline",
+            f"akv://{akv.name}/{name}/{v1}",
+            cwd=tmp_path,
+            env=env,
+        )
+        assert (r.code, r.out) == (0, VALUE + "-v1"), r.err
+    finally:
+        akv.delete(name)
+
+
 def test_missing_secret_names_ref_not_value(akv: AkvVault, tmp_path: Path) -> None:
     missing = fresh_name("ksecret-acceptance-missing")
     r = ksecret(

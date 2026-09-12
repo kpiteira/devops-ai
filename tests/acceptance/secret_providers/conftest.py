@@ -22,11 +22,10 @@ from pathlib import Path
 
 import pytest
 
-# Re-export the sandbox fixtures so the kinfra-path test can use them.
-from tests.e2e.conftest import (  # noqa: F401
-    e2e_project,
-    pull_test_image,
-)
+# Re-export the throwaway-project fixture so the kinfra-path test can use it. The
+# e2e suite's autouse image pull is deliberately NOT re-exported: only the sandbox
+# test needs Docker (see `sandbox_image`).
+from tests.e2e.conftest import e2e_project  # noqa: F401
 
 ROOT = Path(__file__).resolve().parents[3]
 README = ROOT / "README.md"
@@ -81,6 +80,19 @@ def free_port() -> int:
         return int(s.getsockname()[1])
 
 
+@pytest.fixture()
+def sandbox_image() -> None:
+    """Docker running and python:3.12-slim present.
+
+    Only the kinfra sandbox test requests this.
+    """
+    if subprocess.run(["docker", "info"], capture_output=True).returncode != 0:
+        pytest.skip("Docker is not running")
+    subprocess.run(
+        ["docker", "pull", "python:3.12-slim"], capture_output=True, timeout=300
+    )
+
+
 # ---------------------------------------------------------------- 1Password
 
 
@@ -115,11 +127,11 @@ def op_item() -> Iterator[tuple[str, str]]:
         pytest.skip(f"could not create a 1Password item in vault {vault!r}")
     item_id = json.loads(created.stdout)["id"]
     ref = f"op://{vault}/{item_id}/password"
-    expected = subprocess.run(
-        ["op", "read", "--no-newline", ref],
-        capture_output=True, text=True, timeout=30, check=True,
-    ).stdout
     try:
+        expected = subprocess.run(
+            ["op", "read", "--no-newline", ref],
+            capture_output=True, text=True, timeout=30, check=True,
+        ).stdout
         yield ref, expected
     finally:
         subprocess.run(
@@ -198,16 +210,18 @@ def bao() -> Iterator[BaoServer]:
 class AkvVault:
     name: str
 
-    def set(self, secret: str, value: str, tmp: Path) -> None:
+    def set(self, secret: str, value: str, tmp: Path) -> str:
+        """Set a value (new version if the secret exists); returns the version id."""
         f = tmp / f"{secret}.value"
         f.write_text(value)
         f.chmod(0o600)
-        subprocess.run(
+        out = subprocess.run(
             ["az", "keyvault", "secret", "set", "--vault-name", self.name,
-             "--name", secret, "--file", str(f), "--output", "none"],
+             "--name", secret, "--file", str(f), "--query", "id", "-o", "tsv"],
             capture_output=True, text=True, timeout=120, check=True,
-        )
+        ).stdout.strip()
         f.unlink()
+        return out.rstrip("/").rsplit("/", 1)[-1]
 
     def delete(self, secret: str) -> None:
         subprocess.run(

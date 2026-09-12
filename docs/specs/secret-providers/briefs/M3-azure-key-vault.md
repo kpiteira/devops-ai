@@ -18,9 +18,10 @@ blocking: uv run pytest tests/acceptance/secret_providers/test_m3_azure_key_vaul
 
 - Reference: `akv://<vault-name>/<secret-name>` → the current version's value;
   `akv://<vault-name>/<secret-name>/<version>` → that version.
-- Auth: whatever `az` is logged in as. `az` missing → error with install guidance;
-  not logged in → error saying `az login`; vault or secret not found, or access
-  denied → error naming the reference and the failure class (not found vs forbidden).
+- Auth: whatever `az` is logged in as. A missing secret → exit 1, stderr names the
+  reference and says not found. (Distinguishing not-logged-in and forbidden with
+  tailored guidance is advisory: those states cannot be produced by an acceptance
+  test without logging the developer out.)
 - Works with `ksecret read|run|check` and `[sandbox.secrets]` through the shared
   resolver.
 - README documents the scheme and that `az login` is the only prerequisite.
@@ -30,6 +31,7 @@ blocking: uv run pytest tests/acceptance/secret_providers/test_m3_azure_key_vaul
 | Job | Planner-authored test | Observable proof |
 |-----|-----------------------|------------------|
 | J7 | `test_m3_azure_key_vault.py::test_read_secret_from_real_vault` | A secret the test sets with `az keyvault secret set` reads back via `ksecret read akv://…`; the test deletes it afterwards. Skips unless `az account show` succeeds and `KSECRET_ACCEPTANCE_AKV_VAULT` is set |
+| J7 | `test_m3_azure_key_vault.py::test_versioned_reference_reads_that_version` | Two versions written; the bare reference reads the newest, `…/<version>` reads the pinned one |
 | J7 | `test_m3_azure_key_vault.py::test_missing_secret_names_ref_not_value` | Unknown secret name → exit 1, stderr names the reference and says not found |
 | J7 | `test_m3_azure_key_vault.py::test_run_and_check_accept_akv_refs` | `run` injects the value; `check` reports `ok` without it |
 | J7 | `test_m3_azure_key_vault.py::test_readme_documents_akv` | README names `akv://` and `az login` |
@@ -39,6 +41,8 @@ Plus the standing gates: `make check` exits 0.
 
 ## Advisory
 
+- Tailored guidance for `az` not logged in (`az login`) and for access denied,
+  classified from `az` stderr — worth doing, not testable without logging out.
 - Reading via the REST API with a token from `az account get-access-token` instead of
   one `az keyvault secret show` per secret — faster for many secrets, worth it only if
   it stays dependency-free.
