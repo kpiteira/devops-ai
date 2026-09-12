@@ -134,8 +134,11 @@ Plus the standing gates: `make check` exits 0.
   delete items titled `ksecret-acceptance-*` there and touch nothing else. Access is
   proven by querying the vault (`op item list --vault …`), which is also the access
   prompt Karl grants; `op whoami` is never used — it exits 1 on Karl's machine while
-  `op` works (M1 divergence 2026-09-12). A skip is legitimate only when Karl declines
-  the grant; a milestone whose only `op://` evidence is a skip is not delivered.
+  `op` works (M1 divergence 2026-09-12). The fixture skips, each with its reason,
+  when the CLI is missing, the grant does not arrive in time, or the vault is not
+  accessible. Of those only a declined grant is an acceptable skip (A3); any other
+  means the environment is broken and needs fixing, and a milestone whose only
+  `op://` evidence is a skip is not delivered.
 
 ## Decisions
 
