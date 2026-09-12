@@ -21,17 +21,27 @@ logger = logging.getLogger(__name__)
 DEFAULT_SLOTS_BASE = Path.home() / ".devops-ai" / "slots"
 
 
+def slot_dir_path(
+    project: str, slot_id: int, *, base: Path | None = None
+) -> Path:
+    """Where a slot's directory lives: ~/.devops-ai/slots/<project>-<slot_id>/.
+
+    Pure — computed before the slot is claimed, so nothing is written to a
+    directory another process may own.
+    """
+    return (base or DEFAULT_SLOTS_BASE) / f"{project}-{slot_id}"
+
+
 def create_slot_dir(
     project: str, slot_id: int, *, base: Path | None = None
 ) -> Path:
-    """Create slot directory at ~/.devops-ai/slots/<project>-<slot_id>/.
+    """Create the slot directory. Call only after the slot is claimed.
 
     A freshly allocated slot never inherits a previous occupant's secrets:
     if the directory survived an earlier teardown, its materialised
     ``.env.secrets`` is removed before anything else is written.
     """
-    base = base or DEFAULT_SLOTS_BASE
-    slot_dir = base / f"{project}-{slot_id}"
+    slot_dir = slot_dir_path(project, slot_id, base=base)
     slot_dir.mkdir(parents=True, exist_ok=True)
     (slot_dir / ".env.secrets").unlink(missing_ok=True)
     return slot_dir

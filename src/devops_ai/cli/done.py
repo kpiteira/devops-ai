@@ -9,6 +9,7 @@ from pathlib import Path
 from devops_ai import agent_deck
 from devops_ai.config import find_project_root, load_config
 from devops_ai.registry import (
+    DEFAULT_REGISTRY_PATH,
     get_slot_for_worktree,
     load_registry,
     release_slot,
@@ -26,6 +27,9 @@ from devops_ai.worktree import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Injectable so tests never touch ~/.devops-ai/registry.json
+REGISTRY_PATH = DEFAULT_REGISTRY_PATH
 
 # Matches the last hyphen before a milestone token (e.g., -M1, -M2, -Phase2)
 _MILESTONE_SEP_RE = re.compile(r"-(?=[A-Z]\w*$)")
@@ -118,7 +122,7 @@ def done_command(
         agent_deck.remove_session(session_title)
 
     # Check registry for sandbox slot
-    registry = load_registry()
+    registry = load_registry(REGISTRY_PATH)
     slot = get_slot_for_worktree(registry, wt.path)
 
     sandbox_warning = ""
@@ -147,7 +151,7 @@ def done_command(
                     f"volumes of {project} are gone; check "
                     f"`docker ps -a` / `docker volume ls`"
                 )
-        release_slot(registry, slot.slot_id)
+        release_slot(registry, slot.slot_id, REGISTRY_PATH)
 
     # Remove worktree
     try:

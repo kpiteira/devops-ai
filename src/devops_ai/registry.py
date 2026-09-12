@@ -11,6 +11,8 @@ import json
 import logging
 import os
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -142,6 +144,27 @@ class SlotClaimedError(RuntimeError):
     """The slot was claimed by another kinfra process between allocate and claim."""
 
 
+@contextmanager
+def _locked(path: Path) -> Iterator[Registry]:
+    """Exclusive lock on a sidecar file around a read-modify-write.
+
+    Yields the registry as it is ON DISK now — never a caller's snapshot,
+    which may predate another process's claim. The caller mutates the
+    yielded registry; it is saved on exit. ``save_registry`` alone is not
+    a lock: its flock is on a temp file nobody else opens.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(path.name + ".lock")
+    with open(lock_path, "w") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            current = load_registry(path)
+            yield current
+            save_registry(current, path)
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
 def claim_slot(
     registry: Registry, slot_info: SlotInfo, path: Path | None = None
 ) -> None:
@@ -149,36 +172,42 @@ def claim_slot(
 
     ``allocate_slot`` reads the registry without a lock, so two concurrent
     ``kinfra impl`` runs can pick the same free id. The claim re-reads the
-    registry under an exclusive lock on a sidecar file and refuses a slot
-    another worktree holds — the loser must allocate again. Re-claiming
-    for the same worktree is idempotent.
+    registry under the lock and refuses a slot another worktree holds — the
+    loser must allocate again. Re-claiming for the same worktree is
+    idempotent. The caller's ``registry`` is updated with this entry only.
     """
     path = path or DEFAULT_REGISTRY_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = path.with_name(path.name + ".lock")
-    with open(lock_path, "w") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        try:
-            current = load_registry(path)
-            held = current.slots.get(slot_info.slot_id)
-            if held is not None and held.worktree_path != slot_info.worktree_path:
-                raise SlotClaimedError(
-                    f"Slot {slot_info.slot_id} was claimed by another kinfra "
-                    f"process ({held.worktree_path}) — allocate again"
-                )
-            current.slots[slot_info.slot_id] = slot_info
-            save_registry(current, path)
-            registry.slots[slot_info.slot_id] = slot_info
-        finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    with _locked(path) as current:
+        held = current.slots.get(slot_info.slot_id)
+        if held is not None and held.worktree_path != slot_info.worktree_path:
+            raise SlotClaimedError(
+                f"Slot {slot_info.slot_id} was claimed by another kinfra "
+                f"process ({held.worktree_path}) — allocate again"
+            )
+        current.slots[slot_info.slot_id] = slot_info
+    registry.slots[slot_info.slot_id] = slot_info
+
+
+def update_slot_status(
+    registry: Registry, slot_id: int, status: str, path: Path | None = None
+) -> None:
+    """Set one slot's status on disk without touching other entries."""
+    path = path or DEFAULT_REGISTRY_PATH
+    with _locked(path) as current:
+        if slot_id in current.slots:
+            current.slots[slot_id].status = status
+    if slot_id in registry.slots:
+        registry.slots[slot_id].status = status
 
 
 def release_slot(
     registry: Registry, slot_id: int, path: Path | None = None
 ) -> None:
-    """Remove a slot from the registry and persist."""
+    """Remove a slot from the registry and persist, leaving others intact."""
+    path = path or DEFAULT_REGISTRY_PATH
+    with _locked(path) as current:
+        current.slots.pop(slot_id, None)
     registry.slots.pop(slot_id, None)
-    save_registry(registry, path)
 
 
 def get_slot_for_worktree(
@@ -192,10 +221,13 @@ def get_slot_for_worktree(
     return None
 
 
-def clean_stale_entries(registry: Registry) -> list[int]:
+def clean_stale_entries(
+    registry: Registry, path: Path | None = None, *, persist: bool = False
+) -> list[int]:
     """Remove entries where worktree or slot dir no longer exists.
 
-    Returns list of removed slot IDs.
+    Returns list of removed slot IDs. With ``persist`` the removal is also
+    written to disk under the lock, dropping only those ids.
     """
     stale: list[int] = []
     for slot_id, info in list(registry.slots.items()):
@@ -216,4 +248,8 @@ def clean_stale_entries(registry: Registry) -> list[int]:
             stale.append(slot_id)
     for slot_id in stale:
         del registry.slots[slot_id]
+    if persist and stale:
+        with _locked(path or DEFAULT_REGISTRY_PATH) as current:
+            for slot_id in stale:
+                current.slots.pop(slot_id, None)
     return stale

@@ -67,6 +67,7 @@ class TestFreshSlotRefusesADirtyLabel:
             patch("devops_ai.cli.impl.clean_stale_entries"),
             patch("devops_ai.cli.impl.allocate_slot",
                   return_value=(2, {"API_PORT": 8082})),
+            patch("devops_ai.cli.impl.slot_dir_path", return_value=slot_dir),
             patch("devops_ai.cli.impl.create_slot_dir", return_value=slot_dir),
             patch("devops_ai.cli.impl.copy_compose_to_slot",
                   return_value=slot_dir / "docker-compose.yml"),
@@ -86,3 +87,41 @@ class TestFreshSlotRefusesADirtyLabel:
         release.assert_called_once()
         rm_dir.assert_called_once_with(slot_dir)
         start.assert_not_called()
+
+
+class TestLosingClaimTouchesNothing:
+    def test_no_slot_dir_writes_before_a_successful_claim(
+        self, tmp_path: Path
+    ) -> None:
+        from unittest.mock import patch
+
+        from devops_ai.cli.impl import _setup_sandbox
+        from devops_ai.config import InfraConfig
+        from devops_ai.registry import Registry, SlotClaimedError
+
+        config = InfraConfig(
+            project_name="myproj", prefix="myproj", has_sandbox=True,
+            compose_file="docker-compose.yml",
+        )
+        (tmp_path / "docker-compose.yml").write_text("services: {}")
+        with (
+            patch("devops_ai.cli.impl.load_registry",
+                  return_value=Registry(version=1, slots={})),
+            patch("devops_ai.cli.impl.clean_stale_entries"),
+            patch("devops_ai.cli.impl.allocate_slot",
+                  return_value=(1, {"API_PORT": 8081})),
+            patch("devops_ai.cli.impl.claim_slot",
+                  side_effect=SlotClaimedError("Slot 1 was claimed")),
+            patch("devops_ai.cli.impl.slot_dir_path",
+                  return_value=tmp_path / "slot"),
+            patch("devops_ai.cli.impl.create_slot_dir") as mkdir,
+            patch("devops_ai.cli.impl.copy_compose_to_slot") as copy,
+            patch("devops_ai.cli.impl.force_cleanup_project") as cleanup,
+        ):
+            code, msg = _setup_sandbox(
+                config, tmp_path, tmp_path / "wt", "feat", "M1"
+            )
+        assert code == 1 and "claimed" in msg
+        mkdir.assert_not_called()
+        copy.assert_not_called()
+        cleanup.assert_not_called()

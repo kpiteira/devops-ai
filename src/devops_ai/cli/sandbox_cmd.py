@@ -20,7 +20,7 @@ from devops_ai.registry import (
     DEFAULT_REGISTRY_PATH,
     get_slot_for_worktree,
     load_registry,
-    save_registry,
+    update_slot_status,
 )
 from devops_ai.sandbox import (
     copy_compose_to_slot,
@@ -201,9 +201,10 @@ def _sandbox_up(
     except RuntimeError as e:
         return 1, f"Sandbox failed to {verb}: {e}"
 
-    # Mark slot as running
-    slot_info.status = "running"
-    save_registry(registry)
+    # Mark slot as running (locked; never rewrites other entries)
+    update_slot_status(
+        registry, slot_info.slot_id, "running", REGISTRY_PATH
+    )
 
     # Health gate
     healthy = run_health_gate(config, slot_info)

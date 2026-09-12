@@ -18,6 +18,7 @@ from devops_ai.provision import (
     resolve_all_secrets,
 )
 from devops_ai.registry import (
+    DEFAULT_REGISTRY_PATH,
     SlotClaimedError,
     SlotInfo,
     allocate_slot,
@@ -25,7 +26,7 @@ from devops_ai.registry import (
     clean_stale_entries,
     load_registry,
     release_slot,
-    save_registry,
+    update_slot_status,
 )
 from devops_ai.sandbox import (
     compose_project_name,
@@ -36,6 +37,7 @@ from devops_ai.sandbox import (
     generate_override,
     remove_slot_dir,
     run_health_gate,
+    slot_dir_path,
     start_sandbox,
 )
 from devops_ai.worktree import (
@@ -45,6 +47,9 @@ from devops_ai.worktree import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Injectable so tests never touch ~/.devops-ai/registry.json
+REGISTRY_PATH = DEFAULT_REGISTRY_PATH
 
 
 def parse_feature_milestone(arg: str) -> tuple[str, str]:
@@ -237,8 +242,8 @@ def _setup_sandbox(
     group: str = "dev",
 ) -> tuple[int, str]:
     """Set up sandbox for an impl worktree."""
-    registry = load_registry()
-    clean_stale_entries(registry)
+    registry = load_registry(REGISTRY_PATH)
+    clean_stale_entries(registry, REGISTRY_PATH, persist=True)
 
     # Allocate slot
     try:
@@ -246,13 +251,13 @@ def _setup_sandbox(
     except RuntimeError as e:
         return 1, f"Slot allocation failed: {e}"
 
-    # Create slot dir
-    slot_dir = create_slot_dir(config.project_name, slot_id)
-
-    # Claim slot
+    # Paths are computed, not created: nothing touches the slot directory
+    # until the claim below succeeds — a losing concurrent `impl` must not
+    # unlink the winner's secrets or overwrite its compose copy.
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    slot_dir = slot_dir_path(config.project_name, slot_id)
     compose_path = repo_root / config.compose_file
-    compose_copy = copy_compose_to_slot(compose_path, slot_dir)
+    compose_copy = slot_dir / compose_path.name
 
     slot_info = SlotInfo(
         slot_id=slot_id,
@@ -265,13 +270,17 @@ def _setup_sandbox(
         status="provisioning",
     )
     try:
-        claim_slot(registry, slot_info)
+        claim_slot(registry, slot_info, REGISTRY_PATH)
     except SlotClaimedError as e:
-        # The other process owns the slot dir now; touch nothing of it.
+        # The other process owns the slot dir; nothing of it was touched.
         return 1, (
             f"{e}.\n  Retry `kinfra done {feature}-{milestone}` then "
             f"`kinfra impl {feature}/{milestone}`."
         )
+
+    # Claimed: now the directory is ours to write
+    create_slot_dir(config.project_name, slot_id)
+    copy_compose_to_slot(compose_path, slot_dir)
 
     # A slot id can be reused after a crash left containers or volumes
     # labeled with its project name; compose up would reattach them. If the
@@ -279,7 +288,7 @@ def _setup_sandbox(
     # worse than no sandbox.
     project = compose_project_name(slot_info)
     if not force_cleanup_project(project):
-        release_slot(registry, slot_id)
+        release_slot(registry, slot_id, REGISTRY_PATH)
         remove_slot_dir(slot_dir)
         return 1, (
             f"Could not confirm a clean slot for {project}: containers or "
@@ -327,16 +336,16 @@ def _setup_sandbox(
         )
     except RuntimeError as e:
         # Cleanup: release slot, remove slot dir, keep worktree
-        release_slot(registry, slot_id)
+        release_slot(registry, slot_id, REGISTRY_PATH)
         remove_slot_dir(slot_dir)
         return 1, (
             f"Sandbox failed to start: {e}\n"
             f"  Worktree preserved at {wt_path}"
         )
 
-    # Mark slot as running now that containers are up
-    slot_info.status = "running"
-    save_registry(registry)
+    # Mark slot as running now that containers are up (locked: another
+    # process may have claimed a slot since this snapshot was read)
+    update_slot_status(registry, slot_id, "running", REGISTRY_PATH)
 
     # Health gate
     healthy = run_health_gate(config, slot_info)

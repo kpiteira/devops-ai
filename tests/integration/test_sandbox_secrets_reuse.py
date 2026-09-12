@@ -55,7 +55,7 @@ class TestStartCommandReusesMaterialisedSecrets:
             patch("devops_ai.cli.sandbox_cmd.start_sandbox"),
             patch("devops_ai.cli.sandbox_cmd.run_health_gate",
                   return_value=True),
-            patch("devops_ai.cli.sandbox_cmd.save_registry"),
+            patch("devops_ai.cli.sandbox_cmd.update_slot_status"),
         ):
             code, msg = command(worktree_path=wt, refresh_secrets=refresh)
         return code, msg, resolve
