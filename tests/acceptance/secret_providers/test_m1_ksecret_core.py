@@ -95,13 +95,16 @@ def test_read_failure_names_ref_not_value(project: Path) -> None:
     assert "KSECRET_T_UNSET" in r.err
 
 
-def test_read_refuses_without_print(project: Path) -> None:
-    """Printing a secret is always explicit: a bare `read` is a refusal, not a leak."""
+def test_read_without_print_confirms_only(project: Path) -> None:
+    """Printing a secret is always explicit: a bare `read` confirms, never leaks."""
     r = ksecret("read", "dotenv://.env#FROM_DOTENV", cwd=project, env=clean_env())
-    assert r.code == 2
-    assert r.out == ""
-    assert "--print" in r.err and "check" in r.err
-    assert SECRET not in r.err
+    assert r.code == 0, r.err
+    assert r.out.strip() == "ok dotenv://.env#FROM_DOTENV"
+    assert SECRET not in r.out and SECRET not in r.err
+
+    r = ksecret("read", "dotenv://.env#NOPE", cwd=project, env=clean_env())
+    assert r.code == 1 and r.out == ""
+    assert "NOPE" in r.err and SECRET not in r.err
 
 
 def test_read_op_reference(op_item: tuple[str, str], tmp_path: Path) -> None:

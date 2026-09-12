@@ -19,10 +19,11 @@ create` calls.
 
 - `ksecret check` reports which references resolve without ever printing a value;
   `ksecret run --env-file <file> -- <cmd>` executes a command with every `KEY=<ref>`
-  line resolved into its environment and writes nothing to disk; `ksecret read
-  --print <ref>` prints a value, and without `--print` it refuses — printing a
-  secret is always an explicit, visible choice (an agent that types `read` by habit
-  gets a refusal, not a leak).
+  line resolved into its environment and writes nothing to disk; `ksecret read <ref>`
+  resolves a reference and confirms it exists without printing it (exit 1 if it
+  does not); only `ksecret read --print <ref>` prints the value — printing a secret
+  is always an explicit, visible choice (an agent that types `read` by habit
+  gets a confirmation, not a leak).
 - Resolution happens where the credentials are: on the host, by `ksecret`, using the
   user's own `op` grant, `az login`, or Vault token. A service started through
   `ksecret run` receives values as environment variables and never talks to a vault
@@ -61,10 +62,12 @@ create` calls.
 
 - Other cloud vaults (AWS Secrets Manager, GCP Secret Manager): the provider shape
   must admit them; no code implements them.
-- In-container resolution — a service fetching its own secrets at runtime with a
-  bootstrap credential (Vault AppRole, Azure managed identity, a 1Password service
-  account). A separate feature; khealth on Container Apps already gets this from
-  managed identity plus Key Vault references, without ksecret.
+- Obtaining or rotating a *machine* credential for a provider — an AppRole login
+  flow for OpenBao, service-principal secret handling for Azure, issuing a 1Password
+  service-account token. Providers *use* whatever credential the environment already
+  holds (see Discovered context), so a container that has `ksecret` and a
+  platform-injected credential can resolve at startup; getting that credential into
+  the container is the platform's job (or a later feature), not this one's.
 - Instance-named schemes (`homelab://` mapped per user): the grammar leaves room; no
   alias layer ships.
 - Python/JS/Rust client libraries: the CLI is the contract; libraries come later.
@@ -91,6 +94,12 @@ create` calls.
   create … --format=json` (it then references the item by ID, since title references
   collide with archived items), and an `OP_ACCOUNT=` line in the env file that must
   reach the `op` process.
+- Every provider takes its credential from the environment: `op read` honors
+  `OP_SERVICE_ACCOUNT_TOKEN`, the OpenBao provider reads `BAO_TOKEN` / `VAULT_TOKEN`
+  (an AppRole-issued token works as-is), and the Azure provider uses whatever `az`
+  session exists (`az login --identity` on a VM or Container App with a managed
+  identity). In-container resolution therefore works with this feature's providers
+  wherever the platform supplies such a credential.
 - On the Lux VM, services already receive secrets as env files rendered by
   vault-agent from `kv/homelab/lux/*` — there, `dotenv://` and `$VAR` are the right
   references, not `bao://`.
