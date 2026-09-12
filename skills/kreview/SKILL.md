@@ -91,10 +91,13 @@ whether the reviewer is still reviewing the PR or has moved on to reviewing the 
 # boundary. --paginate runs the jq filter per page ("first" would be per-page too), so emit
 # every submitted review and pick in the shell (gh rejects --slurp together with --jq).
 # Run on the PR branch checkout: HEAD must be the PR head, or nothing is an ancestor.
+# A review commit the clone does not have (shallow checkout, unfetched history) is not a
+# non-ancestor — is-ancestor fails the same way for both — so it is reported, never skipped.
 FIRST_REVIEWED_SHA=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
   --jq '.[] | select(.state != "PENDING") | "\(.submitted_at) \(.commit_id)"' \
   | sort | while read -r ts sha; do
-      git merge-base --is-ancestor "$sha" HEAD 2>/dev/null && { echo "$sha"; break; }
+      git cat-file -e "$sha^{commit}" 2>/dev/null || { echo "MISSING $sha"; break; }
+      git merge-base --is-ancestor "$sha" HEAD && { echo "$sha"; break; }
     done)
 
 # Per finding: blame at the commit the comment was made against (originalCommit.oid,
@@ -102,8 +105,10 @@ FIRST_REVIEWED_SHA=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
 # touched the line would claim it and every old finding would look second-order.
 BLAME_SHA=$(git blame -L "$ORIGINAL_LINE,$ORIGINAL_LINE" --porcelain "$ORIGINAL_COMMIT" -- "$FILE" \
   2>/dev/null | head -1 | cut -d' ' -f1)
-if [ -z "$FIRST_REVIEWED_SHA" ] || [ -z "$BLAME_SHA" ]; then
-  echo "unknown (no submitted review, or blame failed: git fetch origin pull/$PR_NUMBER/head)"
+if [ -z "$FIRST_REVIEWED_SHA" ]; then echo "unknown (no reachable submitted review: none yet, or all pre-rebase)"
+elif [ "${FIRST_REVIEWED_SHA#MISSING}" != "$FIRST_REVIEWED_SHA" ]; then
+  echo "unknown (review commit ${FIRST_REVIEWED_SHA#MISSING } not in this clone: git fetch --unshallow, or fetch the PR head)"
+elif [ -z "$BLAME_SHA" ]; then echo "unknown (blame failed: git fetch origin pull/$PR_NUMBER/head)"
 elif git merge-base --is-ancestor "$BLAME_SHA" "$FIRST_REVIEWED_SHA"; then echo "original diff"
 elif git merge-base --is-ancestor "$FIRST_REVIEWED_SHA" "$BLAME_SHA"; then echo "review-fix commit"
 else echo "unknown (not in this PR's history: unrelated commit)"; fi
@@ -114,8 +119,10 @@ first reviewed head: a failed blame, a missing boundary, or a commit on neither 
 is **unknown**. A poller that cannot tell "I could not look" from "it is on a fix" would
 stop loops by accident. A rebase resets the boundary rather than breaking it: reviews whose
 commit is no longer in the current history are skipped, so the first post-rebase review
-becomes the boundary and every finding it raises reads as original — that round can never be
-second-order, which costs at most one round (the runaway loops cost ten). `kbabysit` still
+becomes the boundary and every line-anchored finding it raises reads as original — that
+round can never be second-order, which costs at most one round (the runaway loops cost ten).
+Until that first post-rebase review is submitted the boundary is empty ("no reachable
+submitted review"), which is not the same as "no review": the triage report says which. `kbabysit` still
 forbids force-pushing mid-loop, for the threads' sake. A line that pre-dates the PR blames to an
 ancestor of the first reviewed head too, so it counts as original: the reviewer is still
 looking at first-order code (scope decides whether it is this PR's). Findings without a
