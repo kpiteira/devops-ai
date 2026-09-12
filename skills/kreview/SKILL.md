@@ -90,6 +90,7 @@ whether the reviewer is still reviewing the PR or has moved on to reviewing the 
 # reviews from before it are skipped and the first review on the new history becomes the
 # boundary. --paginate runs the jq filter per page ("first" would be per-page too), so emit
 # every submitted review and pick in the shell (gh rejects --slurp together with --jq).
+# Run on the PR branch checkout: HEAD must be the PR head, or nothing is an ancestor.
 FIRST_REVIEWED_SHA=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
   --jq '.[] | select(.state != "PENDING") | "\(.submitted_at) \(.commit_id)"' \
   | sort | while read -r ts sha; do
