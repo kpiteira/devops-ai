@@ -236,7 +236,12 @@ def start_sandbox(
         logger.error("Sandbox start failed: %s", result.stderr)
         # Cleanup partial containers; volumes too when the slot is being
         # released (a stale volume blocks its next launch)
-        action = ["down", "--volumes"] if remove_volumes_on_failure else ["down"]
+        # --remove-orphans: compose exits 0 while keeping containers of
+        # services no longer in the model; they would collide with the next
+        # occupant of this slot
+        action = ["down", "--remove-orphans"]
+        if remove_volumes_on_failure:
+            action.append("--volumes")
         down_cmd = _compose_cmd(
             compose_file, override_file, env_files, action,
             project_name=project_name,
@@ -358,7 +363,8 @@ def stop_sandbox(slot: SlotInfo) -> bool:
     # named volumes go. A stale volume blocked a relaunch in the v2 pilot.
     project_name = compose_project_name(slot)
     cmd = _compose_cmd(
-        compose_file, override_file, env_files, ["down", "--volumes"],
+        compose_file, override_file, env_files,
+        ["down", "--remove-orphans", "--volumes"],
         project_name=project_name,
     )
     logger.info("Stopping sandbox: %s", " ".join(cmd))

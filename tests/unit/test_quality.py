@@ -797,3 +797,9 @@ class TestGuardLabelsItsOwnPaths:
         assert change_label(
             ".devops-ai/check_contract_integrity.py", "tests/acceptance"
         ) == guard
+        # A root configured over a guard directory does not relabel the guard
+        assert change_label(".github/workflows/ci.yml", ".github/workflows") == guard
+        assert change_label(
+            "./.devops-ai/check_contract_integrity.py", ".devops-ai"
+        ) == guard
+        assert change_label(".devops-ai/other.py", ".devops-ai") == contract

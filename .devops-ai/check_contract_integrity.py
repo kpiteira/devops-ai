@@ -68,9 +68,14 @@ def protected_path(path: str, root: str) -> bool:
 
 
 def change_label(path: str, root: str) -> str:
-    if contract_path(path, root):
-        return "Planner-owned contract file changed"
-    return "Contract guard file changed"
+    normalized = path.replace("\\", "/")
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+    # Guard paths first: an acceptance root configured over .github/ or
+    # .devops-ai/ must not relabel the guard's own files as contract files.
+    if normalized in GUARD_PATHS:
+        return "Contract guard file changed"
+    return "Planner-owned contract file changed"
 
 
 def changed_paths(diff: str) -> list[str]:

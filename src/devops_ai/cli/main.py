@@ -146,8 +146,10 @@ def obs_status() -> None:
 
 
 _REFRESH_HELP = (
-    "Re-resolve secrets even if the slot already has a materialised "
-    ".env.secrets (default: reuse it, so a rebuild never waits on a keychain)"
+    "Re-resolve secrets. By default the slot's materialised .env.secrets is "
+    "reused, so a restart normally needs no keychain prompt; secrets are "
+    "resolved anyway when nothing is materialised, the configured names "
+    "changed, or the file is unreadable"
 )
 
 

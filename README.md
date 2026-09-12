@@ -29,7 +29,7 @@ The workflow for a new feature — **rigid about outcomes, silent about paths**:
                    until the planner's blocking tests pass; escape valve for
                    contradictions; delivers the milestone as a PR
 
-3. Land         /kobserve verify 214 · /kobserve land 214
+3. Land         /kobserve verify <pr> · /kobserve land <pr>
                  → Independent re-run of the blocking tests, "For the human" put to
                    the human before merge; after his merge, spec row + teardown
 

@@ -129,7 +129,8 @@ class TestStartSandbox:
         # path and a transient failure must not destroy persisted state
         assert mock_run.call_count == 2
         down_cmd = mock_run.call_args_list[1][0][0]
-        assert down_cmd[-1] == "down"
+        assert "down" in down_cmd
+        assert "--remove-orphans" in down_cmd
         assert "--volumes" not in down_cmd
 
 
@@ -342,7 +343,7 @@ class TestStopRemovesVolumes:
             mock_run.return_value = MagicMock(returncode=0, stderr="")
             assert stop_sandbox(slot) is True
         cmd = mock_run.call_args_list[0][0][0]
-        assert cmd[-2:] == ["down", "--volumes"]
+        assert cmd[-3:] == ["down", "--remove-orphans", "--volumes"]
         assert cmd[cmd.index("-p") + 1] == "p-slot-2"
 
 
@@ -414,7 +415,7 @@ class TestStartFailureFallsBackToLabels:
             else:
                 raise AssertionError("start_sandbox should raise on a failed up")
         cmds = [c[0][0] for c in mock_run.call_args_list]
-        assert cmds[1][-2:] == ["down", "--volumes"]
+        assert cmds[1][-3:] == ["down", "--remove-orphans", "--volumes"]
         assert cmds[2][:3] == ["docker", "ps", "-a"]
         assert cmds[6] == ["docker", "volume", "rm", "-f", "myproj-slot-1_data"]
 

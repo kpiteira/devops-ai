@@ -143,7 +143,8 @@ to — an executor hit the escape valve and reported without classifying. Classi
 is yours; so is skepticism.
 
 1. **Verify the report against the code.** Executors can be wrong too — reproduce the
-   contradiction on a running stack before acting on it.
+   contradiction before acting on it: on a running stack for a runtime claim, in the
+   code and tests for a static one.
 2. **Classify and act:**
    - **False fact** in the spec → correct the spec.
    - **Untenable decision** → switch to `replan` for the affected milestones.
