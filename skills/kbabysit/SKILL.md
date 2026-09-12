@@ -130,7 +130,9 @@ auto-review repos the push already triggered it).
   none unknown). The reviewer has nothing left to say about the PR and is now reviewing the
   previous round. Disposition and implement the round as usual — a defect in a fix is still
   a defect — then **this is the last round**: do not re-request. The fix commits since the
-  last review get a `kselfreview` pass instead of another paid round; that is what covers
+  last review get a `kselfreview <last-reviewed-sha>..HEAD` pass instead of another paid
+  round (the range is the argument, never the bare form, which would sweep in the working
+  tree); that is what covers
   the one real risk of stopping here, an unreviewed fix. If `kselfreview` is not available
   where the loop runs, the report says so, names the unreviewed fix commits, and the verdict
   is ⚠️ needs human decision — never merge-ready. Measured: this fires at the 6th of

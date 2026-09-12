@@ -2,7 +2,7 @@
 name: kselfreview
 description: Adversarial pass over your OWN uncommitted or unpushed work before spending an external review round. Four interrogations drawn from measured failure classes — falsify every check, source every factual claim, run every procedure twice, re-examine closed findings. Finds the defects a diff-reading reviewer structurally cannot.
 metadata:
-  version: "0.1.0"
+  version: "0.1.1"
 ---
 
 # kselfreview — interrogate your own work before anyone else does
@@ -29,11 +29,27 @@ The governing observation:
 
 ## 0. Scope the pass
 
+The invocation decides the scope; the commands follow it, not the other way round.
+There are two forms and they do not mix:
+
 ```bash
-BASE=$(git merge-base HEAD origin/main 2>/dev/null || echo main)
-git diff --stat "$BASE"...HEAD
-git status --porcelain
+# /kselfreview <rev-range>   — exactly those commits; the working tree is out of scope
+git diff --stat <rev-range>
 ```
+
+```bash
+# /kselfreview               — everything not yet on the base branch
+BASE=$(git merge-base HEAD origin/main 2>/dev/null || echo main)
+git diff --stat "$BASE"                    # committed + staged + unstaged, in one diff against the merge base
+git ls-files --others --exclude-standard   # untracked: no diff exists, read each file in full
+```
+
+`git diff "$BASE"` with no second revision compares the merge base to the **working
+tree**, so a fix left staged or unstaged is in the pass, not just what `HEAD` holds.
+Untracked files have no diff to read: open them. An untracked path that is not part of
+this work (someone else's WIP in the same checkout) is named in the report as excluded,
+never silently skipped — the report must say what the pass did not look at. Gitignored
+files are not listed and not reviewed: they cannot reach the PR, so they are not the work.
 
 Enumerate, before reading any code:
 - Every **check** introduced: alert rule, assertion, guard, validation, test, exit-code check, health probe, retry condition, monitor.
