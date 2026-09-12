@@ -1,20 +1,23 @@
 ---
 name: kbabysit
-description: Drive a PR from ready-for-review to merge-ready — request Copilot review, wait for it, triage and address comments via kreview, re-request, and loop until another round adds no value. Ends with a TL;DR report. Never merges, never triggers Claude reviews.
+description: Drive a PR from ready-for-review to merge-ready — request Copilot review, wait for it, triage and address comments via kreview against the PR's written review scope, re-request, and stop when the reviewer has finished with the PR (not with the fixes). Ends with a TL;DR report. Never merges, never triggers Claude reviews.
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # kbabysit — babysit a PR to merge-ready
 
 Orchestrates the review loop for one PR: request reviews → wait → triage/address (via
-`kreview`) → decide on re-review → repeat. The loop ends when reviewing stops adding value,
-not when reviewers stop talking — an empty round and a round of pure nitpicks both mean done.
+`kreview`) → decide on re-review → repeat. The loop ends when the reviewer has finished
+reviewing **the PR**. A reviewer never stops finding things; after a few rounds it is
+reviewing the previous round's fix, and each fix invites the next finding. Two loops ran
+13 and 11 paid rounds that way on 2026-09-12, every finding true, most of them outside
+what the PR was for. Truth is not the axis; scope is.
 
 ```
 /kbabysit                # PR for the current branch
 /kbabysit <pr-number>
-/kbabysit <pr-number> max-rounds: 5   # override the round cap (default 3, applied in step 4)
+/kbabysit <pr-number> max-rounds: 5   # raise the round budget (default 3, applied in step 4)
 ```
 
 **End state:** merge-ready (or explicitly blocked) + a detailed report with TL;DR. This skill
@@ -38,6 +41,20 @@ gh pr view "$PR_NUMBER" --json state,isDraft,mergeable,headRefName,baseRefName,s
 
 - PR closed/merged → report and stop.
 - Draft → mark ready (`gh pr ready`) only if the work is actually complete; otherwise stop.
+- **Review scope present → else stop.** The PR body must carry a `## Review scope` section:
+  the outcomes this PR delivers, in the author's words, one line each (a milestone PR lists
+  the brief's jobs). Every finding in every round is judged against it, and a stranger
+  reading the report can check that judgement.
+
+  ```bash
+  gh pr view "$PR_NUMBER" --json body -q '.body' | grep -q '^## Review scope' \
+    || echo "no Review scope section in the PR body"
+  ```
+
+  If it is missing, **stop and say what is missing** — the section's name, what goes in it,
+  and that the loop starts once the author adds it. kbabysit never writes it: a scope
+  derived from the diff makes everything in the diff in scope by construction, including
+  whatever later rounds add, and the fence is gone before the first round.
 - **CI red → fix CI first.** Reviewers reviewing broken code wastes a round. Diagnose, fix,
   push, wait for green, then start the loop.
 - Detect the repo's review automation so you don't double-request:
@@ -76,9 +93,11 @@ the loop on a reviewer that never comes.
 ## 3. Triage and address — one kreview round
 
 Run `kreview` in **autonomous mode** for this round. It fetches the full review surface
-(review bodies, threads with resolved/outdated state, issue comments, CI), triages each new
-comment IMPLEMENT / PUSH BACK / DISCUSS, implements what's real with gates green, replies to
-every thread, resolves handled ones, pushes, and returns a round report.
+(review bodies, threads with resolved/outdated state, issue comments, CI), gives each new
+finding its **provenance** (on the PR's original diff, or on a review-fix commit) and one of
+four dispositions — IMPLEMENT / PUSH BACK / DISCUSS / OUT OF SCOPE — implements what's real
+and in scope with gates green, files an issue for each out-of-scope finding, replies to every
+thread, resolves handled ones, pushes, and returns a round report.
 
 The babysitter's own rules on top:
 
@@ -94,29 +113,54 @@ The babysitter's own rules on top:
 
 ## 4. Loop or stop
 
-After each round, decide:
+After each round, decide. The signals below are facts the round report carries, not
+impressions; the report names which one fired.
 
-**Request another round only if** the round changed code substantively (new logic, changed
-behavior, refactors — not typo/comment fixes). Then go to step 1 for the reviewers whose
-feedback prompted changes (in auto-review repos the push already triggered it).
+**Request another round only if** the round implemented something substantive (new logic,
+changed behavior, refactors — not typo/comment fixes) **and** none of the stop conditions
+below holds. Then go to step 1 for the reviewers whose feedback prompted changes (in
+auto-review repos the push already triggered it).
 
-**Stop — converged** when any of:
-- The round produced **zero IMPLEMENT items** (all feedback was push-backs, nitpicks, or
-  repeats of prior rounds).
-- Reviewers returned no new comments, or approved.
+**Stop — the reviewer has finished with the PR** when any of:
+- **Second-order round:** the round has at least one line-anchored finding and every one of
+  them sits on a review-fix commit (provenance from `kreview`: none on the original diff,
+  none unknown). The reviewer has nothing left to say about the PR and is now reviewing the
+  previous round. Disposition and implement the round as usual — a defect in a fix is still
+  a defect — then **this is the last round**: do not re-request. The fix commits since the
+  last review get a `kselfreview` pass instead of another paid round; that is what covers
+  the one real risk of stopping here, an unreviewed fix. Measured: this fires at the 6th of
+  14 Copilot reviews on devops-ai #27 and the 7th of 11 on homelab #18. Provenance that
+  `kreview` reports as unknown (blame failed, or the branch was rebased since the first
+  review) never fires this rule — an unknown is not a second-order finding.
+- **No in-scope IMPLEMENT items:** the round's findings were all push-backs, out-of-scope
+  (now issues), repeats, or nitpicks.
+- Reviewers returned no new findings, or approved. A round of review-level remarks with no
+  line-anchored finding counts as no new findings.
 - New comments only re-raise points already handled — reply linking the prior reasoning
   (kreview's cross-round memory), then stop. Copilot is *documented* to repeat comments on
   re-review even when threads were resolved or dismissed — the disposition ledger is the only
   defense, and "same findings twice" is the fixed point that means done.
 
 **Stop — escalate** when any of:
-- **Round cap reached** (default 3 full rounds). Non-convergence after 3 rounds means the
-  disagreement is real; grinding won't fix it.
+- **Round budget reached** (default 3 full rounds, `max-rounds:` raises it). Non-convergence
+  within the budget means the disagreement is real; grinding won't fix it. The budget is the
+  human's money; raising it changes **only** the budget — scope, provenance, and the
+  second-order rule apply exactly as before. "Remove the cap and keep going" read as "run
+  until zero findings" is how one loop reached round 13.
 - Open **DISCUSS** items exist that block merge-readiness.
 - CI can't be brought green within the loop's scope.
 
+**Stopping is a state, not a mood.** Once the report (step 5) is posted, this session
+requests no further review on this PR. Continuing takes the human's explicit words in this
+session, and when they come, every rule in this step still applies. A loop that posted
+"stopping here" and then ran eight more rounds before merge is the failure this sentence
+exists for. A review that arrives unrequested after the stop (auto-review on the
+`kselfreview` fix push) is still owned: triage it under the same rules, append to the
+report, and do not re-request.
+
 Rounds are counted per babysit run; a re-invocation on the same PR starts fresh but inherits
-thread history (kreview reads prior replies, so push-backs stay remembered).
+thread history (kreview reads prior replies, so push-backs stay remembered) and the same
+review scope.
 
 ## 5. Report
 
@@ -125,14 +169,14 @@ Post the final report as a PR comment (durable record) **and** present it in cha
 ```markdown
 ## Babysit report — PR #N
 
-**TL;DR:** <2-3 sentences: rounds run, what materially improved, final state —
-merge-ready / needs decision on X / blocked on Y.>
+**TL;DR:** <2-3 sentences: rounds run, findings / implemented / pushed back / out of scope,
+what materially improved, final state — merge-ready / needs decision on X / blocked on Y.>
 
 **Verdict:** ✅ merge-ready | ⚠️ needs human decision | ❌ blocked
 
 ### Rounds
-| Round | Reviewers | New comments | Implemented | Pushed back | Discuss | Commits |
-|-------|-----------|--------------|-------------|-------------|---------|---------|
+| Round | Reviewers | Findings | On original diff | On fix commits | Implemented | Pushed back | Out of scope | Discuss | Commits |
+|-------|-----------|----------|------------------|----------------|-------------|-------------|--------------|---------|---------|
 
 ### What changed because of review
 - <material improvement, one line each — the value the loop added>
@@ -140,15 +184,25 @@ merge-ready / needs decision on X / blocked on Y.>
 ### Pushed back (with reasoning available in-thread)
 - <gist — link to thread>
 
+### Out of scope → issues
+- <gist — issue link — which scope outcome it does not serve>
+
 ### Open for you (DISCUSS)
 - <decision needed + the trade-off, enough context to decide without scrolling back>
 
-**Why the loop stopped:** <converged / cap / escalation — one line>
-**CI:** green/red · **Merge conflicts:** none/yes
+**Why the loop stopped:** <second-order round / no in-scope IMPLEMENT / no new findings /
+repeats / budget / DISCUSS blocks / CI — one line naming the signal>
+**Push-backs:** N of M findings · **CI:** green/red · **Merge conflicts:** none/yes
+**Fix commits since last review:** <shas> · **kselfreview on them:** done / n/a
 ```
 
 The "what changed" section is the honest measure of the loop: if it's empty after round 1,
 say so — that's a signal the pre-PR gates are doing their job, not a failure of the loop.
+
+The **push-back count is reported, never gated.** A PR can legitimately draw only true
+findings. But many findings and zero push-backs across a run is a loop where judgement was
+not exercised, and the human should see that number without asking: one runaway loop
+pushed back 3 of 25 findings (all in its last round), the other 0 of about 65.
 
 ---
 
@@ -160,11 +214,18 @@ say so — that's a signal the pre-PR gates are doing their job, not a failure o
   no subscribing, no re-enabling or re-running Claude review workflows — these are expensive
   and have caused runaway costs. If one fires anyway from leftover automation, triage its
   output like any other comments, but flag the still-active automation in the report.
-- **Rounds cost real money** — Copilot reviews burn credits/Actions minutes. The round cap is
-  a budget control, not just a convergence heuristic; don't spend a round on a re-review
+- **Rounds cost real money** — Copilot reviews burn credits/Actions minutes. The round budget
+  is a budget control, not just a convergence heuristic; don't spend a round on a re-review
   nothing warranted.
+- **True is not the same as in scope.** A real defect outside the PR's review scope is an
+  issue with a link, never a commit on this branch. The loop that implemented every true
+  finding rewrote a registry's concurrency model inside a contract-prose PR.
+- **One kind of change per PR** is hygiene, not a gate: both runaway loops mixed prose with
+  code. In one the prose converged by round 4 and every later round landed on the code; in
+  the other the late rounds reviewed a deploy procedure embedded in a plan document. If a
+  PR mixes them, expect it, and let the scope block name which outcomes the code serves.
 - Timebox waiting (step 2); a stalled reviewer never blocks the report.
 - If the same reviewer flip-flops across rounds (suggests X, then suggests reverting X),
   freeze that file's feedback as DISCUSS and note the oscillation in the report.
-- Three rounds without convergence is information, not an obstacle to push through — stop and
-  hand the human a crisp decision.
+- A budget exhausted without convergence is information, not an obstacle to push through —
+  stop and hand the human a crisp decision.

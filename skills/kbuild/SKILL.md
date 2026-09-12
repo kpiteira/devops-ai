@@ -116,7 +116,9 @@ never a long-lived feature branch:
   M<N>` — so the gate knows which acceptance tests to run: this milestone's blocking
   criteria, plus the standing checks. Include the blocking commands and their final
   green output, and the three sections above — **Decisions I made alone**, **For the
-  human**, **Facts I corrected** — each present even when it says "none".
+  human**, **Facts I corrected** — each present even when it says "none". Add a
+  `## Review scope` section listing the brief's jobs, one line each: `kbabysit` judges
+  every review finding against it and will not start without it.
 - **You own the PR's review rounds** (`/kbabysit`) until it is merge-ready or you hand
   it off explicitly. When a rebase changes SHAs, replies cite what changed, not only a
   commit; every handled thread is resolved.
