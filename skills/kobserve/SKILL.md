@@ -72,13 +72,22 @@ whose dependencies are `delivered`.
    git -C <repo> fetch origin main
    git -C <repo> worktree add --detach "$SCRATCH/main-bookkeeping" origin/main
    # …edit, commit…
-   until git -C "$SCRATCH/main-bookkeeping" push origin HEAD:main; do
-     git -C "$SCRATCH/main-bookkeeping" pull --rebase origin main || break
+   pushed=false
+   for attempt in 1 2 3; do
+     if git -C "$SCRATCH/main-bookkeeping" push origin HEAD:main; then pushed=true; break; fi
+     git -C "$SCRATCH/main-bookkeeping" fetch origin main \
+       && git -C "$SCRATCH/main-bookkeeping" rebase origin/main || break
    done
-   git -C <repo> worktree remove "$SCRATCH/main-bookkeeping"
+   if [ "$pushed" = true ]; then
+     git -C <repo> worktree remove "$SCRATCH/main-bookkeeping"
+   else
+     echo "bookkeeping NOT pushed — worktree kept at $SCRATCH/main-bookkeeping"; exit 1
+   fi
    ```
    Parallel milestones mean parallel observers: a non-fast-forward push is
-   expected, hence the rebase-and-retry. Tear down only after the push landed.
+   expected, hence the fetch-rebase-retry. The worktree is removed only after the
+   push landed; on a conflict or a dead network it stays, with the commit in it,
+   and nothing is torn down.
    The pilot's observer once switched the checkout a triage planner was working in;
    staged edits rode along.
 

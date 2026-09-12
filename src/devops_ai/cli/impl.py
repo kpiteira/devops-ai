@@ -265,8 +265,21 @@ def _setup_sandbox(
     claim_slot(registry, slot_info)
 
     # A slot id can be reused after a crash left containers or volumes
-    # labeled with its project name; compose up would reattach them.
-    force_cleanup_project(compose_project_name(slot_info))
+    # labeled with its project name; compose up would reattach them. If the
+    # clean state cannot be confirmed, stop: a sandbox on a dirty slot is
+    # worse than no sandbox.
+    project = compose_project_name(slot_info)
+    if not force_cleanup_project(project):
+        release_slot(registry, slot_id)
+        remove_slot_dir(slot_dir)
+        return 1, (
+            f"Could not confirm a clean slot for {project}: containers or "
+            f"volumes with that label remain, or docker could not list "
+            f"them. Check `docker ps -a --filter label=com.docker.compose."
+            f"project={project}` / `docker volume ls --filter label=com."
+            f"docker.compose.project={project}`, remove what is there, and "
+            f"retry `kinfra impl`.\n  Worktree preserved at {wt_path}"
+        )
 
     # Generate files
     generate_env_file(config, slot_info, slot_dir)
