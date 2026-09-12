@@ -195,6 +195,36 @@ class TestUnreadableFiles:
             resolve("K", "$ABSENT", ctx(tmp_path))
 
 
+class TestTheToolIsFoundOnThePathTheChildWillUse:
+    """Discovery and exec must agree: the child resolves on ctx.env's PATH."""
+
+    @staticmethod
+    def _fake_op(directory: Path, value: str) -> None:
+        program = directory / "op"
+        program.write_text(f'#!/bin/sh\nprintf %s {value!r}\n')
+        program.chmod(0o755)
+
+    def test_a_tool_only_on_the_context_path_is_found_and_run(
+        self, tmp_path: Path
+    ) -> None:
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        self._fake_op(bin_dir, "value-from-the-context-path")
+
+        context = ResolveContext(base_dir=tmp_path, env={"PATH": str(bin_dir)})
+        assert (
+            resolve("K", "op://v/i/f", context) == "value-from-the-context-path"
+        ), "the provider searched a different PATH than the child would use"
+
+    def test_a_context_without_a_path_reports_missing_rather_than_crashing(
+        self, tmp_path: Path
+    ) -> None:
+        """os.defpath is what exec falls back to; discovery must use it too."""
+        context = ResolveContext(base_dir=tmp_path, env={})
+        with pytest.raises(SecretResolutionError, match="not found"):
+            resolve("K", "op://v/i/f", context)
+
+
 # --- Discovery ---
 
 

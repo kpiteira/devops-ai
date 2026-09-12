@@ -51,6 +51,46 @@ def test_the_same_value_does_reach_a_healthy_child(tmp_path: Path) -> None:
     assert result.stdout.strip() == VALUE
 
 
+def test_an_env_file_is_read_as_utf8_under_a_non_utf8_locale(
+    tmp_path: Path,
+) -> None:
+    """`read_text()` without an encoding follows the locale, not the promise.
+
+    Only a real non-UTF-8 environment distinguishes the two, so this runs the
+    console script with the C locale and Python's UTF-8 mode off.
+    """
+    accented = "caf\u00e9-\u00fcber"
+    (tmp_path / ".env").write_text(f"K={accented}\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env.update(LC_ALL="C", LANG="C", PYTHONUTF8="0", PYTHONCOERCECLOCALE="0")
+    result = subprocess.run(
+        ["uv", "run", "--project", str(ROOT), "ksecret",
+         "read", "--print", "--no-newline", "dotenv://.env#K"],
+        cwd=tmp_path, env=env, capture_output=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    assert result.stdout.decode("utf-8") == accented, "read as UTF-8, written as UTF-8"
+
+
+def test_a_check_error_line_survives_a_non_utf8_locale(tmp_path: Path) -> None:
+    """The em dash in a check line is not the operator's codec's business."""
+    (tmp_path / ".env").write_text("K=v\n")
+    (tmp_path / "refs.env").write_text("BAD=dotenv://.env#NOPE\n")
+
+    env = os.environ.copy()
+    env.update(LC_ALL="C", LANG="C", PYTHONUTF8="0", PYTHONCOERCECLOCALE="0")
+    result = subprocess.run(
+        ["uv", "run", "--project", str(ROOT), "ksecret",
+         "check", "--env-file", "refs.env"],
+        cwd=tmp_path, env=env, capture_output=True, timeout=120,
+    )
+    assert result.returncode == 1, result.stderr.decode("utf-8", "replace")
+    out = result.stdout.decode("utf-8")
+    assert out.startswith("BAD: error")
+    assert "Traceback" not in result.stderr.decode("utf-8", "replace")
+
+
 def _ksecret(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["uv", "run", "--project", str(ROOT), "ksecret", *args],

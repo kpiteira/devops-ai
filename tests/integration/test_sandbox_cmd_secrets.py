@@ -8,6 +8,7 @@ integration test; only the Docker call is faked.
 from __future__ import annotations
 
 import json
+import stat
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -56,6 +57,35 @@ def test_a_reference_with_nowhere_to_resolve_fails_before_docker(
     assert "DB_PASSWORD" in msg
     docker.assert_not_called()
     assert not (slot_dir / ".env.secrets").exists()
+
+
+def test_a_reused_secrets_file_is_tightened_before_the_sandbox_starts(
+    tmp_path: Path,
+) -> None:
+    """Mode at the moment compose reads it is what matters, not mode afterwards."""
+    main_repo, worktree = _main_repo_with_worktree(tmp_path)
+    registry_path, slot_dir = _registry_with_slot(tmp_path, worktree)
+
+    # A slot materialised before the mode was enforced: same names, mode 644.
+    legacy = slot_dir / ".env.secrets"
+    legacy.write_text(f"DB_PASSWORD={SECRET}\n")
+    legacy.chmod(0o644)
+
+    seen: dict[str, int] = {}
+
+    def record_mode(*_args: object, **_kwargs: object) -> None:
+        seen["mode"] = stat.S_IMODE(legacy.stat().st_mode)
+
+    with (
+        patch("devops_ai.cli.sandbox_cmd.REGISTRY_PATH", registry_path),
+        patch("devops_ai.cli.sandbox_cmd.start_sandbox", side_effect=record_mode),
+        patch("devops_ai.cli.sandbox_cmd.run_health_gate", return_value=True),
+    ):
+        code, msg = sandbox_start_command(worktree_path=worktree)
+
+    assert code == 0, msg
+    assert seen["mode"] == 0o600, "compose read the file while it was still 0644"
+    assert legacy.read_text() == f"DB_PASSWORD={SECRET}\n", "reuse, not re-resolve"
 
 
 def _main_repo_with_worktree(tmp_path: Path) -> tuple[Path, Path]:

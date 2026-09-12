@@ -60,9 +60,9 @@ def read(
         raise typer.Exit(1) from None
 
     if print_value:
-        sys.stdout.write(value if no_newline else f"{value}\n")
+        _emit(value if no_newline else f"{value}\n")
     else:
-        sys.stdout.write(f"ok {_label(ref)}\n")
+        _emit(f"ok {_label(ref)}\n")
     raise typer.Exit(0)
 
 
@@ -144,7 +144,7 @@ def check(
         results += _check_infra()
 
     for result in results:
-        sys.stdout.write(f"{result.format()}\n")
+        _emit(f"{result.format()}\n")
     raise typer.Exit(1 if any(r.status == ERROR for r in results) else 0)
 
 
@@ -166,6 +166,22 @@ def _check_infra() -> list[CheckResult]:
         check_ref(key, config.secrets[key], context)
         for key in sorted(config.secrets)
     ]
+
+
+def _emit(text: str) -> None:
+    """Write to stdout as UTF-8, whatever the locale claims.
+
+    `ksecret` runs where the locale is often C — containers, cron, CI — and a
+    secret is bytes, not text in the operator's codec. Going through stdout's
+    own encoder raises `UnicodeEncodeError` there on a non-ASCII value, and on
+    the em dash in a `check` line.
+    """
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:  # a captured stream with no byte layer
+        sys.stdout.write(text)
+        return
+    buffer.write(text.encode("utf-8"))
+    buffer.flush()
 
 
 def _label(ref: str) -> str:
