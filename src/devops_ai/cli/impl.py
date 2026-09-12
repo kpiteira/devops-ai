@@ -264,7 +264,9 @@ def _setup_sandbox(
     secret_errors: list[SecretResolutionError] = []
     resolved_secrets: dict[str, str] = {}
     if config.secrets:
-        resolved_secrets, secret_errors = resolve_all_secrets(config.secrets)
+        resolved_secrets, secret_errors = resolve_all_secrets(
+            config.secrets, repo_root
+        )
 
     all_errors: list[SecretResolutionError | FileProvisionError] = (
         file_errors + secret_errors  # type: ignore[operator]

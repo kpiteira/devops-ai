@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -262,3 +263,57 @@ class TestProvisionFilesPathTraversal:
         )
         assert len(errors) == 1
         assert "escapes worktree" in errors[0].message
+
+
+# --- kinfra's side of resolution: the main repo root, and a 0600 secrets file ---
+
+
+class TestResolvesAgainstTheMainRepoRoot:
+    """Gitignored files live in the main repo, not in the worktree (A5)."""
+
+    def test_dotenv_reference_is_relative_to_the_given_root(
+        self, tmp_path: Path
+    ) -> None:
+        main_repo = tmp_path / "main"
+        main_repo.mkdir()
+        (main_repo / ".env").write_text("FROM_FILE=file-value\n")
+
+        assert (
+            resolve_secret("K", "dotenv://.env#FROM_FILE", main_repo)
+            == "file-value"
+        )
+
+    def test_env_fallback_reads_the_root_s_env_file(self, tmp_path: Path) -> None:
+        main_repo = tmp_path / "main"
+        main_repo.mkdir()
+        (main_repo / ".env").write_text("FALLBACK=file-value\n")
+
+        with patch.dict(os.environ, {}, clear=True):
+            resolved, errors = resolve_all_secrets(
+                {"FALLBACK": "$FALLBACK"}, main_repo
+            )
+        assert errors == []
+        assert resolved == {"FALLBACK": "file-value"}
+
+    def test_unreachable_root_fails_with_the_key_named(self, tmp_path: Path) -> None:
+        resolved, errors = resolve_all_secrets(
+            {"FROM_FILE": "dotenv://.env#FROM_FILE"}, tmp_path
+        )
+        assert resolved == {}
+        assert [e.var_name for e in errors] == ["FROM_FILE"]
+        assert errors[0].message.startswith("FROM_FILE: ")
+
+
+class TestSecretsFilePermissions:
+    def test_file_is_only_readable_by_its_owner(self, tmp_path: Path) -> None:
+        path = generate_secrets_file({"TOKEN": "secret-val"}, tmp_path)
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+    def test_rewriting_an_open_file_tightens_its_mode(self, tmp_path: Path) -> None:
+        existing = tmp_path / ".env.secrets"
+        existing.write_text("STALE=old\n")
+        existing.chmod(0o644)
+
+        path = generate_secrets_file({"TOKEN": "secret-val"}, tmp_path)
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert path.read_text() == "TOKEN=secret-val\n"
