@@ -53,7 +53,9 @@ whose dependencies are `delivered`.
    `/kbuild <feature>/M<N>` to the new session (bounded: kinfra's agent-deck calls time
    out after 60 s rather than hang, and kinfra says so if the kickoff was not
    delivered — then send it yourself). Where the project has a sandbox, follow with one
-   message carrying its facts (`kinfra status`: slot, ports) — sent from the
+   message carrying its facts (`kinfra status` **run inside the executor's worktree**,
+   the path `kinfra impl` printed — from the observer's checkout it reports no
+   sandbox: slot, ports) — sent from the
    background, since `agent-deck session send` blocks while the target is busy; a
    project without a sandbox has no such facts and the brief's Working environment is
    the whole environment. Nothing the harness

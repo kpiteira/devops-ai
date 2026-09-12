@@ -27,6 +27,7 @@ class TestImplAutoStart:
             patch("devops_ai.cli.impl.generate_env_file"),
             patch("devops_ai.cli.impl.generate_override"),
             patch("devops_ai.cli.impl.start_sandbox"),
+            patch("devops_ai.cli.impl.force_cleanup_project", return_value=True),
             patch("devops_ai.cli.impl.run_health_gate", return_value=True),
             patch(
                 "devops_ai.cli.impl.ObservabilityManager"
@@ -69,6 +70,7 @@ class TestImplAutoStart:
             patch("devops_ai.cli.impl.generate_env_file"),
             patch("devops_ai.cli.impl.generate_override"),
             patch("devops_ai.cli.impl.start_sandbox"),
+            patch("devops_ai.cli.impl.force_cleanup_project", return_value=True),
             patch("devops_ai.cli.impl.run_health_gate", return_value=True),
             patch(
                 "devops_ai.cli.impl.ObservabilityManager"

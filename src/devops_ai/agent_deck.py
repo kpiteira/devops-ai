@@ -48,11 +48,12 @@ def _run_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(
             cmd, returncode=1, stdout="", stderr="timed out"
         )
-    if result.returncode != 0 and result.stderr:
+    if result.returncode != 0:
         logger.warning(
-            "agent-deck command failed: %s — %s",
+            "agent-deck command failed (rc=%s): %s — %s",
+            result.returncode,
             " ".join(cmd),
-            result.stderr.strip(),
+            result.stderr.strip() or "(no output)",
         )
     return result
 

@@ -280,3 +280,34 @@ class TestCleanStale:
         removed = clean_stale_entries(reg)
         assert 1 in reg.slots
         assert len(removed) == 0
+
+
+class TestClaimIsAtomic:
+    def _info(self, slot_id: int, wt: str) -> SlotInfo:
+        return SlotInfo(
+            slot_id=slot_id, project="p", worktree_path=wt, slot_dir="/s",
+            compose_file_copy="", ports={}, claimed_at="", status="provisioning",
+        )
+
+    def test_second_claimant_is_refused(self, tmp_path) -> None:
+        """Two processes allocate the same free id; only the first claims it."""
+        from devops_ai.registry import SlotClaimedError
+
+        path = tmp_path / "registry.json"
+        first = load_registry(path)
+        second = load_registry(path)  # both read "slot 1 is free"
+        claim_slot(first, self._info(1, "/wt-a"), path)
+        try:
+            claim_slot(second, self._info(1, "/wt-b"), path)
+        except SlotClaimedError as e:
+            assert "/wt-a" in str(e)
+        else:
+            raise AssertionError("second claim must be refused")
+        assert load_registry(path).slots[1].worktree_path == "/wt-a"
+
+    def test_reclaim_for_same_worktree_is_idempotent(self, tmp_path) -> None:
+        path = tmp_path / "registry.json"
+        reg = load_registry(path)
+        claim_slot(reg, self._info(1, "/wt-a"), path)
+        claim_slot(reg, self._info(1, "/wt-a"), path)
+        assert load_registry(path).slots[1].worktree_path == "/wt-a"

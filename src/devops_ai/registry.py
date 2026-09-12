@@ -138,12 +138,39 @@ def allocate_slot(
     )
 
 
+class SlotClaimedError(RuntimeError):
+    """The slot was claimed by another kinfra process between allocate and claim."""
+
+
 def claim_slot(
     registry: Registry, slot_info: SlotInfo, path: Path | None = None
 ) -> None:
-    """Add a slot to the registry and persist."""
-    registry.slots[slot_info.slot_id] = slot_info
-    save_registry(registry, path)
+    """Claim a slot atomically and persist.
+
+    ``allocate_slot`` reads the registry without a lock, so two concurrent
+    ``kinfra impl`` runs can pick the same free id. The claim re-reads the
+    registry under an exclusive lock on a sidecar file and refuses a slot
+    another worktree holds — the loser must allocate again. Re-claiming
+    for the same worktree is idempotent.
+    """
+    path = path or DEFAULT_REGISTRY_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(path.name + ".lock")
+    with open(lock_path, "w") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            current = load_registry(path)
+            held = current.slots.get(slot_info.slot_id)
+            if held is not None and held.worktree_path != slot_info.worktree_path:
+                raise SlotClaimedError(
+                    f"Slot {slot_info.slot_id} was claimed by another kinfra "
+                    f"process ({held.worktree_path}) — allocate again"
+                )
+            current.slots[slot_info.slot_id] = slot_info
+            save_registry(current, path)
+            registry.slots[slot_info.slot_id] = slot_info
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def release_slot(

@@ -82,6 +82,7 @@ class TestFreshSlotRefusesADirtyLabel:
             )
         assert code == 1
         assert "myproj-slot-2" in msg and "Could not confirm" in msg
+        assert "kinfra done feat-M1" in msg
         release.assert_called_once()
         rm_dir.assert_called_once_with(slot_dir)
         start.assert_not_called()

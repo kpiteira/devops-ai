@@ -96,6 +96,7 @@ class TestSessionFlagWithAgentDeck:
             patch("devops_ai.cli.impl.generate_env_file"),
             patch("devops_ai.cli.impl.generate_override"),
             patch("devops_ai.cli.impl.start_sandbox"),
+            patch("devops_ai.cli.impl.force_cleanup_project", return_value=True),
             patch(
                 "devops_ai.cli.impl.run_health_gate",
                 return_value=True,
@@ -166,6 +167,7 @@ class TestSessionFlagWithoutAgentDeck:
             patch("devops_ai.cli.impl.generate_env_file"),
             patch("devops_ai.cli.impl.generate_override"),
             patch("devops_ai.cli.impl.start_sandbox"),
+            patch("devops_ai.cli.impl.force_cleanup_project", return_value=True),
             patch(
                 "devops_ai.cli.impl.run_health_gate",
                 return_value=True,
@@ -228,6 +230,7 @@ class TestSessionSendDelay:
             patch("devops_ai.cli.impl.generate_env_file"),
             patch("devops_ai.cli.impl.generate_override"),
             patch("devops_ai.cli.impl.start_sandbox"),
+            patch("devops_ai.cli.impl.force_cleanup_project", return_value=True),
             patch(
                 "devops_ai.cli.impl.run_health_gate",
                 return_value=True,
@@ -292,6 +295,7 @@ class TestSessionSendCorrectCommand:
             patch("devops_ai.cli.impl.generate_env_file"),
             patch("devops_ai.cli.impl.generate_override"),
             patch("devops_ai.cli.impl.start_sandbox"),
+            patch("devops_ai.cli.impl.force_cleanup_project", return_value=True),
             patch(
                 "devops_ai.cli.impl.run_health_gate",
                 return_value=True,

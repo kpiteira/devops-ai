@@ -18,6 +18,7 @@ from devops_ai.provision import (
     resolve_all_secrets,
 )
 from devops_ai.registry import (
+    SlotClaimedError,
     SlotInfo,
     allocate_slot,
     claim_slot,
@@ -218,8 +219,9 @@ def _setup_session(
     if not agent_deck.send_to_session(title, kickoff, delay=3):
         return (
             f"  Warning: agent-deck session {title} started but the kickoff "
-            f"was not delivered (agent-deck returned an error; see the "
-            f"warning above) — send it yourself: "
+            f"was not delivered: `agent-deck session send` exited non-zero "
+            f"(a busy target times out after 60 s; other errors are logged "
+            f"above). Send it yourself: "
             f"agent-deck session send {title} '{kickoff}'"
         )
     return f"  agent-deck session started: {title}"
@@ -262,7 +264,14 @@ def _setup_sandbox(
         claimed_at=now,
         status="provisioning",
     )
-    claim_slot(registry, slot_info)
+    try:
+        claim_slot(registry, slot_info)
+    except SlotClaimedError as e:
+        # The other process owns the slot dir now; touch nothing of it.
+        return 1, (
+            f"{e}.\n  Retry `kinfra done {feature}-{milestone}` then "
+            f"`kinfra impl {feature}/{milestone}`."
+        )
 
     # A slot id can be reused after a crash left containers or volumes
     # labeled with its project name; compose up would reattach them. If the
@@ -277,8 +286,10 @@ def _setup_sandbox(
             f"volumes with that label remain, or docker could not list "
             f"them. Check `docker ps -a --filter label=com.docker.compose."
             f"project={project}` / `docker volume ls --filter label=com."
-            f"docker.compose.project={project}`, remove what is there, and "
-            f"retry `kinfra impl`.\n  Worktree preserved at {wt_path}"
+            f"docker.compose.project={project}`, remove what is there, then "
+            f"`kinfra done {feature}-{milestone}` and retry "
+            f"`kinfra impl {feature}/{milestone}`.\n"
+            f"  Worktree preserved at {wt_path} until then"
         )
 
     # Generate files
