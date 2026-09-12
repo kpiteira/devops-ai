@@ -1,7 +1,7 @@
 # v2 pilot synthesis — contract v7
 
-**Status:** planning
-**Signed off:** <!-- Karl, date -->
+**Status:** in progress
+**Signed off:** 2026-09-12, Karl — decisions T1–T5 and assumptions A1–A4 confirmed item by item
 
 ## Intent
 
@@ -98,13 +98,13 @@ Executed in this planning session (decision T4); rows are cross-session state on
 
 | Area | Status | Evidence |
 |------|--------|----------|
-| Architecture tests pinning the new shapes | pending | — |
-| CONTRACT.md v7 + rules | pending | — |
-| kspec skill + templates | pending | — |
-| kbuild + kbabysit + kreview + kworktree | pending | — |
-| kobserve skill | pending | — |
-| kinfra: done volumes, --group, rebuild reuse, guard labels | pending | — |
-| README, EVOLUTIONS, issue | pending | — |
+| Architecture tests pinning the new shapes | delivered | 25696bc — 17 architecture tests |
+| CONTRACT.md v7 + rules | delivered | 5b3cd9b |
+| kspec skill + templates | delivered | ed2338d |
+| kbuild + kbabysit + kreview + kworktree | delivered | ed2338d |
+| kobserve skill | delivered | ed2338d |
+| kinfra: done volumes, --group, rebuild reuse, guard labels | delivered | f14c225 — unit 319 passed |
+| README, EVOLUTIONS, issue | PR | this PR; guard-hardening issue filed |
 
 ## Decisions
 
@@ -140,12 +140,15 @@ Each with the rejected alternative.
 
 ## Assumptions
 
-- A1 — The observer skill is named `kobserve`, after the log's own word for the seat.
-- A2 — The kinfra code changes ride in the same PR as the prose, in separate commits.
-- A3 — The guard-hardening issue is filed in devops-ai by this session; the khealth items
-  are listed for Karl and not filed by this session.
-- A4 — The 1Password routing is a note for Karl to carry into `secret-providers`; this
-  session does not touch that branch.
+<!-- none — A1–A4 confirmed 2026-09-12 and promoted: -->
+
+- The observer seat's skill is `kobserve`, after the log's own word for the seat.
+- The kinfra fixes ride in this feature's PR as their own commit.
+- Guard hardening is a devops-ai issue filed by this session; the khealth items
+  (`BACKEND_URL` default, per-slot notifier chat, scope picker) are listed in `REVIEW.md`
+  for Karl, not filed.
+- The 1Password announce-before-wait and single-approval items are a note for Karl to
+  carry into `secret-providers`; this session does not touch that branch.
 
 ## Amendments
 
