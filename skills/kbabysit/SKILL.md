@@ -6,7 +6,7 @@ agent: general-purpose
 background: false
 model: claude-opus-5
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # kbabysit — babysit a PR to merge-ready
@@ -121,6 +121,37 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
   - **Copilot:** automatic review (repo/org ruleset) typically fires on PR **creation** only;
     updates need an explicit re-request unless the ruleset enables "review new pushes". If a
     Copilot review already exists for the current head, don't request another.
+  - **Copilot's review effort level** — record it, you cannot request it. Every Copilot
+    review body ends with a `Review effort level:` line, so the level is read, not guessed:
+
+    ```bash
+    gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
+      --jq '.[] | select(.user.login | test("copilot"; "i")) | .body // ""' \
+      | grep -oE 'Review effort level:\*\* *[A-Za-z]+' | sed -E 's/.*\*\* *//' | tail -1
+    ```
+
+    Empty means no Copilot review has landed on this PR yet. `Lite` is GitHub's default
+    and, at the time of writing, what every review on this repo has run at. **It is a
+    repository/organization setting, not a request-time parameter** — verified against
+    [Configuring Copilot code
+    review](https://docs.github.com/en/copilot/how-tos/copilot-on-github/set-up-copilot/configure-code-review):
+    the setting is named **"Review effort level"** (`Lite` | `Balanced`) and lives at
+    **repository → Settings → "Code, planning, and automation" → Copilot → Code review**
+    (organizations have the same page, as the default their repos inherit). The REST
+    review-request endpoint takes `reviewers` and `team_reviewers` and nothing else, and
+    the GraphQL `RequestReviews` input has no effort field, so `gh pr edit --add-reviewer
+    @copilot` — this skill's only request verb — always runs at the repo default. The web
+    UI's per-review dropdown is unreachable from here.
+
+    So: this loop **never changes the setting** and never claims to have raised it. It
+    records the level per round in the report, and when the level is `Lite` the report's
+    *For the human* line says that a deeper first pass is one toggle on that settings page
+    — his call, his money: GitHub's [code review
+    concepts](https://docs.github.com/en/copilot/concepts/agents/code-review) page
+    estimates "$0.05 USD to $1 USD worth of AI credits with 'Lite' effort, and $0.25 USD
+    to $5 USD with 'Balanced'". The hypothesis worth measuring once he flips it is whether
+    the first pass finds more and the round count drops — which is why the report carries
+    the level per round rather than once.
   - **Claude reviews are out of scope — cost.** They are expensive and have caused runaway
     costs; they're meant to be unplugged from these repos. If you find Claude review
     automation still wired up (an `anthropics/claude-code-action` workflow on `pull_request`
@@ -155,11 +186,22 @@ the loop on a reviewer that never comes.
 Run `kreview` in **autonomous mode** for this round. It resolves the PR from the checkout,
 which step 0 has already established is `$PR_NUMBER` — that check is what makes this safe.
 It fetches the full review surface
-(review bodies, threads with resolved/outdated state, issue comments, CI), gives each new
-finding its **provenance** (on the PR's original diff, or on a review-fix commit) and one of
+(review bodies **including their `Suppressed comments` sections**, threads with
+resolved/outdated state, issue comments, CI), gives each new
+finding its **provenance** (on the PR's original diff, or on a review-fix commit), asks
+**isolated or systemic** of each before deciding anything, hands out one of
 four dispositions — IMPLEMENT / PUSH BACK / DISCUSS / OUT OF SCOPE — implements what's real
 and in scope with gates green, files an issue for each out-of-scope finding, replies to every
 thread, resolves handled ones, pushes, and returns a round report.
+
+Two of its columns are this loop's inputs, not the round's own business:
+
+- **Suppressed findings are line-anchored findings.** They carry a `path:line`, get a
+  computed provenance, and count in the provenance totals — so the second-order stop below
+  sees them. On #49 only 4 of the 13 Copilot reviews opened a thread at all; from round 6
+  on, 7 of the last 8 opened none, so a loop reading threads alone saw seven empty rounds
+  and paid for each. Counting the suppressed ones fires the second-order stop at round 6.
+- **`systemic → <root cause>`** on pinned Surface is an escalation, below.
 
 The babysitter's own rules on top:
 
@@ -184,7 +226,8 @@ below holds. Then go to step 1 for the reviewers whose feedback prompted changes
 auto-review repos the push already triggered it).
 
 **Stop — the reviewer has finished with the PR** when any of:
-- **Second-order round:** the round has at least one line-anchored finding and every one of
+- **Second-order round:** the round has at least one line-anchored finding — **suppressed
+  comments included** — and every one of
   them sits on a review-fix commit (provenance from `kreview`: none on the original diff,
   none unknown). The reviewer has nothing left to say about the PR and is now reviewing the
   previous round. Disposition and implement the round as usual — a defect in a fix is still
@@ -204,13 +247,25 @@ auto-review repos the push already triggered it).
 - **No in-scope IMPLEMENT items:** the round's findings were all push-backs, out-of-scope
   (now issues), repeats, or nitpicks.
 - Reviewers returned no new findings, or approved. A round of review-level remarks with no
-  line-anchored finding counts as no new findings.
+  line-anchored finding counts as no new findings — and **a suppressed comment is a
+  line-anchored finding**, not a remark: it carries a `path:line`. Only a remark with no
+  `path:line` anywhere is unanchored. Reading a body's summary prose and skipping its
+  `Suppressed comments` section is how seven rounds on #49 looked like nothing was said.
 - New comments only re-raise points already handled — reply linking the prior reasoning
   (kreview's cross-round memory), then stop. Copilot is *documented* to repeat comments on
   re-review even when threads were resolved or dismissed — the disposition ledger is the only
   defense, and "same findings twice" is the fixed point that means done.
 
 **Stop — escalate** when any of:
+- **A `systemic` finding whose root cause sits on pinned Surface** — anything the brief or
+  the spec pins. `kreview` returns it as DISCUSS with the root cause named and lists it
+  under *For the human*; this loop reads that as a stop signal, not as an item to
+  implement. Buying another round here buys the next site of the same mechanism: #49's
+  rounds 6–11 were five correct patches to five echo sites of one root cause, and the
+  class was only named afterwards, as #60. Off pinned Surface a `systemic` finding does
+  not stop the loop — `kreview` closes it as one class fix in one commit, or files one
+  issue for the class — but **per-site patches across rounds are never the answer**; if a
+  round's findings are the same mechanism it already patched last round, that is this stop.
 - **Round budget reached** (default 3 full rounds, `max-rounds:` raises it). Non-convergence
   within the budget means the disagreement is real; grinding won't fix it. The budget is the
   human's money; raising it changes **only** the budget — scope, provenance, and the
@@ -228,9 +283,32 @@ auto-review fires on the `kselfreview` fix push. Triage it under the same rules,
 the report, do not re-request. If that triage pushes again and yet another review arrives,
 it is listed in the report as unread, for the human — otherwise the chain never ends.
 
+**Re-entry: every road back in goes through `/kbabysit <n>`.** Once a report is posted, any
+further review round on this PR — **from any seat and for any reason**: new commits, a
+relayed finding, a human decision, a fresh reviewer — is started by invoking
+`/kbabysit <n>`, never by requesting a review directly. The re-invocation is what decides
+between a paid round and a `kselfreview` pass, and it re-applies the budget and every stop
+rule in this step counting **from the last posted report onward**, so the second entry
+cannot spend what the first already spent. Concretely:
+
+- An executor that is handed findings **with dispositions already attached** does not act
+  on the relay. It runs `/kbabysit <n>` and lets the triage happen where the stop rules
+  live. A disposition arriving from outside is somebody else's triage with no scope
+  judgement, no provenance, and no budget attached to it.
+- The observer seat has no re-request verb at all (`kobserve`): `/kbabysit <n>` or a
+  question to the human, nothing else.
+- Unreviewed fix commits after a posted report are covered by `kselfreview`, per the
+  second-order stop above — they are not a reason to buy a round.
+
+This is the narrow reading of *stopping is a state*: new commits are a legitimate trigger;
+the trigger **re-enters the loop, it does not bypass it.** Measured on 2026-09-13: #49 and
+#51 stopped correctly under this skill after 3 and 2 rounds, then ran 20 more paid Copilot
+reviews in a phase that never invoked it — 25 reviews in total, 20 of them outside every
+rule on this page.
+
 Rounds are counted per babysit run; a re-invocation on the same PR starts fresh but inherits
-thread history (kreview reads prior replies, so push-backs stay remembered) and the same
-review scope.
+thread history (kreview reads prior replies, so push-backs stay remembered), the same
+review scope, and the budget already spent since the last report.
 
 ## 5. Report
 
@@ -245,12 +323,18 @@ what materially improved, final state — merge-ready / needs decision on X / bl
 **Verdict:** ✅ merge-ready | ⚠️ needs human decision | ❌ blocked
 
 ### Rounds
-| Round | Reviewers | Findings | On original diff | On fix commits | Unknown | Unanchored | Implemented | Pushed back | Out of scope | Discuss | Commits |
-|-------|-----------|----------|------------------|----------------|---------|------------|-------------|-------------|--------------|---------|---------|
+| Round | Reviewers | Effort | Findings | Suppressed | On original diff | On fix commits | Unknown | Unanchored | Systemic | Implemented | Pushed back | Out of scope | Discuss | Commits |
+|-------|-----------|--------|----------|------------|------------------|----------------|---------|------------|----------|-------------|-------------|--------------|---------|---------|
 
 The four provenance columns sum to Findings. Unknown is its own column because it is what
 keeps the second-order stop from firing, and Unanchored because it is excluded from that
-stop; a report that hides either cannot show a human why a stop was safe.
+stop; a report that hides either cannot show a human why a stop was safe. **Effort** is the
+level the reviewer reported for that round (`Lite`/`Balanced`/`—`), so the "deeper first
+pass" question has data instead of opinion. **Suppressed** is how many of that round's
+line-anchored findings came from a review body's `Suppressed comments` section rather than
+a thread — it is a subset of Findings, not a fifth provenance column, and a report where it
+is always 0 on a Copilot loop is a report whose triage did not read the bodies.
+**Systemic** counts the round's findings whose root cause covered a class.
 
 ### What changed because of review
 - <material improvement, one line each — the value the loop added>
@@ -264,10 +348,18 @@ stop; a report that hides either cannot show a human why a stop was safe.
 ### Open for you (DISCUSS)
 - <decision needed + the trade-off, enough context to decide without scrolling back>
 
+### Systemic root causes
+- <root cause — on pinned Surface (yours to decide) / closed as one class fix in <sha> /
+  filed as #<issue> — one line each; "none found" if none>
+
 **Why the loop stopped:** <second-order round / no in-scope IMPLEMENT / no new findings /
-repeats / budget / DISCUSS blocks / CI — one line naming the signal>
+repeats / systemic on pinned Surface / budget / DISCUSS blocks / CI — one line naming the signal>
 **Push-backs:** N of M findings · **CI:** green/red · **Merge conflicts:** none/yes
+**Reviewer effort level:** <Lite/Balanced — and if Lite, that raising it is a repository
+setting the human owns: Settings → Copilot → Code review → "Review effort level">
 **Fix commits since last review:** <shas> · **kselfreview on them:** done / n/a
+**Re-entry:** further rounds on this PR go through `/kbabysit <n>` — from any seat, for any
+reason. This report is where the next run's budget and stop rules start counting.
 ```
 
 The "what changed" section is the honest measure of the loop: if it's empty after round 1,

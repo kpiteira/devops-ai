@@ -3,7 +3,7 @@ name: kobserve
 description: The observer seat of the v2 contract — launch an executor session for a milestone, verify a delivered milestone PR before the human merges (independent blocking re-run, the "For the human" gate), and land it (spec row on main, teardown). Use when a signed feature needs its executors launched, a milestone PR needs verifying, or a merged milestone needs landing.
 argument-hint: "launch <feature>/M<N> | verify <pr-number> | land <pr-number>"
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # kobserve — launch, verify, land
@@ -98,6 +98,32 @@ whose dependencies are `delivered`.
 **In:** a milestone PR with the mapping line `Spec: … · Milestone: M<N>`, CI green,
 review rounds converged (`kbabysit` report present).
 
+**This seat has no re-request verb.** It never requests or re-requests a Copilot (or any)
+review, never runs `kreview`, and never sends an executor a finding with a disposition
+attached. Its only two moves in a PR's review loop are to send the executor
+`/kbabysit <n>` — which carries every stop rule and does its own triage — or to put a
+question to the human. Unreviewed fix commits after a posted babysit report are covered by
+`kselfreview`, by `kbabysit`'s own rule; they are not a reason to buy a round. Measured
+2026-09-13: this seat relayed pre-decided dispositions to two executors and re-requested
+Copilot each round, and 20 of the 25 paid Copilot reviews on #49 (13) and #51 (12) were
+spent in that phase — outside `kbabysit`, with no budget, no provenance and no stop rules,
+after both loops had already stopped correctly at 3 and 2 rounds (#61).
+
+Three things that phase got wrong, each one a rule now:
+
+- **A disposition is triage, and triage belongs to the seat that pays for it.** Sending
+  `(1) FIX … (2) IMPLEMENT …` makes the executor a typist: no scope judgement, no
+  provenance, no isolated-or-systemic question, no round budget.
+- **Re-requesting is spending.** A re-request from here bypasses the budget that exists
+  precisely to stop a loop that a reviewer will otherwise never end.
+- **A relay per round is a hand-rolled loop with no stop rules.** If the loop needs to
+  continue, the thing that continues it is `/kbabysit <n>`, because that is where stopping
+  is defined.
+
+Findings this seat genuinely notices — from the independent re-run, the guard, the spec
+diff — go to the executor as *what is wrong*, never as *what to do about it*, or to the
+human as a question. If they warrant a review round, the message is `/kbabysit <n>`.
+
 1. **Independent re-run.** From a seat that is not the executor's — your own checkout
    of the PR head, or a sandbox you provision — run the brief's `blocking:` command
    and compare with the PR body's pasted output: same head, same count. Until the CI
@@ -146,6 +172,9 @@ review rounds converged (`kbabysit` report present).
 
 - Never merge; never decide a product semantic; never edit a brief or an acceptance
   test (planner branches only).
+- **Never request a review, never run `kreview`, never relay a disposition.** The two
+  review-loop moves are `/kbabysit <n>` to the executor and a question to the human. This
+  one cost 20 paid Copilot rounds on 2026-09-13 (#61).
 - Never resolve a *For the human* item by reasoning about it — it is a question, not a
   finding.
 - Model checked at every start and restart; group passed at every launch; no checkout
