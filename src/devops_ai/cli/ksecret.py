@@ -100,7 +100,13 @@ def run(
     environ.update(resolved)
 
     try:
-        completed = subprocess.run(command, env=encode_env(environ))
+        # Only the names this run declared carry the UTF-8 promise. Everything
+        # else in `environ` was inherited from this process, and re-spelling it
+        # breaks the child: a PATH directory named with the byte E9 is not found
+        # by a child sent looking for C3 A9.
+        completed = subprocess.run(
+            command, env=encode_env(environ, utf8_keys=entries.keys())
+        )
     except EnvironmentEncodingError as exc:
         typer.echo(f"ksecret run: {exc}", err=True)
         raise typer.Exit(1) from None
