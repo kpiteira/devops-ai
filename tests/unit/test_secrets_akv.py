@@ -333,7 +333,11 @@ class TestAzureCliFailures:
         fake_az(tmp_path / "bin", code=1, stderr="")
         with pytest.raises(SecretResolutionError) as caught:
             resolve("K", REF, context(tmp_path))
-        assert "--output none" in caught.value.message
+        message = caught.value.message
+        assert "--output none" in message
+        # The other half of the version rule: an unpinned reference must not
+        # grow a `--version None`, which the pinned test alone cannot catch.
+        assert "--version" not in message
 
     def test_an_unclassified_failure_quotes_nothing_but_error_lines(
         self, tmp_path: Path
