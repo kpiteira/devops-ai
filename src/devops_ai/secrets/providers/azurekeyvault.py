@@ -22,7 +22,8 @@ import shutil
 import subprocess
 
 from ..context import ResolveContext
-from ..errors import ProviderError
+from ..environ import encode_env
+from ..errors import EnvironmentEncodingError, ProviderError
 
 SCHEME = "akv://"
 TIMEOUT = 30
@@ -75,8 +76,10 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
             # returned.
             encoding="utf-8",
             timeout=TIMEOUT,
-            env=dict(ctx.env),
+            env=encode_env(ctx.env),
         )
+    except EnvironmentEncodingError as exc:
+        raise ProviderError(str(exc)) from None
     except subprocess.TimeoutExpired:
         raise ProviderError(
             f"Azure CLI timed out reading {ref} after {TIMEOUT}s. "

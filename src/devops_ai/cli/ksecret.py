@@ -17,8 +17,10 @@ from devops_ai.config import find_project_root, load_config
 from devops_ai.secrets import (
     ERROR,
     CheckResult,
+    EnvironmentEncodingError,
     ResolveContext,
     SecretResolutionError,
+    encode_env,
     layered_env,
     provider_for,
     read_env_file,
@@ -98,7 +100,10 @@ def run(
     environ.update(resolved)
 
     try:
-        completed = subprocess.run(command, env=environ)
+        completed = subprocess.run(command, env=encode_env(environ))
+    except EnvironmentEncodingError as exc:
+        typer.echo(f"ksecret run: {exc}", err=True)
+        raise typer.Exit(1) from None
     except OSError as exc:
         typer.echo(
             f"ksecret run: cannot execute {command[0]}: {exc.strerror}", err=True
