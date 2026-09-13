@@ -232,11 +232,11 @@ briefs and tests reference them. -->
 - Deferred (M2): multi-line secret values abort kinfra's `.env.secrets` writer with a
   bare traceback — pre-existing, made reachable by KV-stored PEMs. Issue #50; out of
   M2's outcome. Karl 2026-09-13.
-- [ ] 2026-09-13 (M3) decision, follow-up: `akv://` vault and secret segments are to be
+- [x] 2026-09-13 (M3) decision, follow-up (issue #60): `akv://` vault and secret segments are to be
   validated against Azure's own name rules (`^[a-zA-Z0-9-]{3,24}$` vault,
   `^[0-9a-zA-Z-]+$` secret) before anything is spawned, refusing malformed references
   with a plain message. Root cause of PR #49 review rounds 6–11 (every one an echo of an
   unvalidated segment in `az`'s error text). Changes which references the provider
-  accepts (pinned Surface). Decided by Karl 2026-09-13; lands as a small PR after #49
-  with this box checked. Item 6 (disclosure residual on disabled-as-absent): keep the
+  accepts (pinned Surface). Acknowledged by Karl 2026-09-13; lands as a small PR after
+  #49 (issue #60) — nothing is blocked meanwhile. Item 6 (disclosure residual on disabled-as-absent): keep the
   RBAC diagnosis; residual accepted.
