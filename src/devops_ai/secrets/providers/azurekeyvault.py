@@ -79,7 +79,9 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
         ) from None
 
     if result.returncode != 0:
-        raise ProviderError(_diagnose(ref, vault, secret, result.stderr or ""))
+        raise ProviderError(
+            _diagnose(ref, vault, secret, result.returncode, result.stderr or "")
+        )
 
     return _value(ref, result.stdout)
 
@@ -109,31 +111,48 @@ def _value(ref: str, stdout: str) -> str:
     return value
 
 
-def _diagnose(ref: str, vault: str, secret: str, stderr: str) -> str:
+def _diagnose(ref: str, vault: str, secret: str, code: int, stderr: str) -> str:
     """Name what went wrong from az's own error text.
 
-    Only az's `ERROR:` lines are quoted back, and only for failures with no
-    tailored guidance: a retrieval that failed holds no value to leak, but the
-    invariant is absolute, so nothing else from the child reaches the message.
+    Azure answers several unrelated states with `(Forbidden)` — a missing role, a
+    vault firewall, and a *disabled* secret all land there (verified 2026-09-12
+    against the acceptance vault). Sending someone to chase RBAC for a secret they
+    disabled themselves is a confident wrong answer, so the states that can be told
+    apart are, and the rest carry az's own words rather than a guess.
+
+    Only az's `ERROR:` lines are ever quoted back: a retrieval that failed holds no
+    value to leak, but the invariant is absolute, so nothing else from the child
+    reaches the message.
     """
     lowered = stderr.lower()
     if "secretnotfound" in lowered or "was not found in this key vault" in lowered:
         return f"Secret not found in Azure Key Vault: {ref}."
-    if "az login" in lowered or "please run" in lowered:
+    # `az login` names itself in az's own guidance; matching the broader "please
+    # run" would swallow unrelated advice such as `az account set`.
+    if "az login" in lowered:
+        return f"Azure CLI is not logged in, so {ref} cannot be read. Run: az login"
+    if "secretdisabled" in lowered or "disabled secret" in lowered:
+        # Disabling is per version: an older enabled version still reads (verified).
         return (
-            f"Azure CLI is not logged in, so {ref} cannot be read. Run: az login"
+            f"Secret {secret} is disabled in Key Vault {vault}. Enable it, or pin "
+            f"an enabled version: {SCHEME}{vault}/{secret}/<version>."
         )
     if "forbidden" in lowered or "not authorized" in lowered or "denied" in lowered:
         return (
-            f"Access denied to {secret} in Key Vault {vault}. Your Azure "
-            f"identity needs the Key Vault Secrets User role on that vault."
+            f"Access denied reading {ref}.{_az_errors(stderr)} If that is a "
+            f"permissions problem, your Azure identity needs the Key Vault "
+            f"Secrets User role on {vault}."
         )
     if "failed to resolve" in lowered or "name or service not known" in lowered:
         return (
             f"Key Vault {vault} could not be reached — check the vault name "
             f"in {ref}."
         )
-    return f"Azure CLI failed reading {ref}.{_az_errors(stderr)}"
+    detail = _az_errors(stderr) or (
+        f" az printed no ERROR: line; run: az keyvault secret show "
+        f"--vault-name {vault} --name {secret}"
+    )
+    return f"Azure CLI failed reading {ref} (exit status {code}).{detail}"
 
 
 def _az_errors(stderr: str) -> str:

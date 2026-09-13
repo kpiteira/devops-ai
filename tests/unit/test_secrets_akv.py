@@ -48,6 +48,14 @@ def fake_az(
     return log
 
 
+def slow_az(directory: Path, seconds: float) -> None:
+    """An `az` that never answers in time."""
+    directory.mkdir(parents=True, exist_ok=True)
+    program = directory / "az"
+    program.write_text(f"#!{sys.executable}\nimport time\ntime.sleep({seconds})\n")
+    program.chmod(0o755)
+
+
 def context(directory: Path) -> ResolveContext:
     return ResolveContext(base_dir=directory, env={"PATH": str(directory / "bin")})
 
@@ -131,7 +139,7 @@ class TestMalformedReferences:
     @pytest.mark.parametrize(
         "ref",
         ["akv://", "akv://a-vault", "akv://a-vault/", "akv:///a-secret",
-         "akv://a-vault/a-secret/v/extra"],
+         "akv://a-vault/a-secret/", "akv://a-vault/a-secret/v/extra"],
     )
     def test_are_rejected_with_the_expected_shape(
         self, ref: str, tmp_path: Path
@@ -184,6 +192,40 @@ class TestAzureCliFailures:
         with pytest.raises(SecretResolutionError, match="Key Vault Secrets User"):
             resolve("K", REF, context(tmp_path))
 
+    def test_access_denied_relays_azs_own_words(self, tmp_path: Path) -> None:
+        """Forbidden covers unrelated states; az's reason must survive the guess."""
+        fake_az(
+            tmp_path / "bin",
+            code=1,
+            stderr=azure_error("(Forbidden) Client address is not authorized."),
+        )
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", REF, context(tmp_path))
+        assert "Client address is not authorized" in caught.value.message
+
+    def test_a_disabled_secret_is_not_reported_as_a_permissions_problem(
+        self, tmp_path: Path
+    ) -> None:
+        """az's real answer for a disabled secret, captured from the vault.
+
+        It arrives as `(Forbidden)`; sending the operator to chase an RBAC role
+        for a secret they disabled themselves is a confident wrong answer.
+        """
+        fake_az(
+            tmp_path / "bin",
+            code=1,
+            stderr=azure_error(
+                "(Forbidden) Operation get is not allowed on a disabled secret."
+            )
+            + 'Code: Forbidden\nInner error: {\n "code": "SecretDisabled"\n}\n',
+        )
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", REF, context(tmp_path))
+        message = caught.value.message
+        assert "disabled" in message
+        assert "Key Vault Secrets User" not in message
+        assert "a-secret/<version>" in message, "the workaround must be offered"
+
     def test_an_unreachable_vault_points_at_the_vault_name(
         self, tmp_path: Path
     ) -> None:
@@ -199,11 +241,22 @@ class TestAzureCliFailures:
         self, tmp_path: Path
     ) -> None:
         fake_az(
-            tmp_path / "bin", code=1, stderr=azure_error("something unexpected")
+            tmp_path / "bin", code=7, stderr=azure_error("something unexpected")
         )
         with pytest.raises(SecretResolutionError) as caught:
             resolve("K", REF, context(tmp_path))
         assert "something unexpected" in caught.value.message
+        assert "exit status 7" in caught.value.message
+
+    def test_a_silent_failure_says_how_to_see_azs_output(
+        self, tmp_path: Path
+    ) -> None:
+        """A red with nothing to read is not a diagnosis — name the next command."""
+        fake_az(tmp_path / "bin", code=1, stderr="")
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", REF, context(tmp_path))
+        assert "az keyvault secret show" in caught.value.message
+        assert "a-vault" in caught.value.message
 
     def test_an_unclassified_failure_quotes_nothing_but_error_lines(
         self, tmp_path: Path
@@ -231,6 +284,21 @@ class TestAzureCliFailures:
     ) -> None:
         fake_az(tmp_path / "bin", stdout="null\n")
         with pytest.raises(SecretResolutionError, match="no value"):
+            resolve("K", REF, context(tmp_path))
+
+    def test_an_az_that_never_answers_is_reported_as_a_timeout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The one branch no canned answer can reach — the child must really hang.
+
+        The timeout itself is shortened; everything else, including the kill, is
+        the shipped path.
+        """
+        from devops_ai.secrets.providers import azurekeyvault
+
+        monkeypatch.setattr(azurekeyvault, "TIMEOUT", 0.3)
+        slow_az(tmp_path / "bin", seconds=10)
+        with pytest.raises(SecretResolutionError, match="timed out"):
             resolve("K", REF, context(tmp_path))
 
     def test_check_reports_the_failure_as_error(self, tmp_path: Path) -> None:

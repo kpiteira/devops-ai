@@ -275,8 +275,10 @@ comment lines, blank lines, an `export ` prefix, and single or double quotes.
 
 Each vault-backed scheme needs only the tool you already sign in with: `op signin`
 for `op://`, and `az login` for `akv://` — no Azure SDK, no service principal, no
-extra configuration. `az login --identity` works too, so the same reference
-resolves on a VM or Container App with a managed identity.
+extra configuration. The provider adds nothing to your `az` session and shells out
+to `az` with the environment it was given, so whichever way that session was
+established — including `az login --identity` on a host with a managed identity —
+is what reads the secret.
 
 Resolution happens on the host, with your credentials — your `op` grant, your `az`
 session, your Vault token. A command started by `ksecret run` receives plain values in
