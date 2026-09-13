@@ -309,6 +309,32 @@ class TestAzureCliFailures:
         assert "az keyvault secret show" in caught.value.message
         assert "a-vault" in caught.value.message
 
+    def test_a_silent_failure_on_a_pinned_version_suggests_that_version(
+        self, tmp_path: Path
+    ) -> None:
+        """Diagnosing the current version when a pinned one failed misleads.
+
+        The current version can be healthy while the pinned one is missing or
+        disabled; that retry succeeds and proves the wrong thing.
+        """
+        fake_az(tmp_path / "bin", code=1, stderr="")
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", f"{REF}/abc123", context(tmp_path))
+        assert "--version abc123" in caught.value.message
+
+    def test_the_suggested_retry_does_not_print_the_secret(
+        self, tmp_path: Path
+    ) -> None:
+        """`az keyvault secret show` prints the value in its default JSON.
+
+        Guidance that puts a secret on the operator's screen — and into shell
+        history and CI logs — is the leak this module refuses everywhere else.
+        """
+        fake_az(tmp_path / "bin", code=1, stderr="")
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", REF, context(tmp_path))
+        assert "--output none" in caught.value.message
+
     def test_an_unclassified_failure_quotes_nothing_but_error_lines(
         self, tmp_path: Path
     ) -> None:

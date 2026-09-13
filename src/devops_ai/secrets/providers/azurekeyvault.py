@@ -82,7 +82,9 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
 
     if result.returncode != 0:
         raise ProviderError(
-            _diagnose(ref, vault, secret, result.returncode, result.stderr or "")
+            _diagnose(
+                ref, vault, secret, version, result.returncode, result.stderr or ""
+            )
         )
 
     return _value(ref, result.stdout)
@@ -113,7 +115,14 @@ def _value(ref: str, stdout: str) -> str:
     return value
 
 
-def _diagnose(ref: str, vault: str, secret: str, code: int, stderr: str) -> str:
+def _diagnose(
+    ref: str,
+    vault: str,
+    secret: str,
+    version: str | None,
+    code: int,
+    stderr: str,
+) -> str:
     """Name what went wrong from az's own error text.
 
     Azure answers several unrelated states with `(Forbidden)` — a missing role, a
@@ -157,10 +166,28 @@ def _diagnose(ref: str, vault: str, secret: str, code: int, stderr: str) -> str:
             f"in {ref}."
         )
     detail = _az_errors(stderr) or (
-        f" az printed no ERROR: line; run: az keyvault secret show "
-        f"--vault-name {vault} --name {secret}"
+        f" az printed no ERROR: line; run: {_retry(vault, secret, version)}"
     )
     return f"Azure CLI failed reading {ref} (exit status {code}).{detail}"
+
+
+def _retry(vault: str, secret: str, version: str | None) -> str:
+    """The command to run by hand when az failed without saying why.
+
+    It reproduces the *same* read, pinned version included: the current version
+    can be healthy while the pinned one is missing or disabled, so a retry that
+    silently drops `--version` succeeds and proves the wrong thing.
+
+    `--output none` because the retry is for the error, never the value — az's
+    default JSON response carries the secret, and guidance that puts one on the
+    operator's screen, into shell history and into CI logs is the leak this
+    module refuses everywhere else.
+    """
+    pinned = f" --version {version}" if version is not None else ""
+    return (
+        f"az keyvault secret show --vault-name {vault} "
+        f"--name {secret}{pinned} --output none"
+    )
 
 
 def _names_code(lowered: str, code: str) -> bool:
