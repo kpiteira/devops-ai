@@ -382,6 +382,41 @@ class TestAzureCliFailures:
         with pytest.raises(SecretResolutionError, match="timed out"):
             resolve("K", REF, context(tmp_path))
 
+    def test_a_version_that_is_not_a_version_id_says_so(
+        self, tmp_path: Path
+    ) -> None:
+        """az's real answer to `akv://v/s/latest`, captured from the vault.
+
+        Key Vault reads a non-id path segment as an operation name, so its reply
+        never mentions versions at all.
+        """
+        fake_az(
+            tmp_path / "bin",
+            code=1,
+            stderr=azure_error(
+                "(BadParameter) Method GET does not allow operation 'latest'"
+            ),
+        )
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", f"{REF}/latest", context(tmp_path))
+        message = caught.value.message
+        assert "latest is not a version id" in message
+        assert "list-versions" in message
+
+    def test_bad_parameter_without_a_pinned_version_is_not_blamed_on_one(
+        self, tmp_path: Path
+    ) -> None:
+        """The branch is gated: a bare reference has no version to accuse."""
+        fake_az(
+            tmp_path / "bin",
+            code=1,
+            stderr=azure_error("(BadParameter) something else entirely"),
+        )
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", REF, context(tmp_path))
+        assert "version id" not in caught.value.message
+        assert "something else entirely" in caught.value.message
+
     def test_check_reports_the_failure_as_error(self, tmp_path: Path) -> None:
         fake_az(
             tmp_path / "bin", code=3, stderr=azure_error("(SecretNotFound) gone")

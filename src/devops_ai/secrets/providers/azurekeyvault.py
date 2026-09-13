@@ -140,6 +140,17 @@ def _diagnose(
         "was not found in this key vault" in lowered
     ):
         return f"Secret not found in Azure Key Vault: {ref}."
+    # az appends a pinned version to the request path, so Key Vault reads a
+    # segment that is not a version id as an *operation* name and answers
+    # `(BadParameter) Method GET does not allow operation 'latest'` — true, and
+    # useless to whoever wrote `/latest`. `list-versions` returns identifiers and
+    # attributes only, never values, so it is safe to send them to it.
+    if version is not None and _names_code(lowered, "BadParameter"):
+        return (
+            f"{version} is not a version id in {ref}. Omit it to read the "
+            f"current version, or take an id from: az keyvault secret "
+            f"list-versions --vault-name {vault} --name {secret}"
+        )
     # `az login` names itself in az's own guidance; matching the broader "please
     # run" would swallow unrelated advice such as `az account set`.
     if "az login" in lowered:
