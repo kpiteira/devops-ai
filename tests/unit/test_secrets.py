@@ -201,6 +201,33 @@ class TestOpenBaoReferenceShape:
                 ResolveContext(env={"BAO_ADDR": planted.as_uri(), "BAO_TOKEN": "t"}),
             )
 
+    @pytest.mark.parametrize(
+        ("here", "there", "same"),
+        [
+            ("https://vault/x", "https://vault:443/y", True),
+            ("http://vault/x", "http://vault:80/y", True),
+            ("https://vault/x", "https://VAULT/y", True),
+            ("https://vault:8200/x", "https://vault/y", False),
+            ("https://vault/x", "https://other/y", False),
+        ],
+    )
+    def test_a_default_port_is_the_same_endpoint_written_twice(
+        self, here: str, there: str, same: bool
+    ) -> None:
+        """Tested on the helper because a test cannot bind :443.
+
+        The behaviour that uses it — a redirect to another host, to another
+        port, or to another scheme — is covered end to end in
+        `tests/integration/test_secrets_openbao.py`. Only this equivalence
+        needs a privileged port to stage, so it is asserted where it is
+        decided: comparing raw `netloc` made `https://vault:443` and
+        `https://vault` different servers, and refused the redirect between
+        them.
+        """
+        from devops_ai.secrets.providers.openbao import _origin
+
+        assert (_origin(here) == _origin(there)) is same
+
     @pytest.mark.parametrize("address", ["ftp://vault.example.com", "gopher://v/1"])
     def test_a_scheme_urlopen_speaks_but_openbao_does_not_is_refused(
         self, address: str

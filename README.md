@@ -314,8 +314,9 @@ reads the `#` as a glob operator and refuses the word before `ksecret` ever sees
 Only KV v2 mounts are supported; `mount` is the mount point, not the API's internal
 `data/` segment, which `ksecret` adds for you.
 
-The certificate is verified against your system trust store unless `BAO_CACERT` names
-a bundle; there is no way to turn verification off. The token is presented only to the
+The certificate is verified against your system trust store unless `BAO_CACERT` (or
+`VAULT_CACERT`) names a bundle — the usual case for a homelab vault behind a private
+CA; there is no way to turn verification off. The token is presented only to the
 host `BAO_ADDR` names — a redirect off that host is refused rather than followed, so
 point `BAO_ADDR` at the active node or the load balancer in front of it. A redirect to
 the *same* host on another scheme (the usual `http` → `https` canonicalisation) is

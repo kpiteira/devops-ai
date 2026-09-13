@@ -37,6 +37,9 @@ TOKEN_FILE = ".vault-token"
 # urlopen speaks more than the web: an address typo'd into a `file:` URL would
 # otherwise read a local path and hand it back as a secret.
 NETWORK_URL_SCHEMES = frozenset({"http", "https"})
+# What a scheme means when the authority leaves the port out, so that
+# `https://vault:443` and `https://vault` are the one endpoint they are.
+DEFAULT_PORTS = {"http": 80, "https": 443}
 TRAVERSAL = frozenset({".", ".."})
 # Which kind of hop was refused; a bare 30x also means "no location" and "a
 # loop", and neither of those is a hop at all.
@@ -258,7 +261,10 @@ class _SameServerRedirects(urllib.request.HTTPRedirectHandler):
         self, req, fp, code, msg, headers, newurl
     ):
         here, there = _origin(req.full_url), _origin(newurl)
-        if here.authority != there.authority:
+        # Host before scheme: an `http` -> `https` upgrade moves the port with
+        # the scheme, and calling that a different endpoint would report the
+        # wrong one of the two.
+        if here.host != there.host:
             self.refused = REFUSED_HOST
             return None
         if here.scheme != there.scheme:
@@ -268,6 +274,11 @@ class _SameServerRedirects(urllib.request.HTTPRedirectHandler):
             # the request would hide that it did.
             self.refused = REFUSED_SCHEME
             return None
+        if here.endpoint != there.endpoint:
+            # Same host and scheme, another port: a different service on the
+            # same machine, which the token was never pointed at.
+            self.refused = REFUSED_HOST
+            return None
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -275,15 +286,23 @@ class Origin(NamedTuple):
     """What decides whether the token may travel, and how it may not."""
 
     scheme: str
-    authority: str
+    host: str
+    port: int
+
+    @property
+    def endpoint(self) -> tuple[str, int]:
+        """The machine and service, with the scheme's default port filled in."""
+        return (self.host, self.port)
 
 
 def _origin(url: str) -> Origin:
     try:
         parts = urllib.parse.urlsplit(url)
+        scheme = parts.scheme.lower()
+        port = parts.port or DEFAULT_PORTS.get(scheme, 0)
     except ValueError:
-        return Origin("", url)
-    return Origin(parts.scheme.lower(), parts.netloc.lower())
+        return Origin("", url.lower(), 0)
+    return Origin(scheme, (parts.hostname or "").lower(), port)
 
 
 def _read_secret(
@@ -328,14 +347,14 @@ def _read_secret(
         # `IncompleteRead` out of `.read()`, which would otherwise leave the
         # provider as a traceback rather than a sentence.
         raise ProviderError(
-            f"Cannot reach the OpenBao server at {server.base}: {_reason(exc)}."
+            f"Cannot reach the server at {server.base}: {_reason(exc)}."
         ) from None
     except ValueError:
         # JSONDecodeError and UnicodeDecodeError both land here: a body that is
         # not UTF-8 is no more JSON than one that is not parseable.
         raise ProviderError(
             f"The server at {server.base} did not answer with JSON. Check that "
-            f"{server.variable} names an OpenBao server."
+            f"{server.variable} names an OpenBao or Vault server."
         ) from None
 
     envelope = body.get("data") if isinstance(body, dict) else None
@@ -380,13 +399,13 @@ def _status_error(
         )
     if code == 503:
         return ProviderError(
-            f"The OpenBao server is sealed or standing by (HTTP {code}); it "
-            f"cannot answer for {ref} yet."
+            f"The server is sealed or standing by (HTTP {code}); it cannot "
+            f"answer for {ref} yet."
         )
     if code in (301, 302, 303, 307, 308):
         if refused == REFUSED_HOST:
             return ProviderError(
-                f"The server redirected {ref} to a different host (HTTP "
+                f"The server redirected {ref} to another server (HTTP "
                 f"{code}), which a token must not follow. Point "
                 f"{server.variable} at the server that holds the secret."
             )
@@ -405,7 +424,7 @@ def _status_error(
             f"could not be followed: it carried no location, or looped. The "
             f"server is misconfigured."
         )
-    return ProviderError(f"OpenBao returned HTTP {code} for {ref}.")
+    return ProviderError(f"The server returned HTTP {code} for {ref}.")
 
 
 def _reason(exc: BaseException) -> str:

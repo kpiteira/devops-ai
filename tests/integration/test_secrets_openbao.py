@@ -15,6 +15,8 @@ from __future__ import annotations
 import _socket
 import json
 import socket
+import ssl
+import subprocess
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -385,7 +387,7 @@ class TestRedirects:
         bao.location = other.addr + "/v1/kv/data/a"
 
         try:
-            with pytest.raises(SecretResolutionError, match="different host") as e:
+            with pytest.raises(SecretResolutionError, match="another server") as e:
                 read("bao://kv/a#key", VAULT_ADDR=bao.addr, VAULT_TOKEN="s3cret")
             assert other.asked == [], "the token must not reach another server"
             assert "VAULT_ADDR" in str(e.value), "guidance names the spelling used"
@@ -417,10 +419,10 @@ class TestRedirects:
 
         message = str(raised.value)
         assert "could not be followed" in message, case
-        assert "different host" not in message, case
+        assert "another server" not in message, case
 
     @pytest.mark.parametrize("code", REDIRECT_CODES)
-    def test_an_upgrade_to_another_scheme_is_not_called_a_different_host(
+    def test_an_upgrade_to_another_scheme_is_not_called_another_server(
         self, bao: FakeBao, code: int
     ) -> None:
         """The canonical http-to-https redirect is the same host, not another.
@@ -443,7 +445,7 @@ class TestRedirects:
 
         message = str(raised.value)
         assert "another scheme" in message
-        assert "different host" not in message
+        assert "another server" not in message
         assert bao.addr in message, "the address the token did go to is named"
 
     @pytest.mark.parametrize("code", REDIRECT_CODES)
@@ -512,6 +514,106 @@ class TestAmbientProxies:
             proxy.shutdown()
             proxy.server_close()
             thread.join(timeout=5)
+
+
+# --- The private-CA path, over real TLS ---
+
+
+@pytest.fixture(scope="module")
+def private_ca(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A throwaway self-signed certificate for 127.0.0.1, and its own CA.
+
+    `openssl` rather than a library: the package declares no runtime or test
+    dependency for this, and the binary is present on macOS and on the CI image.
+    """
+    directory = tmp_path_factory.mktemp("ca")
+    cert, key = directory / "cert.pem", directory / "key.pem"
+    made = subprocess.run(
+        [
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-sha256",
+            "-days", "1", "-nodes", "-keyout", str(key), "-out", str(cert),
+            "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1",
+        ],
+        capture_output=True, text=True,
+    )
+    if made.returncode != 0:
+        pytest.skip(f"openssl could not make a test certificate: {made.stderr[-200:]}")
+    return directory
+
+
+@pytest.fixture()
+def tls_bao(private_ca: Path) -> Iterator[FakeBao]:
+    """The fake server again, behind TLS signed by that certificate."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(
+        certfile=private_ca / "cert.pem", keyfile=private_ca / "key.pem"
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    fake = FakeBao(addr=f"https://127.0.0.1:{server.server_address[1]}")
+    server.fake = fake  # type: ignore[attr-defined]
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
+    thread.start()
+    try:
+        yield fake
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+class TestPrivateCertificateAuthority:
+    """The homelab deployment the feature exists for, exercised rather than claimed.
+
+    Until these, dropping `HTTPSHandler(context=tls)` from the opener left the
+    whole suite green — measured — so `BAO_CACERT` was a documented feature with
+    nothing standing behind it.
+    """
+
+    @pytest.mark.parametrize("variable", ["BAO_CACERT", "VAULT_CACERT"])
+    def test_a_bundle_named_by_either_variable_verifies_the_server(
+        self, tls_bao: FakeBao, private_ca: Path, variable: str
+    ) -> None:
+        env = {"BAO_ADDR": tls_bao.addr, "BAO_TOKEN": "t",
+               variable: str(private_ca / "cert.pem")}
+
+        assert resolve("K", "bao://kv/a#key", ResolveContext(env=env)) == VALUE
+        assert tls_bao.asked[0].token == "t", "over TLS, and the token arrived"
+
+    def test_without_the_bundle_the_certificate_is_not_trusted(
+        self, tls_bao: FakeBao
+    ) -> None:
+        """The system trust store is the default, and it must really apply.
+
+        If this passed, the CA test above would prove nothing: a suite that
+        connects either way cannot tell a configured trust store from no
+        verification at all.
+        """
+        with pytest.raises(SecretResolutionError, match="Cannot reach") as raised:
+            read("bao://kv/a#key", BAO_ADDR=tls_bao.addr, BAO_TOKEN="t")
+
+        assert "certificate verify failed" in str(raised.value).lower()
+        assert tls_bao.asked == [], "the request must not have been made"
+
+    def test_a_bundle_that_does_not_verify_this_server_is_refused(
+        self, tls_bao: FakeBao, tmp_path: Path
+    ) -> None:
+        """A real bundle, but the wrong one — not a missing-file check."""
+        other = tmp_path / "other-ca.pem"
+        subprocess.run(
+            ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-sha256",
+             "-days", "1", "-nodes", "-keyout", str(tmp_path / "k.pem"),
+             "-out", str(other), "-subj", "/CN=somewhere-else"],
+            capture_output=True, text=True, check=True,
+        )
+
+        with pytest.raises(SecretResolutionError, match="Cannot reach"):
+            read(
+                "bao://kv/a#key", BAO_ADDR=tls_bao.addr, BAO_TOKEN="t",
+                BAO_CACERT=str(other),
+            )
 
 
 # --- The no-leak invariant ---
