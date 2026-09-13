@@ -36,8 +36,18 @@ session carries its parent's model. A planner session that finds itself on the e
 tier stops and says so rather than continuing — the pilot ran a replan on the wrong tier
 twice before anyone read the status bar.
 
-Effort and model selection are runtime/harness controls — a skill can *recommend* a level (as
-above) but the human or harness sets it. Treat the recommendations here as defaults to reach for,
-not as something a skill can enforce on its own. (Whether a skill can declare its effort in
-frontmatter is an open question — see `docs/designs/opus-4.8-evolution/INTENT.md`.)
+Effort and model selection are normally runtime/harness controls: a skill *recommends* a level
+(as above) and the human or harness sets the session's. Treat the recommendations here as
+defaults to reach for.
+
+A skill can, however, pin its own execution for the turn it is active. The
+[skill frontmatter reference](https://code.claude.com/docs/en/skills.md) documents `model:`
+(a model id such as `claude-opus-5`, or `inherit` — "the same values as `/model`") and
+`effort:` (`low`/`medium`/`high`/`xhigh`/`max`), both overriding the session for that turn
+only; with `context: fork` the same `model:` sets the forked subagent's model instead, and
+`agent:` picks the subagent type. That closes the open question this rule used to carry (see
+`docs/designs/opus-4.8-evolution/INTENT.md`): pin a tier in frontmatter when the *skill*, not
+the session, determines the right one — `kbabysit` does it to force its loop onto an
+Opus-grade subagent — and otherwise leave it to the harness, because a pinned tier is invisible
+in the status bar and outlives nobody's attention.
 </content>

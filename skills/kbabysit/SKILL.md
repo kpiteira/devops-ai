@@ -1,8 +1,12 @@
 ---
 name: kbabysit
 description: Drive a PR from ready-for-review to merge-ready — request Copilot review, wait for it, triage and address comments via kreview against the PR's written review scope, re-request, and stop when the reviewer has finished with the PR (not with the fixes). Ends with a TL;DR report. Never merges, never triggers Claude reviews.
+context: fork
+agent: general-purpose
+background: false
+model: claude-opus-5
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # kbabysit — babysit a PR to merge-ready
@@ -20,6 +24,45 @@ what the PR was for. Truth is not the axis; scope is.
 /kbabysit <pr-number> max-rounds: 5   # raise the round budget (default 3, applied in step 4)
 ```
 
+**Arguments for this run:** `$ARGUMENTS` — empty means "the PR for the current branch".
+
+## How this runs — forked, on Opus
+
+This skill's frontmatter carries `context: fork`, `agent: general-purpose`,
+`background: false` and `model: claude-opus-5`, so the loop always executes in a subagent
+on an Opus-grade model, never inline on the invoking session's model. Two reasons, both
+measured: **tier economics** — babysitting is polling plus bounded per-finding judgement,
+well within Opus-grade capability, and the invoking session's tier belongs to the
+intent/acceptance decisions this loop feeds, not to a re-review poll; and **context
+hygiene** — a run generates a lot of low-value output (poll results, review bodies, CI
+logs) that stays in the subagent instead of silting up a long-lived design or
+orchestration session. On 2026-09-03/04 the loop ran inline on a top-tier session because
+the skill named no execution tier (agent-memory #246, recorded in devops-ai #25); Karl
+observed the same thing again on 2026-09-12 and re-signed the rule, which is why the tier
+is now in the frontmatter rather than in prose anyone can skip.
+
+What that costs you, and how this skill pays it:
+
+- **The fork sees no conversation history** — only this file with `$ARGUMENTS` substituted.
+  So the PR number must either be passed explicitly (`/kbabysit 42`) or be resolvable from
+  the checkout. Step 0 reads the explicit number **first** and only falls back to
+  `gh pr view` — the other order silently babysits the branch's PR when you asked for a
+  different one — and stops outright if the two disagree, because the loop pushes fixes and
+  `kreview` resolves the PR from the checkout too. The fork starts in the invoking session's
+  working directory (verified 2026-09-12), so that fallback resolves correctly.
+- **`background: false`** makes the invoking turn wait for the report instead of collecting
+  it from a background task later. The ownership rule below — an unread review round is not
+  done — is the reason: a report that lands as a background notification after the session
+  moved on is exactly the unread round. It also makes interactive runs behave like `-p`
+  and SDK runs, which wait regardless. It needs Claude Code v2.1.218 or later; on an older
+  build the field is inert and the fork reports back as a background task instead — later,
+  but not lost.
+- **`kreview` runs inside this subagent**, per round, and is not itself forked — forking it
+  would hide each round's reasoning from the loop that has to decide whether to run another
+  one. Invoke it with the Skill tool (available to a `general-purpose` fork, verified
+  2026-09-12); if that tool is missing wherever this runs, read and follow
+  `~/.claude/skills/kreview/SKILL.md` directly instead — same contract either way.
+
 **End state:** merge-ready (or explicitly blocked) + a detailed report with TL;DR. This skill
 never merges and never closes a DISCUSS item on its own — those are the human's calls.
 
@@ -34,10 +77,24 @@ Copilot round sat overnight on a side PR nobody owned. For a milestone PR the ex
 ## 0. Preflight
 
 ```bash
-PR_NUMBER=$(gh pr view --json number -q '.number')   # or the <pr-number> argument if given
+ARG_PR=$(printf '%s' "$ARGUMENTS" | sed 's/^#//' | grep -oE '^[0-9]+')      # explicit <pr-number>, if given
+BRANCH_PR=$(gh pr view --json number -q '.number' 2>/dev/null)              # this checkout's own PR, if any
+PR_NUMBER="${ARG_PR:-$BRANCH_PR}"
+
+if [ -z "$PR_NUMBER" ]; then echo "TARGET: none — no number in the arguments and no PR open for this branch"
+elif [ -n "$ARG_PR" ] && [ "$ARG_PR" != "$BRANCH_PR" ]; then echo "TARGET: not this checkout — #$ARG_PR vs branch PR #${BRANCH_PR:-none}"
+else echo "TARGET: #$PR_NUMBER"; fi
+
 REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner')
 gh pr view "$PR_NUMBER" --json state,isDraft,mergeable,headRefName,baseRefName,statusCheckRollup
 ```
+
+**Anything but `TARGET: #N` ends the run before step 1** — say which of the two it was and
+stop. The second case looks harmless and is not: this loop does not only *read* a PR, it
+commits and pushes fixes, and `kreview` resolves the PR from the checkout the same way. Given
+`/kbabysit 42` from a branch whose PR is #43, a naive run would poll #42's reviews and push
+#42's fixes onto #43. Babysitting a PR means being on its branch; the fix is
+`git checkout` (or `gh pr checkout 42`), not a cleverer argument.
 
 - PR closed/merged → report and stop.
 - Draft → mark ready (`gh pr ready`) only if the work is actually complete; otherwise stop.
@@ -95,7 +152,9 @@ the loop on a reviewer that never comes.
 
 ## 3. Triage and address — one kreview round
 
-Run `kreview` in **autonomous mode** for this round. It fetches the full review surface
+Run `kreview` in **autonomous mode** for this round. It resolves the PR from the checkout,
+which step 0 has already established is `$PR_NUMBER` — that check is what makes this safe.
+It fetches the full review surface
 (review bodies, threads with resolved/outdated state, issue comments, CI), gives each new
 finding its **provenance** (on the PR's original diff, or on a review-fix commit) and one of
 four dispositions — IMPLEMENT / PUSH BACK / DISCUSS / OUT OF SCOPE — implements what's real
