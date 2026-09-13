@@ -403,6 +403,49 @@ class TestAzureCliFailures:
         assert "latest is not a version id" in message
         assert "list-versions" in message
 
+    def test_an_invalid_secret_name_is_not_blamed_on_the_version(
+        self, tmp_path: Path
+    ) -> None:
+        """az's real answer to a name Azure will not accept, captured from the vault.
+
+        `_parse` takes any non-empty segment, so BadParameter arrives for bad
+        *names* too. Blaming the version would bury it under advice to list the
+        versions of a name Azure has already rejected.
+        """
+        fake_az(
+            tmp_path / "bin",
+            code=1,
+            stderr=azure_error(
+                "(BadParameter) The request URI contains an invalid name: bad_name"
+            ),
+        )
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", "akv://a-vault/bad_name/abc123", context(tmp_path))
+        message = caught.value.message
+        assert "invalid name: bad_name" in message, "az's own reason must survive"
+        assert "version id" not in message
+        assert "list-versions" not in message
+
+    def test_a_name_that_impersonates_the_operation_text_still_reads_truthfully(
+        self, tmp_path: Path
+    ) -> None:
+        """The anchor names *this* version, so echoed text cannot claim the branch.
+
+        az echoes the rejected name verbatim, and the name is the caller's — the
+        same opening the error-code anchoring closed for `forbidden`.
+        """
+        impostor = "does not allow operation 'abc123'"
+        fake_az(
+            tmp_path / "bin",
+            code=1,
+            stderr=azure_error(
+                f"(BadParameter) The request URI contains an invalid name: {impostor}"
+            ),
+        )
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", "akv://a-vault/a-secret/zz99", context(tmp_path))
+        assert "version id" not in caught.value.message
+
     def test_bad_parameter_without_a_pinned_version_is_not_blamed_on_one(
         self, tmp_path: Path
     ) -> None:

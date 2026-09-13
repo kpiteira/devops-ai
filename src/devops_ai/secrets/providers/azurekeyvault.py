@@ -145,7 +145,18 @@ def _diagnose(
     # `(BadParameter) Method GET does not allow operation 'latest'` — true, and
     # useless to whoever wrote `/latest`. `list-versions` returns identifiers and
     # attributes only, never values, so it is safe to send them to it.
-    if version is not None and _names_code(lowered, "BadParameter"):
+    #
+    # BadParameter alone is not enough to blame the version: `_parse` accepts any
+    # non-empty segment, so an invalid *secret name* answers BadParameter too
+    # (`The request URI contains an invalid name: bad_name`, verified). The
+    # message must name this version as the operation it refused, or the real
+    # failure is buried under advice to go list versions of a name Azure has
+    # already rejected.
+    if (
+        version is not None
+        and _names_code(lowered, "BadParameter")
+        and f"does not allow operation '{version.lower()}'" in lowered
+    ):
         return (
             f"{version} is not a version id in {ref}. Omit it to read the "
             f"current version, or take an id from: az keyvault secret "
