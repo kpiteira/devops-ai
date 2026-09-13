@@ -369,7 +369,9 @@ def offenders_in(tree: ast.AST, where: str, package: str | None = None) -> list[
     bindings = Resolver(tree, package)
     for spawn in sorted(bindings.unfollowable):
         offenders.append(
-            f"{where} binds {spawn} to something other than a plain name, so the "
+            f"{where} binds {spawn} in a way this walk cannot follow — a target "
+            f"that is not a plain name, or a value that is not a plain "
+            f"reference — so the "
             f"calls through it cannot be read here; assign it to a module-level "
             f"name or call {spawn} directly"
         )
