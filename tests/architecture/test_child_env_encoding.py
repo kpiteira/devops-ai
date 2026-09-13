@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -62,6 +63,25 @@ OS_SPAWNS = {
     "spawnve", "spawnvpe", "spawnle", "spawnlpe",
 }
 WATCHED = {"subprocess": SUBPROCESS_SPAWNS, "os": OS_SPAWNS}
+# Where `encode_env` may legitimately come from, so a call to it can be resolved
+# to an import rather than merely matched by name.
+ENCODER_MODULES = {"devops_ai.secrets", "devops_ai.secrets.environ", "environ"}
+# `env` is the 11th parameter of `Popen`, and `run`/`call`/`check_*` forward
+# their positional arguments to it — so `Popen(cmd, ..., raw_env)` passes an
+# environment without ever writing `env=`. Verified against
+# `inspect.signature(subprocess.Popen)` rather than remembered, and pinned by
+# `test_the_positional_environment_slot_is_where_this_gate_thinks_it_is`.
+ENV_POSITION = 10
+
+
+class Spawn(NamedTuple):
+    """One watched spawn call, with the resolver that read its module."""
+
+    path: Path
+    node: ast.Call
+    module: str
+    attr: str
+    bindings: Resolver
 
 
 def source_files() -> list[Path]:
@@ -79,6 +99,7 @@ class Resolver:
     def __init__(self, tree: ast.AST) -> None:
         self.modules: dict[str, str] = {}       # local name -> "subprocess"|"os"
         self.functions: dict[str, tuple[str, str]] = {}  # local name -> (mod, attr)
+        self.encoders: set[str] = set()         # local names bound to encode_env
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -88,11 +109,34 @@ class Resolver:
                         # `import os.path` also binds the name `os`.
                         if alias.asname is None:
                             self.modules[root] = root
-            elif isinstance(node, ast.ImportFrom) and node.module in WATCHED:
-                for alias in node.names:
-                    self.functions[alias.asname or alias.name] = (
-                        node.module, alias.name
-                    )
+            elif isinstance(node, ast.ImportFrom):
+                if node.module in WATCHED:
+                    for alias in node.names:
+                        self.functions[alias.asname or alias.name] = (
+                            node.module, alias.name
+                        )
+                elif node.module in ENCODER_MODULES:
+                    for alias in node.names:
+                        if alias.name == ENCODE_ENV:
+                            self.encoders.add(alias.asname or alias.name)
+
+    def is_encoder(self, node: ast.expr) -> bool:
+        """A call to *this package's* `encode_env`, resolved rather than spelled.
+
+        Matching the attribute name alone accepted `wrapper.encode_env(raw)` —
+        any object with a method of that name satisfied a gate whose invariant
+        names `devops_ai.secrets.encode_env` specifically. So the binding is
+        resolved to the import that made it, exactly as a spawn's is: a local
+        name that came from this package's `environ` module, under whatever
+        alias. An attribute call is no longer accepted at all — all three real
+        sites import the name, and an unresolvable dotted path is precisely the
+        thing that cannot be vouched for.
+        """
+        return (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in self.encoders
+        )
 
     def target(self, node: ast.Call) -> tuple[str, str] | None:
         """(`module`, `attribute`) this call spawns through, if any."""
@@ -106,38 +150,50 @@ class Resolver:
         return None
 
 
-def _is_call_to(node: ast.expr, name: str) -> bool:
-    if not isinstance(node, ast.Call):
-        return False
-    func = node.func
-    if isinstance(func, ast.Name):
-        return func.id == name
-    return isinstance(func, ast.Attribute) and func.attr == name
-
-
-def spawns_passing_an_environment() -> list[tuple[Path, ast.Call, str, str]]:
+def spawns_passing_an_environment() -> list[Spawn]:
     """Every watched spawn call in `src/`, with the module and attribute named."""
     found = []
     for path in source_files():
-        tree = ast.parse(path.read_text(), str(path))
-        resolver = Resolver(tree)
+        # Never a bare `read_text()`: that decodes with the *locale's* codec, so
+        # under the `LC_ALL=C` this change is validated in, this gate died on the
+        # first em dash in `src/` before checking anything. The third site of the
+        # harness's own version of #58, after `run_child`'s `text=True` and the
+        # repo-path test's `Path.mkdir` — source is UTF-8 by PEP 3120, so say so.
+        tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
+        bindings = Resolver(tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            target = resolver.target(node)
+            target = bindings.target(node)
             if target is None:
                 continue
             module, attr = target
             if attr in WATCHED[module]:
-                found.append((path, node, module, attr))
+                found.append(Spawn(path, node, module, attr, bindings))
     return found
 
 
 def test_every_spawn_that_passes_an_environment_encodes_it() -> None:
     offenders: list[str] = []
-    for path, node, module, attr in spawns_passing_an_environment():
+    for path, node, module, attr, bindings in spawns_passing_an_environment():
         where = f"{path.relative_to(ROOT)}:{node.lineno}"
         if module == "subprocess":
+            # A splatted `*args` can carry the environment into the positional
+            # slot below without any of it being readable here.
+            if any(isinstance(a, ast.Starred) for a in node.args):
+                offenders.append(
+                    f"{where} {module}.{attr}(*args) — arguments that cannot be "
+                    f"read here cannot be vouched for; pass "
+                    f"env={ENCODE_ENV}(...) explicitly"
+                )
+            elif len(node.args) > ENV_POSITION and not bindings.is_encoder(
+                node.args[ENV_POSITION]
+            ):
+                offenders.append(
+                    f"{where} {module}.{attr}() passes an environment in "
+                    f"positional slot {ENV_POSITION} without {ENCODE_ENV}(): "
+                    f"`env=` is not the only way to hand a child an environment"
+                )
             for keyword in node.keywords:
                 if keyword.arg is None:
                     offenders.append(
@@ -145,9 +201,7 @@ def test_every_spawn_that_passes_an_environment_encodes_it() -> None:
                         f"cannot be read here cannot be vouched for; pass "
                         f"env={ENCODE_ENV}(...) explicitly"
                     )
-                elif keyword.arg == "env" and not _is_call_to(
-                    keyword.value, ENCODE_ENV
-                ):
+                elif keyword.arg == "env" and not bindings.is_encoder(keyword.value):
                     offenders.append(
                         f"{where} {module}.{attr}(env=...) does not go through "
                         f"{ENCODE_ENV}(): the child's environment would be encoded "
@@ -156,7 +210,7 @@ def test_every_spawn_that_passes_an_environment_encodes_it() -> None:
         else:
             args: list[ast.expr] = list(node.args)
             args += [k.value for k in node.keywords if k.arg is not None]
-            if not any(_is_call_to(a, ENCODE_ENV) for a in args):
+            if not any(bindings.is_encoder(a) for a in args):
                 offenders.append(
                     f"{where} {module}.{attr}() takes an environment and none of "
                     f"its arguments is {ENCODE_ENV}(...)"
@@ -219,7 +273,7 @@ def test_the_gate_sees_the_sites_it_is_meant_to_guard() -> None:
     """
     guarded = [
         f"{p.relative_to(ROOT)}:{n.lineno}"
-        for p, n, module, _ in spawns_passing_an_environment()
+        for p, n, module, _, _b in spawns_passing_an_environment()
         if module == "subprocess" and any(k.arg == "env" for k in n.keywords)
     ]
     assert len(guarded) >= 3, (
@@ -258,3 +312,101 @@ def test_an_aliased_import_is_resolved_rather_than_missed() -> None:
     resolver = Resolver(unrelated)
     calls = [n for n in ast.walk(unrelated) if isinstance(n, ast.Call)]
     assert [resolver.target(c) for c in calls] == [None]
+
+
+def test_a_lookalike_encode_env_does_not_satisfy_the_gate() -> None:
+    """The gate names `devops_ai.secrets.encode_env`, so only that may satisfy it.
+
+    Matching the trailing attribute accepted `wrapper.encode_env(raw)` from any
+    object at all — a gate whose invariant is a specific function but whose
+    check was a spelling. Resolved to the import that made the binding, under
+    whatever alias, with a lookalike as the control.
+    """
+    real = ast.parse(
+        "from devops_ai.secrets import encode_env\n"
+        "subprocess.run(cmd, env=encode_env(raw))\n"
+    )
+    aliased = ast.parse(
+        "from ..environ import encode_env as enc\n"
+        "subprocess.run(cmd, env=enc(raw))\n"
+    )
+    lookalike = ast.parse(
+        "import wrapper\nsubprocess.run(cmd, env=wrapper.encode_env(raw))\n"
+    )
+    unimported = ast.parse("subprocess.run(cmd, env=encode_env(raw))\n")
+
+    def env_argument(tree: ast.AST) -> ast.expr:
+        call = next(
+            n for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and any(k.arg == "env" for k in n.keywords)
+        )
+        return next(k.value for k in call.keywords if k.arg == "env")
+
+    assert Resolver(real).is_encoder(env_argument(real))
+    assert Resolver(aliased).is_encoder(env_argument(aliased))
+    assert not Resolver(lookalike).is_encoder(env_argument(lookalike)), (
+        "any object's .encode_env satisfied the gate"
+    )
+    assert not Resolver(unimported).is_encoder(env_argument(unimported)), (
+        "a name this module never imported satisfied the gate"
+    )
+
+
+def test_the_positional_environment_slot_is_where_this_gate_thinks_it_is() -> None:
+    """`ENV_POSITION` is read off `Popen`, never remembered.
+
+    `env=` is not the only way to hand a child an environment: `Popen` takes it
+    positionally and `run`/`call`/`check_*` forward positional arguments to it,
+    so a spawn written that way passed a gate that only read `node.keywords`.
+    If CPython ever reorders those parameters this fails here rather than
+    quietly guarding the wrong slot.
+    """
+    import inspect
+    import subprocess
+
+    assert list(inspect.signature(subprocess.Popen).parameters).index("env") == (
+        ENV_POSITION
+    )
+
+    passed = ast.parse("subprocess.run(a,b,c,d,e,f,g,h,i,j,raw_env)\n")
+    spawn = next(n for n in ast.walk(passed) if isinstance(n, ast.Call))
+    assert len(spawn.args) > ENV_POSITION
+    assert not Resolver(passed).is_encoder(spawn.args[ENV_POSITION])
+
+
+def test_no_module_can_be_made_unimportable_by_its_own_docstring() -> None:
+    """The rule this package enforces on secrets, enforced on itself.
+
+    `_representable`'s docstring said a provider must not return a lone
+    surrogate and contained one: a docstring is a string literal, so a singly
+    written `\\uD800` is not a mention of a surrogate but one. On Python 3.12
+    that compiles; on 3.14 the module cannot be compiled at all, and
+    `pyproject.toml` says `requires-python = ">=3.11"` while CI runs only 3.12 —
+    so nothing here would have said so.
+
+    Checked on every docstring rather than on the one that was wrong, because
+    the next one is written by someone documenting the same rule.
+    """
+    offenders: list[str] = []
+    for path in source_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
+        for node in ast.walk(tree):
+            if not isinstance(
+                node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+            ):
+                continue
+            doc = ast.get_docstring(node, clean=False)
+            if doc is None:
+                continue
+            try:
+                doc.encode("utf-8")
+            except UnicodeEncodeError:
+                offenders.append(
+                    f"{path.relative_to(ROOT)}:{node.lineno} "
+                    f"{getattr(node, 'name', '<module>')} — double the backslash: "
+                    f"a docstring is a literal, so the escape builds the character"
+                )
+    assert not offenders, (
+        "a docstring that cannot be encoded as UTF-8 makes its module "
+        "uncompilable on Python 3.14:\n  " + "\n  ".join(offenders)
+    )
