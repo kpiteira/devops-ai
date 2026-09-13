@@ -324,6 +324,68 @@ class TestSecretsFilePermissions:
         assert path.read_text() == "TOKEN=secret-val\n"
 
 
+class TestSiblingLiteralsReachTheProvider:
+    """`[sandbox.secrets]` resolves the way `ksecret run` resolves an env file."""
+
+    @staticmethod
+    def _fake_op(directory: Path) -> None:
+        program = directory / "op"
+        program.write_text('#!/bin/sh\nprintf "account=%s" "${OP_ACCOUNT:-UNSET}"\n')
+        program.chmod(0o755)
+
+    def test_a_declared_op_account_reaches_the_op_process(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        self._fake_op(bin_dir)
+        monkeypatch.setenv("PATH", str(bin_dir))
+        monkeypatch.delenv("OP_ACCOUNT", raising=False)
+
+        # API_KEY sorts before OP_ACCOUNT: only the two passes make this work.
+        resolved, errors = resolve_all_secrets(
+            {"API_KEY": "op://v/i/f", "OP_ACCOUNT": "my-team.1password.com"},
+            tmp_path,
+        )
+
+        assert errors == []
+        assert resolved["API_KEY"] == "account=my-team.1password.com"
+        assert resolved["OP_ACCOUNT"] == "my-team.1password.com", "still materialised"
+
+    def test_the_host_environment_is_the_fallback_not_the_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A declaration in infra.toml is explicit; an exported value is ambient."""
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        self._fake_op(bin_dir)
+        monkeypatch.setenv("PATH", str(bin_dir))
+        monkeypatch.setenv("OP_ACCOUNT", "stale-from-the-shell")
+
+        resolved, _ = resolve_all_secrets(
+            {"API_KEY": "op://v/i/f", "OP_ACCOUNT": "my-team.1password.com"},
+            tmp_path,
+        )
+        assert resolved["API_KEY"] == "account=my-team.1password.com"
+
+    def test_a_reference_entry_is_not_placed_before_it_resolves(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        self._fake_op(bin_dir)
+        monkeypatch.setenv("PATH", str(bin_dir))
+        monkeypatch.delenv("OP_ACCOUNT", raising=False)
+        (tmp_path / ".env").write_text("FROM_FILE=x\n")
+
+        resolved, errors = resolve_all_secrets(
+            {"API_KEY": "op://v/i/f", "OP_ACCOUNT": "dotenv://.env#FROM_FILE"},
+            tmp_path,
+        )
+        assert errors == []
+        assert resolved["API_KEY"] == "account=UNSET", "only literals are laid down"
+
+
 class TestSecureSecretsFile:
     """The invariant is that .env.secrets IS 0600 — not that a fresh one is."""
 

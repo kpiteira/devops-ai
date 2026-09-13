@@ -9,12 +9,15 @@ of it — the main-repo base directory, and the slot's secrets file.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 
 from devops_ai.secrets import (
     ResolveContext,
     SecretResolutionError,
+    literals,
     provider_for,
     resolve,
     resolve_all,
@@ -92,11 +95,27 @@ def resolve_all_secrets(
     Attempts ALL — does not stop at first failure.
     """
     ordered = {name: secrets[name] for name in sorted(secrets)}
-    return resolve_all(ordered, _context(base_dir))
+    return resolve_all(ordered, _context(base_dir, ordered))
 
 
-def _context(base_dir: Path | None) -> ResolveContext:
-    return ResolveContext() if base_dir is None else ResolveContext(base_dir=base_dir)
+def _context(
+    base_dir: Path | None, siblings: Mapping[str, str] | None = None
+) -> ResolveContext:
+    """The environment `[sandbox.secrets]` resolves in.
+
+    Literal entries are laid over the process environment before any reference
+    is resolved, so a declared `OP_ACCOUNT` reaches the 1Password process a
+    sibling reference spawns — the same ordering `ksecret run` gives an env
+    file, which is what the brief means by kinfra using the same resolver.
+    Sorting makes this order-independent: the two passes, not the key order,
+    decide what a provider sees.
+    """
+    env = dict(os.environ)
+    if siblings:
+        env.update(literals(siblings))
+    if base_dir is None:
+        return ResolveContext(env=env)
+    return ResolveContext(base_dir=base_dir, env=env)
 
 
 def provision_files(

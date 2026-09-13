@@ -38,6 +38,28 @@ def run_child(
     )
 
 
+def test_a_non_ascii_repo_path_is_decoded_not_crashed_on(
+    tmp_path: Path, c_locale: dict[str, str]
+) -> None:
+    """A path is bytes; `git rev-parse` emits them raw and the locale is no codec."""
+    repo = tmp_path / "caf\u00e9-repo"
+    repo.mkdir()
+    for args in (["git", "init", "-q", "."], ["git", "config", "user.email", "t@t"],
+                 ["git", "config", "user.name", "T"]):
+        subprocess.run(args, cwd=repo, check=True, capture_output=True)
+
+    result = run_child(
+        "import os, sys\n"
+        "from pathlib import Path\n"
+        "from devops_ai.worktree import main_repo_root\n"
+        f"r = main_repo_root(Path(os.fsdecode({os.fsencode(repo)!r})))\n"
+        "sys.stdout.buffer.write(os.fsencode(r) if r else b'None')",
+        c_locale, tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.encode("utf-8", "surrogateescape") == os.fsencode(repo)
+
+
 def test_the_materialised_secrets_file_is_written_as_utf8(
     tmp_path: Path, c_locale: dict[str, str]
 ) -> None:

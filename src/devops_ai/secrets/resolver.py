@@ -76,6 +76,17 @@ def schemes() -> list[str]:
     return sorted(provider.SCHEME for provider in installed_providers())
 
 
+def literals(entries: Mapping[str, str]) -> dict[str, str]:
+    """The entries no provider claims — the ones that are values, not references.
+
+    They are placed in the environment before anything is resolved, so a
+    reference can name a variable declared beside it. `ksecret run` and kinfra's
+    `[sandbox.secrets]` both depend on this: an `OP_ACCOUNT` line has to reach
+    the `op` process that the next line's reference spawns.
+    """
+    return {key: value for key, value in entries.items() if provider_for(value) is None}
+
+
 def resolve(
     var_name: str, ref: str, ctx: ResolveContext | None = None
 ) -> str:

@@ -241,6 +241,10 @@ ksecret check --env-file .env.prod              # ok / literal / error — never
 ksecret check --infra                           # the current project's sandbox secrets
 ```
 
+`ksecret run` reads each `--env-file` in two passes: literal lines go into the
+environment first, then references resolve against it — so a `KEY=op://…` line can use
+an `OP_ACCOUNT=…` line declared beside it. `[sandbox.secrets]` behaves identically.
+
 `ksecret` itself never prints a value unless you pass `--print` — not in confirmations,
 not in error messages — so an agent can establish that a project's secrets resolve
 without putting any of them in its transcript. What a command run under `ksecret run`
@@ -305,6 +309,12 @@ DATABASE_URL = "dotenv://.env#DATABASE_URL"
 API_KEY = "op://dev-vault/myapp/api-key"
 OP_ACCOUNT = "my-team.1password.com"
 ```
+
+Literal entries — `OP_ACCOUNT` here — are placed in the environment **before** any
+reference is resolved, the same ordering `ksecret run` gives an env file. That is what
+lets the `op://` line above find the right account without it being exported in your
+shell; a value you *have* exported is the fallback, not the override. The order of the
+lines does not matter — the two passes decide, not the file.
 
 Relative paths and the `./.env` fallback resolve against the **main repository root**,
 not the worktree — gitignored files live there. Resolved values are written to

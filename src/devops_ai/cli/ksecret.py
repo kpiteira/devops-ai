@@ -20,6 +20,7 @@ from devops_ai.secrets import (
     CheckResult,
     ResolveContext,
     SecretResolutionError,
+    literals,
     provider_for,
     read_env_file,
     resolve,
@@ -214,13 +215,8 @@ def _base_environment(entries: dict[str, str]) -> dict[str, str]:
     agent-memory's `OP_ACCOUNT=` line into the `op` process the next line needs.
     """
     environ = dict(os.environ)
-    environ.update(_literals(entries))
+    environ.update(literals(entries))
     return environ
-
-
-def _literals(entries: dict[str, str]) -> dict[str, str]:
-    """The lines no provider claims."""
-    return {k: v for k, v in entries.items() if provider_for(v) is None}
 
 
 def _references(entries: dict[str, str]) -> dict[str, str]:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -42,13 +43,19 @@ def main_repo_root(path: Path) -> Path | None:
         result = subprocess.run(
             ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
             capture_output=True,
-            text=True,
             timeout=5,
             cwd=path,
         )
         if result.returncode == 0 and result.stdout.strip():
+            # A path is bytes, and the locale is not its encoding: under
+            # LC_ALL=C a repository with a non-ASCII path would raise
+            # UnicodeDecodeError here. os.fsdecode is how the OS reads a path
+            # back, so it round-trips bytes no codec can name.
+            # (`--path-format=absolute` emits the raw path unquoted, so there
+            # is nothing to unescape.)
+            git_dir = os.fsdecode(result.stdout.strip())
             # --git-common-dir returns the .git dir of the main worktree
-            return Path(result.stdout.strip()).parent
+            return Path(git_dir).parent
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
     return None
