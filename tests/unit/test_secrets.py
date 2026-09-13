@@ -381,17 +381,31 @@ class TestOpenBaoReferenceShape:
         with pytest.raises(SecretResolutionError, match="not valid UTF-8 text"):
             resolve("K", "bao://kv/a#key", context)
 
+    @pytest.mark.skipif(
+        getattr(os, "geteuid", lambda: 1)() == 0,
+        reason="root reads through mode 000",
+    )
     def test_an_unreadable_token_file_is_not_reported_as_no_token(
         self, tmp_path: Path
     ) -> None:
-        """Two causes, two messages: `bao login` only helps once you know which."""
-        (tmp_path / ".vault-token").write_bytes(b"hvs.\xff\xfe\n")
+        """Two causes, two messages: `bao login` only helps once you know which.
+
+        A mode-000 file, not undecodable bytes: those exercise the
+        `UnicodeDecodeError` arm that the test above already covers, which
+        would leave the `OSError` arm — a `PermissionError` on the file itself
+        — green whatever it did.
+        """
+        token_file = tmp_path / ".vault-token"
+        token_file.write_text("hvs.readable-but-not-by-you\n")
+        token_file.chmod(0o000)
 
         context = ResolveContext(
             env={"BAO_ADDR": self.ADDRESS, "HOME": str(tmp_path)}
         )
-        with pytest.raises(SecretResolutionError, match="Cannot read"):
+        with pytest.raises(SecretResolutionError, match="Cannot read") as exc:
             resolve("K", "bao://kv/a#key", context)
+        assert "not valid UTF-8" not in exc.value.message, "the other arm"
+        assert "readable-but-not-by-you" not in exc.value.message
 
     def test_a_ca_bundle_that_is_not_there_is_named(self, tmp_path: Path) -> None:
         context = ResolveContext(

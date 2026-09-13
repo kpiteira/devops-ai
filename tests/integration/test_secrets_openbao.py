@@ -353,6 +353,7 @@ class TestServerFailures:
     def test_a_deleted_current_version_is_not_an_empty_secret(
         self, bao: FakeBao
     ) -> None:
+        """`null` is the shape KV v2 defines for a deleted current version."""
         bao.answer = lambda path: (
             200,
             json.dumps({"data": {"data": None, "metadata": {"destroyed": True}}}),
@@ -360,6 +361,22 @@ class TestServerFailures:
 
         with pytest.raises(SecretResolutionError, match="current version"):
             read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
+
+    @pytest.mark.parametrize("payload", [["a", "b"], "text", 7])
+    def test_a_malformed_payload_is_not_called_a_deleted_version(
+        self, bao: FakeBao, payload: object
+    ) -> None:
+        """Only `null` means deleted; anything else non-dict is a bad answer.
+
+        Telling the operator their latest version was destroyed, when the
+        server sent a list, is a wrong remediation for someone else's problem.
+        """
+        bao.answer = lambda path: (200, json.dumps({"data": {"data": payload}}))
+
+        with pytest.raises(SecretResolutionError, match="KV v2 mount") as raised:
+            read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
+
+        assert "deleted" not in str(raised.value)
 
 
 # --- The token goes only where the user pointed it ---

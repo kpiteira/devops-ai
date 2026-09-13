@@ -322,8 +322,8 @@ rather than followed, so point it at the active node or the load balancer in fro
 it. A redirect to the *same* host on another scheme (the usual `http` → `https`
 canonicalisation) is refused too, and says so: by the time that answer arrives the
 token has already gone out over the scheme you configured, so the fix is to spell the
-address with `https` rather than to be redirected there. Every message names whichever
-of `BAO_ADDR` / `VAULT_ADDR` you actually set. An ambient
+address with `https` rather than to be redirected there. Where a message asks you to
+change the address, it names whichever of `BAO_ADDR` / `VAULT_ADDR` you actually set. An ambient
 `HTTP_PROXY` / `HTTPS_PROXY` is deliberately not used either, for the same reason: a
 proxy configured for general web traffic is not a decision anyone made about a vault
 token. If you need a proxy to reach your vault, say so and it becomes an explicit

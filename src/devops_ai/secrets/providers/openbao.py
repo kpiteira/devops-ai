@@ -385,10 +385,19 @@ def _read_secret(
             f"{mount} is a KV v2 mount."
         )
     values = envelope["data"]
-    if not isinstance(values, dict):
+    if values is None:
+        # The one shape KV v2 defines for this: the current version was
+        # deleted or destroyed. Anything else non-dict is a malformed answer,
+        # and telling that user their version was deleted would be a wrong
+        # remediation for a server problem.
         raise ProviderError(
             f"The secret at {mount}/{path} has no readable current version "
             f"(the latest version is deleted or destroyed)."
+        )
+    if not isinstance(values, dict):
+        raise ProviderError(
+            f"The answer for {mount}/{path} is not a KV v2 secret. Check that "
+            f"{mount} is a KV v2 mount."
         )
     return values
 
