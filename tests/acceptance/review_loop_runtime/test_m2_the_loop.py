@@ -30,7 +30,9 @@ from tests.acceptance.review_loop_runtime.conftest import (
     ROOT,
     W49_SECOND_ORDER,
     ScratchPR,
+    authenticated_login,
     dispositions_file,
+    findings_by_id,
     gh,
     gh_json,
     kreview,
@@ -114,14 +116,21 @@ def test_write_side_coverage_is_not_optional() -> None:
 
 
 def test_round_wait_returns_when_a_review_arrives(scratch: ScratchPR) -> None:
-    poster = _later(8, scratch.comment, 3, "line 3 should say three")
+    """A comment posted well after the call starts is still in the packet.
+
+    The delay is 30 s, not a few: the comment must not exist when `round` begins, or an
+    implementation that ignores `--wait` reads it immediately and passes. Process
+    startup cannot plausibly eat 30 s, and `elapsed_s >= 10` — the tool's own view —
+    fails such an implementation even if it did.
+    """
+    poster = _later(30, scratch.comment, 3, "line 3 should say three")
     started = time.monotonic()
     p = _round(scratch, "--wait", "120")
     elapsed = time.monotonic() - started
     poster.join()
     assert p["no_show"] is False
     assert elapsed < 120
-    assert p["elapsed_s"] < 120
+    assert 10 <= p["elapsed_s"] < 120
     assert len(p["findings"]) == 1
     f = p["findings"][0]
     assert f["source"] == "thread"
@@ -140,16 +149,47 @@ def test_round_wait_reports_no_show(scratch: ScratchPR) -> None:
     assert p["elapsed_s"] >= 4.5
 
 
+def test_round_request_reports_already_reviewed(scratch: ScratchPR) -> None:
+    """`--request` does not re-request a reviewer who already reviewed this head.
+
+    The authenticated user stands in for the reviewer: a review comment makes a
+    submitted review by that login on `head_sha`, which is the Surface's condition —
+    graded here without buying a Copilot review, so `already-reviewed` is not one of
+    the outcomes that ships only behind `KREVIEW_ACCEPTANCE_PAID`.
+    """
+    me = authenticated_login()
+    scratch.comment(3, "line 3 should say three")
+    p = _round(scratch, "--request", "--reviewer", me)
+    assert p["requested"] == "already-reviewed"
+    assert (
+        gh_json(
+            "api", f"repos/{scratch.repo}/pulls/{scratch.number}/requested_reviewers"
+        )["users"]
+        == []
+    )
+
+
 @pytest.mark.skipif(
     os.environ.get("KREVIEW_ACCEPTANCE_PAID") != "1",
     reason="buys one Copilot review; set KREVIEW_ACCEPTANCE_PAID=1 (spec A3)",
 )
 def test_round_request_buys_a_copilot_review(scratch: ScratchPR) -> None:
-    p = _round(scratch, "--request", "--wait", "300")
+    """One purchase grades all four `requested` outcomes, in the order they occur."""
+    p = _round(scratch, "--request")
     assert p["requested"] == "requested"
+
+    # the request is outstanding and Copilot takes minutes, so this call must not
+    # request a second time
+    pending = _round(scratch, "--request")
+    assert pending["requested"] == "pending"
+
+    p = _round(scratch, "--wait", "300")
     assert p["no_show"] is False
     assert any(rv["author"] == COPILOT for rv in p["reviews"])
     assert p["signals"]["copilot_total"] == 1
+
+    after = _round(scratch, "--request")
+    assert after["requested"] == "already-reviewed"
 
 
 # ----------------------------------------------------------------- J6: apply
@@ -227,13 +267,21 @@ def test_apply_replies_resolves_files_an_issue_and_records_state(
 
 
 def test_apply_files_one_issue_per_class(scratch: ScratchPR, tmp_path: Path) -> None:
-    """Two OUT_OF_SCOPE findings sharing a root cause file one issue, not two."""
+    """Two OUT_OF_SCOPE findings sharing a root cause file one issue, not two.
+
+    The two titles differ deliberately: with one title shared, an implementation that
+    grouped by `issue_title` instead of by the `root_cause` the Surface names would
+    pass this test while filing two issues for any real class.
+    """
     c1 = scratch.comment(5, "line 5 has no trailing metadata")
     c2 = scratch.comment(12, "line 12 has no trailing metadata either")
     p = _round(scratch)
     assert {f["id"] for f in p["findings"]} == {f"t{c1}", f"t{c2}"}
 
-    title = f"kreview-acceptance {scratch.tag}: per-line metadata"
+    titles = {
+        c1: f"kreview-acceptance {scratch.tag}: per-line metadata at line 5",
+        c2: f"kreview-acceptance {scratch.tag}: per-line metadata at line 12",
+    }
     out = _apply(
         scratch,
         "--dispositions",
@@ -247,7 +295,7 @@ def test_apply_files_one_issue_per_class(scratch: ScratchPR, tmp_path: Path) -> 
                         "shape": "systemic",
                         "root_cause": "the file carries no per-line metadata",
                         "scope_outcome": "the twenty-line file",
-                        "issue_title": title,
+                        "issue_title": titles[c],
                     }
                     for c in (c1, c2)
                 ),
@@ -260,10 +308,112 @@ def test_apply_files_one_issue_per_class(scratch: ScratchPR, tmp_path: Path) -> 
 
     issues = scratch.find_issues()
     assert len(issues) == 1, [i["title"] for i in issues]
+    assert issues[0]["title"] in titles.values()
     body = issues[0]["body"]
     assert "line 5 has no trailing metadata" in body
     assert "line 12 has no trailing metadata either" in body
     assert all(scratch.thread_of(c)["resolved"] is True for c in (c1, c2))
+
+
+SUPPRESSED_REVIEW_BODY = """\
+Two moderate issues.
+
+### Suppressed comments (1)
+
+**{path}:4**
+* line 4 should say four
+"""
+
+
+def test_apply_records_a_suppressed_finding_without_replying(
+    scratch: ScratchPR, tmp_path: Path
+) -> None:
+    """A suppressed finding gets no reply anywhere, and its disposition is recorded.
+
+    The Surface pins both halves, and until now only the issue-comment half was graded
+    live: the suppressed half existed only in `--dry-run` replays of #49, which post
+    nothing by construction, so a tool that replied to a suppressed finding or dropped
+    it from the state block passed. The review body is the author's own (free); the
+    parser keys on the section heading, not on who wrote it.
+    """
+    review_id = scratch.review(SUPPRESSED_REVIEW_BODY.format(path=scratch.path))
+    p = _round(scratch)
+    assert p["suppressed_check"] == {"declared": 1, "parsed": 1}
+    assert p["signals"]["suppressed"] == 1
+    assert len(p["findings"]) == 1
+    f = p["findings"][0]
+    assert f["id"] == f"s{review_id}-1"
+    assert f["source"] == "suppressed"
+    assert f["thread"] is None
+    assert (f["path"], f["line"]) == (scratch.path, 4)
+    before = len(scratch.issue_comments())
+
+    out = _apply(
+        scratch,
+        "--dispositions",
+        str(
+            dispositions_file(
+                tmp_path,
+                {
+                    "id": f["id"],
+                    "verdict": "PUSH_BACK",
+                    "shape": "isolated",
+                    "reply": "line 4 is a fixture, not a defect",
+                },
+            )
+        ),
+    ).json()
+    assert out["posted"] == {"replies": 0, "resolved": 0, "issues": []}
+    assert scratch.threads() == []  # a suppressed finding has no thread to open
+    # the babysit comment is the only comment apply may add
+    assert len(scratch.issue_comments()) == before + 1
+    recorded = {
+        d["id"]: d["verdict"] for d in scratch.state()["rounds"][0]["dispositions"]
+    }
+    assert recorded == {f["id"]: "PUSH_BACK"}
+    assert (out["decision"], out["stop_reason"]) == ("stop", "no-in-scope-implement")
+
+
+def test_apply_stores_reviewer_text_literally(
+    scratch: ScratchPR, tmp_path: Path
+) -> None:
+    """Reviewer text reaches the filed issue byte for byte, and no shell runs it.
+
+    "Reviewer text never passes through a shell" is an invariant of the Surface with no
+    grader: every other body in this suite is benign, so an implementation that built
+    its `gh issue create` call as a shell string passed. The payload names a file the
+    shell would create; the assertion is that it does not exist.
+    """
+    marker = tmp_path / "reviewer-text-reached-a-shell"
+    payload = (
+        f"line 7 is wrong $(touch {marker}) `touch {marker}` "
+        f"; touch {marker} && touch {marker}"
+    )
+    scratch.comment(7, payload)
+    p = _round(scratch)
+    assert [f["body"] for f in p["findings"]] == [payload]
+
+    out = _apply(
+        scratch,
+        "--dispositions",
+        str(
+            dispositions_file(
+                tmp_path,
+                {
+                    "id": p["findings"][0]["id"],
+                    "verdict": "OUT_OF_SCOPE",
+                    "shape": "isolated",
+                    "scope_outcome": "the twenty-line file",
+                    "issue_title": f"kreview-acceptance {scratch.tag}: line 7",
+                },
+            )
+        ),
+    ).json()
+    assert len(out["posted"]["issues"]) == 1
+    issues = scratch.find_issues()
+    assert len(issues) == 1
+    assert payload in issues[0]["body"]
+    assert not marker.exists()
 
 
 def test_apply_records_an_issue_comment_disposition(
@@ -421,6 +571,9 @@ def test_apply_refuses_a_closed_pr(scratch: ScratchPR, tmp_path: Path) -> None:
     assert scratch.babysit_comment() is None
 
 
+A_FIX_COMMIT = "<the round's own fix commit>"  # replaced with a real sha at run time
+
+
 @pytest.mark.parametrize(
     # each case violates exactly one rule and is otherwise complete: a case missing two
     # fields passes against a tool that validates only the other one, and exit 2 then
@@ -436,6 +589,36 @@ def test_apply_refuses_a_closed_pr(scratch: ScratchPR, tmp_path: Path) -> None:
             {"verdict": "PUSH_BACK", "shape": "systemic", "reply": "no"},
             id="systemic-without-root-cause",
         ),
+        # one case per required-field family of the dispositions table: a tool that
+        # validated `shape` and nothing else would otherwise pass the three above
+        pytest.param(
+            {"verdict": "IMPLEMENT", "shape": "isolated", "reply": "done"},
+            id="implement-without-commit",
+        ),
+        pytest.param(
+            {"verdict": "IMPLEMENT", "shape": "isolated", "commit": A_FIX_COMMIT},
+            id="implement-without-reply",
+        ),
+        pytest.param(
+            {"verdict": "PUSH_BACK", "shape": "isolated"},
+            id="push-back-without-reply",
+        ),
+        pytest.param(
+            {
+                "verdict": "OUT_OF_SCOPE",
+                "shape": "isolated",
+                "issue_title": "kreview-acceptance: no scope outcome",
+            },
+            id="out-of-scope-without-scope-outcome",
+        ),
+        pytest.param(
+            {
+                "verdict": "OUT_OF_SCOPE",
+                "shape": "isolated",
+                "scope_outcome": "the twenty-line file",
+            },
+            id="out-of-scope-without-issue-title",
+        ),
     ],
 )
 def test_apply_refuses_each_validation_class(
@@ -444,21 +627,27 @@ def test_apply_refuses_each_validation_class(
     """Every validation class the Surface pins is exit 2 with nothing posted.
 
     The suite covered only "a finding with no disposition" and "a commit not on the PR";
-    an implementation that accepted an unknown verdict or a `systemic` with no root
-    cause still passed.
+    an implementation that accepted an unknown verdict, a `systemic` with no root cause,
+    or an `IMPLEMENT` with no commit still passed.
     """
     c1 = scratch.comment(3, "line 3 should say three")
+    case = dict(broken)
+    if case.get("commit") == A_FIX_COMMIT:
+        # the only thing wrong with this case must be the missing field, so the commit
+        # it does carry is a real one on the PR head
+        case["commit"] = scratch.push_fix("three")
     r = _kr(
         scratch,
         "apply",
         str(scratch.number),
         "--json",
         "--dispositions",
-        str(dispositions_file(tmp_path, {"id": f"t{c1}", **broken})),
+        str(dispositions_file(tmp_path, {"id": f"t{c1}", **case})),
     )
     assert r.code == 2, (r.code, r.out, r.err)
     assert r.err.strip()
     assert len(scratch.thread_of(c1)["comments"]) == 1
+    assert scratch.find_issues() == []
     assert scratch.babysit_comment() is None
 
 
@@ -838,6 +1027,68 @@ def test_apply_repeats_only_stops_the_loop(scratch: ScratchPR, tmp_path: Path) -
     assert [r["n"] for r in scratch.state()["rounds"]] == [1, 2]
 
 
+def test_apply_refuses_a_repeat_of_outside_the_ledger(
+    scratch: ScratchPR, tmp_path: Path
+) -> None:
+    """`repeat_of` must name a finding the ledger carries, or any string converges.
+
+    `repeats-only` is a stop rule evaluated from the model's own tags, so an unchecked
+    `repeat_of` is a way to end a loop by writing a word: the round below is identical
+    to the converging one above except that the id it claims to re-raise was never
+    dispositioned.
+    """
+    c1 = scratch.comment(3, "line 3 should say three")
+    first = _round(scratch)
+    _apply(
+        scratch,
+        "--since",
+        first["window"]["since"],
+        "--until",
+        first["window"]["until"],
+        "--dispositions",
+        str(
+            dispositions_file(
+                tmp_path,
+                {
+                    "id": f"t{c1}",
+                    "verdict": "PUSH_BACK",
+                    "shape": "isolated",
+                    "reply": "three is not the scope's concern",
+                },
+            )
+        ),
+    )
+
+    c2 = scratch.comment(4, "line 4 should say four, same as line 3")
+    second = _round(scratch)
+    absent = "t999999999999"
+    assert absent not in second["ledger"]
+    r = _kr(
+        scratch,
+        "apply",
+        str(scratch.number),
+        "--json",
+        "--dispositions",
+        str(
+            dispositions_file(
+                tmp_path,
+                {
+                    "id": f"t{c2}",
+                    "verdict": "PUSH_BACK",
+                    "shape": "isolated",
+                    "repeat_of": absent,
+                    "reply": "same point as before",
+                },
+            )
+        ),
+    )
+    assert r.code == 2, (r.code, r.out, r.err)
+    assert absent in r.err
+    assert len(scratch.thread_of(c2)["comments"]) == 1
+    # round 2 is not recorded: validation happens before anything is written
+    assert [rnd["n"] for rnd in scratch.state()["rounds"]] == [1]
+
+
 def test_apply_budget_stops_after_max_rounds(
     scratch: ScratchPR, tmp_path: Path
 ) -> None:
@@ -924,18 +1175,52 @@ def test_apply_next_chains_into_the_next_packet(
     assert s["babysit"]["status"] == "running"
 
 
-# ------------------------------------------- J1 (M1 verdict order) graded here
+# --------------------------------- J1/J2 (M1 verdict order, provenance) graded here
+
+
+def test_round_unknown_provenance_after_a_rebase(scratch: ScratchPR) -> None:
+    """A force-push puts the reviewed commit out of history: provenance is unknown.
+
+    The third provenance state cannot be produced from this repository's merged
+    fixtures — none was force-pushed after a review — and it is the state the signed
+    rule turns on: an unknown must never fire the second-order stop. Here the reviewed
+    commit is still served by GitHub but is no longer an ancestor of the head, so no
+    boundary is reachable and the finding on it is neither original nor review-fix.
+    """
+    c1 = scratch.comment(3, "line 3 should say three")
+    before = _round(scratch)
+    assert before["boundary"]["status"] == "ok"
+    assert findings_by_id(before)[f"t{c1}"]["provenance"] == "original"
+
+    scratch.rewrite_head("rewritten")
+    p = _round(scratch)
+    assert p["boundary"]["status"] == "none-reachable"
+    f = findings_by_id(p)[f"t{c1}"]
+    assert f["provenance"] == "unknown"
+    assert "pre-rebase" in f["provenance_detail"]
+    sig = p["signals"]
+    assert sig["unknown"] == sig["line_anchored"] == 1
+    assert sig["on_review_fix"] == sig["on_original"] == 0
+    assert sig["second_order"] is False
 
 
 def _status_until_ci_settles(pr: ScratchPR, deadline_s: int = 240) -> dict:
-    """Poll `status` until the head's CI is no longer pending (Actions takes ~1 min)."""
+    """Poll `status` until the head's CI is no longer pending (Actions takes ~1 min).
+
+    `none` is waited on exactly like `pending`: in the first seconds after the push
+    Actions has not created the check run yet, so `status` reports no checks at all.
+    Returning on `none` would fail a correct implementation before its check existed —
+    "not started" is not a settled state.
+    """
     started = time.monotonic()
     while True:
         r = _kr(pr, "status", str(pr.number), "--json")
         assert r.code in (0, 3), (r.out, r.err)
         s = r.json()
-        if s["ci"]["status"] != "pending" or time.monotonic() - started > deadline_s:
+        if s["ci"]["status"] not in ("pending", "none"):
             return s
+        if time.monotonic() - started > deadline_s:
+            return s  # the test's own assertion names the state it timed out on
         time.sleep(15)
 
 
@@ -1132,12 +1417,41 @@ def test_reentry_is_advised_and_gated(scratch: ScratchPR, tmp_path: Path) -> Non
 FORBIDDEN_COMMANDS = ("gh", "git", "awk", "jq", "curl")
 
 
+# where one command ends and the next begins: a pipe, a separator, a subshell, a
+# command substitution, a redirection
+_COMMAND_BREAK = re.compile(r"\$\(|&&|\|\||[|;&()`{}]|<|>")
+# tokens that can precede the command word without being one
+_NOT_THE_COMMAND = {
+    "$",
+    "!",
+    "if",
+    "then",
+    "elif",
+    "else",
+    "while",
+    "until",
+    "do",
+    "sudo",
+    "time",
+    "exec",
+    "command",
+    "nohup",
+    "xargs",
+    "env",
+}
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*=")
+
+
 def _shell_invocations(text: str) -> list[str]:
-    """Every fenced line or inline code span that *starts* with a forbidden command.
+    """Every fenced line or inline code span that *invokes* a forbidden command.
 
     The Surface pins "no `gh `, `git `, `awk`, `jq`, or `curl` invocation", so the check
-    is generic: a list of spellings would pass a rewrite that reached for `gh repo view`
-    or `git status`. Prose about git is not an invocation, so only code is scanned.
+    is generic in two directions, each of which was a hole in an earlier version: not a
+    list of spellings (`gh repo view` sailed past a check for `gh api`), and not only
+    the snippet's first word — `REPO=$(gh repo view …)`, `if git merge-base …`,
+    `… | jq '.x'` and `VAR=1 curl …` are all invocations, and a grader that reads
+    `words[0]` sees none of them. Prose about git is not an invocation, so only code is
+    scanned.
     """
     candidates: list[str] = []
     in_fence = False
@@ -1150,11 +1464,19 @@ def _shell_invocations(text: str) -> list[str]:
         candidates.extend(re.findall(r"`([^`\n]+)`", line))
     found: list[str] = []
     for snippet in candidates:
-        # split() on any whitespace: a space-only split misses `git\tstatus`, and an
-        # empty snippet has no first word at all
-        words = snippet.strip().removeprefix("$").split()
-        if words and words[0] in FORBIDDEN_COMMANDS:
-            found.append(snippet.strip())
+        for segment in _COMMAND_BREAK.split(snippet):
+            # split() on any whitespace: a space-only split misses `git\tstatus`
+            words = segment.split()
+            while words and (
+                words[0] in _NOT_THE_COMMAND or _ASSIGNMENT.match(words[0])
+            ):
+                words = words[1:]
+            # an invocation is the command word *plus at least one argument*: a bare
+            # `gh` in prose names the CLI, and failing a correct rewrite for naming it
+            # is the corrupted signal the test-quality rule forbids
+            if len(words) >= 2 and words[0] in FORBIDDEN_COMMANDS:
+                found.append(snippet.strip())
+                break
     return found
 
 

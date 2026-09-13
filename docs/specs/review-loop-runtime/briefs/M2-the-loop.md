@@ -53,7 +53,7 @@ Everything in M1 holds. Additions:
   dispositions.
 - `since` now defaults to the last recorded round's `until` from the state block.
 
-### `kreview apply <pr> --dispositions FILE [--next [--wait SECONDS]] [--max-rounds N] [--stop REASON] [--reenter] [--dry-run] [--since ISO] [--until ISO]`
+### `kreview apply <pr> --dispositions FILE [--next [--wait SECONDS] [--reviewer LOGIN]] [--max-rounds N] [--stop REASON] [--reenter] [--dry-run] [--since ISO] [--until ISO]`
 
 **Dispositions file** (JSON): `{"round_note": <str, optional>, "dispositions": [ … ]}`,
 one object per finding and per issue comment the model treats as a finding:
@@ -74,7 +74,9 @@ one object per finding and per issue comment the model treats as a finding:
 Validation happens before anything is posted; any violation is exit 2 with every
 violation on stderr and nothing written: an id not in the round, a round finding with
 no disposition, a `systemic` without `root_cause`, an `IMPLEMENT` whose `commit` is not
-on the PR head (fetched first), a missing required field, a `verdict` outside the four.
+on the PR head (fetched first), a `repeat_of` that names no entry of the inherited
+`ledger` (an unchecked one would let any string satisfy the `repeats-only` stop), a
+missing required field, a `verdict` outside the four.
 Each violation line names the disposition's `id`, and a commit violation also names the
 offending commit — at least its abbreviated sha — so the model can see which one it is
 without re-reading its own file.
@@ -101,7 +103,9 @@ without re-reading its own file.
   Reviewer text never passes through a shell. Two findings with the same `root_cause`
   and `OUT_OF_SCOPE` file **one** issue, its body listing every site.
 - Apply is idempotent per finding: a finding whose reply from this round is already
-  posted (a partial earlier run) is not replied to again.
+  posted (a partial earlier run) is not replied to again, and a class whose
+  `OUT_OF_SCOPE` issue this round already filed is not filed a second time — the two
+  together are what "a re-run continues idempotently" (exit code 1, below) means.
 - The **state block** is written (see below) into the babysit report comment — created
   on the first apply, rewritten on every later one — and the comment's visible part is
   the in-progress report: `## Babysit report — PR #N`, `**Status:** in progress — round
@@ -124,7 +128,10 @@ without re-reading its own file.
 Output (JSON): `{round, run, posted: {replies, resolved, issues: [#…]}, decision,
 stop_kind, stop_reason, kselfreview_range, next}`. With `--next` and `decision:
 continue`, the tool requests the next review, waits `--wait` (default 300), and `next`
-is the following round's packet; otherwise `next` is `null`.
+is the following round's packet; otherwise `next` is `null`. `--reviewer` is passed to
+that round unchanged (default `copilot`; `none` requests nobody and only waits), so a
+chained round is addressed to the same reviewer the model names; without `--next` it is
+ignored.
 
 - `--dry-run`: validate, decide, post nothing, write nothing; output as above with
   `posted` all zero and `next` `null`. Works on merged and closed PRs with
@@ -232,8 +239,6 @@ and is gated by `KREVIEW_ACCEPTANCE_PAID=1` (A3). Replay tests run `--dry-run` o
 history at the cutoff of M1's Blocking note; they use no scratch repository and so
 never skip.
 
-| Job | Planner-authored test | Observable proof | Measured on main |
-|-----|-----------------------|------------------|------------------|
 The baseline on main is **not** uniform, and the column below says which of the three
 each test has: a test that *invokes* `kreview` fails with uv's `Failed to spawn:
 kreview` (exit 2); `::test_write_side_coverage_is_not_optional` fails on its own
@@ -241,18 +246,23 @@ assertion when `KREVIEW_ACCEPTANCE_REPO` is unset and passes when it is set, bec
 runs no command; and `::test_skills_contain_no_gh_or_git_commands` fails on the current
 skills' contents, also without running a command.
 
+| Job | Planner-authored test | Observable proof | Measured on main |
+|-----|-----------------------|------------------|------------------|
 | J5 | `test_m2_the_loop.py::test_help_lists_apply_and_report` | `--help` names all four commands | uv: `Failed to spawn: kreview` (exit 2); no scratch repository, so it never skips |
 | J5–J9 | `::test_write_side_coverage_is_not_optional` | fails, not skips, when `KREVIEW_ACCEPTANCE_REPO` is unset, so the `blocking:` command is red when the write side was not exercised (A2) | runs no command: fails its own assertion wherever the variable is unset, and passes on main once it is set |
-| J5 | `::test_round_wait_returns_when_a_review_arrives` | a review comment posted 8 s after `round --wait 120` starts is in the packet; `no_show` false; returned before the deadline | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J5 | `::test_round_wait_returns_when_a_review_arrives` | a review comment posted 30 s after `round --wait 120` starts is in the packet; `no_show` false; returned before the deadline **and after waiting at least 10 s** — the delay is longer than any plausible process start, so the comment cannot pre-date the wait and an implementation that ignores `--wait` cannot read it | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J5 | `::test_round_wait_reports_no_show` | `--wait 5` with nothing new: `no_show` true, 0 findings, exit 0, and `elapsed_s` reaches the deadline (≥ 4.5 s) — an implementation that returns at once does not pass | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J5 | `::test_round_request_buys_a_copilot_review` (paid, `KREVIEW_ACCEPTANCE_PAID=1`) | `--request --wait 300`: `requested` is `requested` and a review by the Copilot login is in the packet | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J5 | `::test_round_request_reports_already_reviewed` | a submitted review by `--reviewer` exists for `head_sha` (the author's own review comment makes one, free): `requested` is `already-reviewed` and no review request is created — the Surface's "unless a submitted review by that reviewer exists" graded without buying one | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J5 | `::test_round_request_buys_a_copilot_review` (paid, `KREVIEW_ACCEPTANCE_PAID=1`) | one purchase grades all four `requested` outcomes in order: `--request` with no wait → `requested`; the same call again while the request is outstanding → `pending`; `--wait 300` → the Copilot review is in the packet; `--request` once more → `already-reviewed` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6 | `::test_apply_replies_resolves_files_an_issue_and_records_state` | IMPLEMENT thread: reply starts ``Fixed in `<sha>` —``, resolved; OUT_OF_SCOPE thread: reply names the issue, resolved; the issue's body carries the finding verbatim and the thread URL; the babysit comment exists with `<!-- kreview-state`; `status` shows `running`, 1 round; decision `continue` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J6 | `::test_apply_files_one_issue_per_class` | two OUT_OF_SCOPE findings sharing a `root_cause`: **one** issue, its body naming both sites, both threads resolved | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J6 | `::test_apply_files_one_issue_per_class` | two OUT_OF_SCOPE findings sharing a `root_cause` but carrying **different** `issue_title`s: **one** issue, its body naming both sites, both threads resolved — distinct titles are the point, since grouping by title would pass a test where both titles matched | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J6 | `::test_apply_records_a_suppressed_finding_without_replying` | a review whose body carries a `Suppressed comments (1)` section (posted by the author, free): the finding is in the packet with `source: suppressed`, and after `apply` no thread exists anywhere on the PR, no reply was posted, and the state block holds its id and verdict — the Surface's "suppressed findings get no reply, their disposition is recorded" graded live rather than only in dry-run replay | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J6 | `::test_apply_stores_reviewer_text_literally` | a finding whose body carries `$(…)`, backticks, `;` and `&&`: the filed issue's body contains that text byte for byte and the shell never ran it (the marker file the payload would create does not exist) — the "reviewer text never passes through a shell" invariant, otherwise ungraded | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6 | `::test_apply_records_an_issue_comment_disposition` | an issue comment dispositioned: no reply anywhere, no thread opened, its id and verdict in the state block, `no-new-findings` (an issue comment is not line-anchored) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6 | `::test_apply_is_idempotent_on_a_rerun` | the same round applied twice: the second run posts 0 replies, resolves 0, files no second issue, and the thread's comment count is unchanged | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6 | `::test_apply_refuses_incomplete_dispositions` | a round finding without a disposition: exit 2, no reply on any thread | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6 | `::test_apply_refuses_a_commit_not_on_the_pr` | IMPLEMENT with a foreign sha: exit 2, stderr names the offending commit, nothing posted | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J6 | `::test_apply_refuses_each_validation_class` | one case per remaining pinned violation — a verdict outside the four, a missing required field, a `systemic` with no `root_cause`: exit 2, stderr non-empty, no reply and no babysit comment | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J6 | `::test_apply_refuses_each_validation_class` | one case per remaining pinned violation, each violating exactly one rule — a verdict outside the four, a `systemic` with no `root_cause`, and every required-field family of the table above: no `shape`; `IMPLEMENT` without `commit`; `IMPLEMENT` without `reply`; `PUSH_BACK` without `reply`; `OUT_OF_SCOPE` without `scope_outcome`; `OUT_OF_SCOPE` without `issue_title`: exit 2, stderr non-empty, no reply, no issue filed, no babysit comment | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6 | `::test_apply_refuses_an_id_that_is_not_in_the_round` | a disposition for an id the packet never carried: exit 2, stderr names the id, the valid finding's thread untouched | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6 | `::test_apply_refuses_a_closed_pr` | a non-dry-run `apply` on a closed PR: exit 3, no reply, no babysit comment | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6 | `::test_apply_fails_closed_when_github_is_unreachable` | nonexistent repository: exit 1, nothing on stdout | spawn fails (exit 2); no scratch repository, so it never skips |
@@ -262,14 +272,16 @@ skills' contents, also without running a command.
 | J7 | `::test_apply_dry_run_precedence_on_49_history` | same window: two PUSH_BACK → `second-order`, which outranks `no-in-scope-implement`; one systemic `on_pinned_surface` DISCUSS → `systemic-on-pinned-surface` beats second-order; an empty window → `no-new-findings` | spawn fails (exit 2); no scratch repository, so it never skips |
 | J7 | `::test_apply_stop_reason_from_the_model` | `--stop ci` with two IMPLEMENT in the second-order window: `stop` / `escalate` / `stopped: ci` — the model's reason outranks convergence | spawn fails (exit 2); no scratch repository, so it never skips |
 | J7 | `::test_apply_repeats_only_stops_the_loop` | round 2 whose every disposition carries `repeat_of` into round 1's ledger: `stop` / `converged` / `repeats-only`; and after two rounds **one** babysit comment exists, holding both (D13) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J6, J7 | `::test_apply_refuses_a_repeat_of_outside_the_ledger` | the same round 2 with `repeat_of` naming an id no ledger entry carries: exit 2, stderr names the id, nothing posted and no round recorded — without this an arbitrary string converges the loop through `repeats-only` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J7 | `::test_apply_budget_stops_after_max_rounds` | `--max-rounds 1` with one IMPLEMENT: `stop` / `escalate` / `budget` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J5, J7 | `::test_apply_next_chains_into_the_next_packet` | `apply --next --wait 120` with round 1's window pinned by `--until` and a comment landing after it: `next` holds the following packet with the new finding and the round-1 ledger; the state has 1 recorded round (round 2 is open, not yet applied) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J9 | `::test_report_renders_and_posts_from_state` | after a stop: the comment carries the Verdict, Rounds row, *Why the loop stopped*, paid rounds, and `status: stopped` in the block; TL;DR verbatim | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J8 | `::test_reentry_is_advised_and_gated` | after the report: `status` → `stopped`, `reentry` is `selfreview` after an unreviewed push; `apply` → exit 5; `apply --reenter` → run 2, `running`, and the next packet shows the budget reset (`used_this_run` 1, not 2) with run 1's dispositions still in `ledger` (A9) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J2 (M1) | `::test_round_unknown_provenance_after_a_rebase` | a PR whose reviewed commit is force-pushed out of history: `boundary.status` `none-reachable`, the finding on it `unknown` with `provenance_detail` naming the rebase, `signals.unknown == line_anchored`, `second_order` **false** — the third provenance state, and the signed rule that an unknown never ends a loop, neither of which M1's immutable fixtures can produce | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_stops_on_red_ci` | a PR whose branch carries a workflow that exits 1: once the check settles, `ci.status` `failing`, a failing entry in `ci.checks`, `verdict` `stop: ci-failing`, exit 3 — from a clone on the branch, so `checkout-mismatch` cannot mask it | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_stops_on_draft` | a draft PR: `pr.draft` true, `verdict` `stop: draft`, exit 3 | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_stops_on_empty_scope` | a PR whose `## Review scope` heading has nothing under it: `scope` `{empty, ""}`, `verdict` `stop: scope-empty`, exit 3 | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J10 | `::test_skills_contain_no_gh_or_git_commands` | in neither skill does any fenced line or inline code span begin with `gh`, `git`, `awk`, `jq`, or `curl` — the generic form the Surface pins, not a list of spellings; `kbabysit` names all four subcommands and keeps its frontmatter pin; `kobserve` names `kreview status` | fails on main, and without running a command: both skills are full of `gh` |
+| J10 | `::test_skills_contain_no_gh_or_git_commands` | in neither skill does any fenced line or inline code span **invoke** `gh`, `git`, `awk`, `jq`, or `curl` in any command position — after a variable assignment (`REPO=$(gh repo view …)`), a shell keyword (`if git merge-base …`), a pipe, or inside `$( )` — which is the "no invocation" the Surface pins, not "the snippet's first word". An invocation is the command word with at least one argument, so prose naming the `gh` CLI still passes; `kbabysit` names all four subcommands and keeps its frontmatter pin; `kobserve` names `kreview status` | fails on main, and without running a command: 16 such invocations in `kbabysit`, 22 in `kreview`, 8 in `kobserve` (measured 2026-09-13) |
 
 Plus the standing gates: `make check` exits 0.
 
@@ -303,7 +315,11 @@ Plus the standing gates: `make check` exits 0.
   branch; the test polls `status` until the check settles, up to 240 s.
 - The tests create branches `kreview-acc/<hex>` and issues titled `kreview-acceptance
   …` in the scratch repository and close them; leftovers from an aborted run are
-  harmless and may be deleted by hand.
+  harmless and may be deleted by hand. Two of them go further on their own branch: one
+  force-pushes it (the `unknown`-provenance fixture) and one submits a **COMMENT review
+  carrying a body** as the PR's own author — which GitHub allows, only *approving* your
+  own PR being refused (measured against the scratch repository 2026-09-13). That is
+  how a `Suppressed comments` section is produced without buying a Copilot review.
 
 ## Context
 

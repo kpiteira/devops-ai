@@ -206,6 +206,14 @@ available in that private repository — probed 2026-09-13). The verdict is M1's
 Surface; its last three reasons are graded one milestone later, which the sign-off
 accepted.
 
+The packet's third **provenance** state is in the same position. `original` and
+`review-fix` are graded above on #49 and #27; `unknown` is not, because it needs a PR
+whose reviewed commit has left its history, and no fixture here was force-pushed after
+a review. It is graded in M2's scratch repository by
+`::test_round_unknown_provenance_after_a_rebase`, which force-pushes its own branch —
+and with it the rule the state exists for, signed in #34: an `unknown` never fires the
+second-order stop.
+
 ## Advisory
 
 - A `--cache` of fetched reviews per PR head for repeated replays — not required.

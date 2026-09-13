@@ -117,6 +117,11 @@ def gh_json(*args: str) -> Any:
     return json.loads(gh(*args))
 
 
+def authenticated_login() -> str:
+    """The login `gh` acts as — the reviewer the free write-side tests stand in for."""
+    return gh("api", "user", "--jq", ".login").strip()
+
+
 def git(*args: str, cwd: Path) -> str:
     return subprocess.run(
         ["git", *args], cwd=cwd, capture_output=True, text=True, check=True
@@ -163,6 +168,38 @@ class ScratchPR:
             "side=RIGHT",
         )
         return int(out["id"])
+
+    def review(self, body: str) -> int:
+        """Submit a COMMENT review carrying `body` (authenticated user, free).
+
+        A PR's own author can submit a COMMENT review on it — measured against the
+        scratch repository on 2026-09-13; only *approving* one's own PR is refused.
+        This is how a review body carrying a `Suppressed comments` section is produced
+        without buying a Copilot review.
+        """
+        out = gh_json(
+            "api",
+            f"repos/{self.repo}/pulls/{self.number}/reviews",
+            "-f",
+            "event=COMMENT",
+            "-f",
+            f"body={body}",
+        )
+        return int(out["id"])
+
+    def rewrite_head(self, text: str) -> str:
+        """Amend the branch tip and force-push: the reviewed commit leaves history.
+
+        This is how the `unknown` provenance state is produced: every earlier review's
+        commit is still served by GitHub but is no longer an ancestor of the head, so
+        no boundary is reachable.
+        """
+        file = self.clone / self.path
+        file.write_text(file.read_text() + text + "\n")
+        git("add", self.path, cwd=self.clone)
+        git("commit", "-q", "--amend", "--no-edit", cwd=self.clone)
+        git("push", "-q", "--force", "origin", self.branch, cwd=self.clone)
+        return self.head
 
     def issue_comment(self, body: str) -> int:
         out = gh_json(
