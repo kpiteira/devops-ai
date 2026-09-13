@@ -173,6 +173,7 @@ residual, not papered over with a `>=`.
 | J1 | `test_m1_read_side.py::test_help_lists_status_and_round` | `--help` exits 0 naming both commands | `uv run kreview --help` → uv: `Failed to spawn: kreview` (script not declared) |
 | J1 | `::test_status_on_merged_pr_49` | exit 3, **every key of the table above present** (a status missing `checkout` or `automation` is not this command), `verdict` `stop: merged` while `checkout.matches_pr` is false — so `merged` outranking `checkout-mismatch` is graded too; scope present naming J7, 13 Copilot reviews all `Lite`, boundary `5a9b106`, report present | same — every M1 test fails on main because the script does not exist; the table records the first assertion each would fail on once it runs |
 | J1 | `::test_status_without_repo_resolves_it_from_the_checkout` | the same call with no `--repo`, run from the clone: same PR and verdict — every other test passes `--repo`, so the documented default would otherwise ship ungraded | spawn fails: `Failed to spawn: kreview` (exit 2) |
+| J1 | `::test_status_on_closed_pr_19` | #19 was closed without merging and is scope-less, so both rules hold and only the order decides: exit 3, `pr.state` `closed`, `scope.status` `missing`, `verdict` `stop: closed` | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J1 | `::test_status_reports_missing_scope_on_10` | `scope.status == missing`, `text == ""`, exit 3 | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J1 | `::test_status_reentry_advice_on_49` | `reentry == paid` (reviews after the report), `last_reviewed_sha` `7b2b313`, `kselfreview_range` ends at the head | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2 | `::test_round_full_history_49_parses_every_suppressed_finding` | at the cutoff: `suppressed_check` 15/15; default excludes the 4 resolved threads, `--include-resolved` includes them; `s5191010581-1` (`:245`) blames to `23ee88a2` and `-2` (`:160`) to `63465ed7`, both `review-fix` | spawn fails: `Failed to spawn: kreview` (exit 2) |
@@ -191,13 +192,15 @@ residual, not papered over with a `>=`.
 
 Plus the standing gates: `make check` exits 0.
 
-**Graded here, and not graded here.** Of the verdict order, `merged`, `scope-missing`
-and `checkout-mismatch`'s precedence behind `merged` are graded above. `closed`, `draft`
-and `scope-empty` are **not**: each needs a PR in that state, and this repository's
-merged history has none — M1's fixtures are immutable public PRs by design, and a
-mutable fixture is the scratch repository M2 introduces (A5 cuts the milestones that
-way). Recorded rather than quietly absent, so the sign-off sees the residual: the three
-are gradable in M2's scratch repository if the human wants them blocking there.
+**Graded here, and not graded here.** Of the verdict order, `merged`, `closed`,
+`scope-missing`, and two precedences — `merged` over `checkout-mismatch`, `closed` over
+`scope-missing` — are graded above. `draft` and `scope-empty` are **not**: each needs a
+PR in that state, and this repository has never had a draft PR (measured 2026-09-13:
+`gh pr list --state all` reports none) nor one whose `## Review scope` heading is empty.
+M1's fixtures are immutable public PRs by design; a fixture in an arbitrary state is the
+scratch repository M2 introduces (A5 cuts the milestones that way). Recorded rather than
+quietly absent, so the sign-off sees the residual: both are gradable in M2's scratch
+repository if the human wants them blocking there.
 
 ## Advisory
 

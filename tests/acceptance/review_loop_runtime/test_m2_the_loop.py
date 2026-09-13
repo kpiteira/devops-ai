@@ -422,10 +422,16 @@ def test_apply_refuses_a_closed_pr(scratch: ScratchPR, tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    # each case violates exactly one rule and is otherwise complete: a case missing two
+    # fields passes against a tool that validates only the other one, and exit 2 then
+    # attributes nothing
     "broken",
     [
-        pytest.param({"verdict": "MAYBE", "shape": "isolated"}, id="unknown-verdict"),
-        pytest.param({"verdict": "PUSH_BACK"}, id="missing-shape"),
+        pytest.param(
+            {"verdict": "MAYBE", "shape": "isolated", "reply": "no"},
+            id="unknown-verdict",
+        ),
+        pytest.param({"verdict": "PUSH_BACK", "reply": "no"}, id="missing-shape"),
         pytest.param(
             {"verdict": "PUSH_BACK", "shape": "systemic", "reply": "no"},
             id="systemic-without-root-cause",
@@ -461,6 +467,9 @@ def test_apply_refuses_an_id_that_is_not_in_the_round(
 ) -> None:
     """An id the packet never carried is a validation failure, not a silent skip."""
     c1 = scratch.comment(3, "line 3 should say three")
+    # a long, obviously-fake id: a short one like `t1` is a substring of real comment
+    # ids, so the stderr assertion could pass without the tool naming anything
+    absent = "t999999999999"
     r = _kr(
         scratch,
         "apply",
@@ -477,7 +486,7 @@ def test_apply_refuses_an_id_that_is_not_in_the_round(
                     "reply": "no",
                 },
                 {
-                    "id": "t1",
+                    "id": absent,
                     "verdict": "PUSH_BACK",
                     "shape": "isolated",
                     "reply": "no",
@@ -486,7 +495,7 @@ def test_apply_refuses_an_id_that_is_not_in_the_round(
         ),
     )
     assert r.code == 2, (r.code, r.out, r.err)
-    assert "t1" in r.err
+    assert absent in r.err
     assert len(scratch.thread_of(c1)["comments"]) == 1
 
 

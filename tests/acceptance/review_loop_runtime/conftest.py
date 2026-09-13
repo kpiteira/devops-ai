@@ -64,6 +64,8 @@ W27_SIXTH = ("2026-09-12T16:13:00Z", "2026-09-12T16:14:00Z")  # review 518707744
 PR27_SIXTH_ORIGINAL = ("skills/kworktree/SKILL.md", 136)  # blames to ed2338dd
 
 PR10 = 10  # merged before the review-scope rule: no `## Review scope`
+# closed without merging, and scope-less: grades `closed` ahead of `scope-missing`
+PR19 = 19
 
 
 @dataclass

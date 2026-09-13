@@ -16,6 +16,7 @@ from tests.acceptance.review_loop_runtime.conftest import (
     COPILOT,
     MEASURED_UNTIL,
     PR10,
+    PR19,
     PR27,
     PR27_BOUNDARY,
     PR27_SIXTH_ORIGINAL,
@@ -118,6 +119,20 @@ def test_status_without_repo_resolves_it_from_the_checkout() -> None:
     s = r.json()
     assert s["pr"]["number"] == PR49
     assert s["verdict"] == "stop: merged"
+
+
+def test_status_on_closed_pr_19() -> None:
+    """A closed-unmerged PR stops the run, and `closed` outranks `scope-missing`.
+
+    #19 was closed without merging and carries no `## Review scope`, so both rules hold
+    and only the order decides which the verdict names.
+    """
+    r = kreview("status", str(PR19), "--repo", REPO, "--json")
+    assert r.code == 3, (r.out, r.err)
+    s = r.json()
+    assert s["pr"]["state"] == "closed"
+    assert s["scope"]["status"] == "missing"
+    assert s["verdict"] == "stop: closed"
 
 
 def test_status_reports_missing_scope_on_10() -> None:
