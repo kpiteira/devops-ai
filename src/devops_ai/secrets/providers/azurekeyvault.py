@@ -222,17 +222,14 @@ def _diagnose(
     ):
         return f"Azure CLI is not logged in, so {ref} cannot be read. Run: az login"
     if coded("Forbidden"):
-        # Second layer under `_az_errors`' phrase filter: this is the branch a
-        # disabled secret would fall into if Azure ever reworded the response
-        # past both anchors above, so any mention of the word at all suppresses
-        # the relay here. It costs detail on a genuine denial for a secret
-        # actually named `disabled` — cheap, next to disclosing the state — and
-        # it cannot misroute, because the branch is still chosen by code.
-        relayed = _az_errors(stderr)
-        if "disabled" in relayed.lower():
-            relayed = ""
+        # This is the branch a disabled secret falls into if Azure ever rewords
+        # the response past both anchors above, so a mention of the state
+        # suppresses the relay here. It costs detail on a genuine denial for a
+        # secret actually named `disabled` — cheap, next to disclosing the
+        # state — and cannot misroute, because the branch is chosen by code.
         return (
-            f"Access denied reading {ref}.{relayed} If that is a "
+            f"Access denied reading {ref}.{_az_errors(stderr, hide_state=True)} "
+            f"If that is a "
             f"permissions problem, your Azure identity needs the Key Vault "
             f"Secrets User role on {vault}."
         )
@@ -245,7 +242,13 @@ def _diagnose(
             f"Key Vault {vault} could not be reached — check the vault name "
             f"in {ref}."
         )
-    detail = _az_errors(stderr) or (
+    # An invalid-request response echoes back only what the caller typed, so
+    # relaying it discloses nothing about the vault — the caller already knows
+    # what they wrote. Anything unclassified might be Azure describing state, so
+    # there the mention is dropped. Getting this backwards discarded az's real
+    # reason for a name like `disabled secret` *and* claimed az had printed no
+    # ERROR: line, which was simply false.
+    detail = _az_errors(stderr, hide_state=not coded("BadParameter")) or (
         f" az printed no ERROR: line; run: {_retry(vault, secret, version)}"
     )
     return f"Azure CLI failed reading {ref} (exit status {code}).{detail}"
@@ -333,20 +336,25 @@ def _refused_operation(messages: tuple[str, ...], version: str) -> bool:
     return False
 
 
-def _az_errors(stderr: str) -> str:
+def _az_errors(stderr: str, *, hide_state: bool = False) -> str:
     """az's own ERROR: lines, joined — empty when it printed none.
 
-    A line naming a *disabled* secret is dropped rather than relayed. A disabled
-    secret is reported as an absent one, and a path that could not classify the
-    response would otherwise hand back az's words and disclose the very
-    difference that decision exists to hide. Filtering here rather than at each
-    caller means no present or future relay can leak it. The phrase carries a
-    space, which no legal Key Vault name does, so an echoed name cannot forge
-    it — and cannot suppress an unrelated diagnosis either.
+    `hide_state` drops a line naming a *disabled* secret, for the paths where
+    az may be describing the vault rather than the request: a disabled secret is
+    reported as an absent one, and relaying az's words there would disclose the
+    very difference that decision exists to hide.
+
+    It is off by default because the caller, not this function, knows which it
+    is. An invalid-request response echoes back only what the caller typed, so
+    it can be relayed whole; filtering it unconditionally — as an earlier
+    version did — threw away az's real reason for a reference like
+    `akv://v/disabled secret` and left a message claiming az had printed no
+    ERROR: line at all.
     """
     lines = [
         line.partition("ERROR:")[2].strip()
         for line in stderr.splitlines()
-        if line.startswith("ERROR:") and "disabled secret" not in line.lower()
+        if line.startswith("ERROR:")
+        and not (hide_state and "disabled" in line.lower())
     ]
     return (" " + " ".join(lines)) if lines else ""

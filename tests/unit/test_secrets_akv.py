@@ -360,6 +360,45 @@ class TestAzureCliFailures:
         )
         assert "disabled" not in message.lower()
 
+    def test_an_invalid_name_mentioning_the_state_still_gets_azs_reason(
+        self, tmp_path: Path
+    ) -> None:
+        """Hiding the state must not cost an unrelated diagnosis.
+
+        `_parse` accepts arbitrary segments, so `akv://v/disabled secret` is a
+        reachable typo. Azure's answer echoes the caller's own text back, which
+        discloses nothing about the vault — the caller wrote it. Filtering it
+        anyway threw away the real reason.
+        """
+        _, message = self._read(
+            tmp_path,
+            azure_error(
+                "(BadParameter) The request URI contains an invalid name: "
+                "disabled secret"
+            )
+            + "Code: BadParameter\n",
+            ref="akv://a-vault/disabled secret",
+        )
+        assert "invalid name: disabled secret" in message
+
+    def test_the_fallback_never_claims_az_was_silent_when_it_was_not(
+        self, tmp_path: Path
+    ) -> None:
+        """The sentence that made the old filter worse than lossy: it lied.
+
+        Dropping az's only ERROR: line left the message asserting that az had
+        printed none, which sends the reader looking in the wrong place.
+        """
+        _, message = self._read(
+            tmp_path,
+            azure_error(
+                "(BadParameter) The request URI contains an invalid name: "
+                "disabled secret"
+            ),
+            ref="akv://a-vault/disabled secret",
+        )
+        assert "printed no ERROR" not in message
+
     def test_a_genuine_permission_denial_still_names_the_role(
         self, tmp_path: Path
     ) -> None:
