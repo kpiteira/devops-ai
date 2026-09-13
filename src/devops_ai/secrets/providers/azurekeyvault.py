@@ -95,16 +95,27 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
 
 def _parse(ref: str) -> tuple[str, str, str | None]:
     """Split a reference into vault, secret and optional version."""
+    # Two characters classes never belong in a reference, for different reasons.
+    #
     # A NUL cannot survive exec: `subprocess.run` raises ValueError before `az`
-    # starts, and the resolver only translates ProviderError — so it would leave
-    # `ksecret check`, whose whole job is to *report* what resolves, dumping a
-    # traceback instead. Rejected here as the malformed reference it is. This is
-    # not the deferred question of validating names against Azure's rules: it is
-    # the one character that cannot reach a child process at all.
-    if NUL in ref:
-        shown = ref.replace(NUL, "\\0")
+    # starts, and the resolver translates only ProviderError, so it would leave
+    # `ksecret check` — whose whole job is to *report* what resolves — dumping a
+    # traceback.
+    #
+    # A line break is worse than cosmetic: az echoes a rejected name back, so a
+    # segment carrying one splits into a line of its own in az's output, and a
+    # name like `x<LF>Code: Forbidden` forges the very field `_az_error_fields`
+    # reads codes from. Line-anchoring cannot help — the forged line *is* a
+    # line. Verified: `\r`, `\v`, `\x1c`, `\x85` and `\u2028` all do it, not
+    # just `\n`, so the test is `str.splitlines()` itself rather than a list of
+    # characters to keep in step with it.
+    #
+    # Neither is the deferred question of validating names against Azure's rules:
+    # these cannot reach, or cannot safely survive, the child process at all.
+    if NUL in ref or ref.splitlines() != [ref]:
         raise ProviderError(
-            f"Malformed reference {shown}. A reference cannot contain a NUL byte."
+            f"Malformed reference {_visible(ref)}. A reference cannot contain a "
+            f"NUL byte or a line break."
         )
     parts = ref[len(SCHEME):].split("/")
     if len(parts) not in (2, 3) or not all(parts):
@@ -114,6 +125,21 @@ def _parse(ref: str) -> tuple[str, str, str | None]:
         )
     vault, secret = parts[0], parts[1]
     return vault, secret, parts[2] if len(parts) == 3 else None
+
+
+def _visible(ref: str) -> str:
+    """The reference with only its offending characters escaped.
+
+    Echoing a raw line break or NUL into a terminal hides the very thing the
+    message is about. Everything else is left alone, so an accented name stays
+    readable instead of being mangled into escapes.
+    """
+    return "".join(
+        char.encode("unicode_escape").decode("ascii")
+        if char == NUL or char.splitlines() != [char]
+        else char
+        for char in ref
+    )
 
 
 def _value(ref: str, stdout: str) -> str:

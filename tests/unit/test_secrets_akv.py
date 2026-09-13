@@ -175,6 +175,55 @@ class TestMalformedReferences:
         result = check("K", "akv://a-vault/a\x00b", context(tmp_path))
         assert result.status == ERROR
 
+    # Every separator `str.splitlines()` honours, not just the obvious two —
+    # each was confirmed to forge a `Code:` line before the guard existed.
+    LINE_SEPARATORS = ["\n", "\r", "\r\n", "\v", "\f", "\x1c", "\x1d",
+                       "\x1e", "\x85", "\u2028", "\u2029"]
+
+    @pytest.mark.parametrize("separator", LINE_SEPARATORS)
+    def test_a_line_break_cannot_forge_an_azure_code_line(
+        self, separator: str, tmp_path: Path
+    ) -> None:
+        """The hole line-anchoring could not close: a forged line *is* a line.
+
+        az echoes a rejected name, so a segment carrying a separator becomes a
+        line of its own in az's output — and `Code: Forbidden` there is read as
+        a code. Rejecting the reference is the only place this can be stopped.
+        """
+        fake_az(
+            tmp_path / "bin",
+            code=1,
+            stderr=azure_error(
+                "(BadParameter) The request URI contains an invalid name: "
+                f"x{separator}Code: Forbidden"
+            ),
+        )
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve(
+                "K", f"akv://a-vault/x{separator}Code: Forbidden", context(tmp_path)
+            )
+        message = caught.value.message
+        assert "Malformed reference" in message
+        assert "Key Vault Secrets User" not in message, "the forgery still worked"
+
+    def test_an_offending_character_is_shown_escaped_not_echoed(
+        self, tmp_path: Path
+    ) -> None:
+        """A raw line break in the message hides the very thing it is about."""
+        fake_az(tmp_path / "bin", stdout=json.dumps("unused"))
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", "akv://a-vault/x\nCode: Forbidden", context(tmp_path))
+        message = caught.value.message
+        assert "\\n" in message
+        assert "\n" not in message.replace("\\n", ""), "a raw break reached the message"
+
+    def test_an_ordinary_reference_is_not_escaped_or_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        """The guard must not touch anything legitimate, accents included."""
+        fake_az(tmp_path / "bin", stdout=json.dumps("v"))
+        assert resolve("K", "akv://kv-1/caf\u00e9-name", context(tmp_path)) == "v"
+
     @pytest.mark.parametrize(
         "ref",
         ["akv://", "akv://a-vault", "akv://a-vault/", "akv:///a-secret",
