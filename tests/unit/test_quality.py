@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any
 
+import pytest
 from ruamel.yaml import YAML
 
 from devops_ai.cli.quality import (
@@ -24,6 +25,27 @@ def _parse_workflow(content: str) -> dict[str, Any]:
     so a mis-indented job fails the test instead of passing it."""
     loaded: dict[str, Any] = YAML(typ="safe").load(content)
     return loaded
+
+
+def _write_project_md(
+    project_root: Path, integration: str | None = None,
+) -> None:
+    """A minimal Python project.md, optionally carrying an `Integration tests`
+    field — the one line these cases differ by."""
+    config_dir = project_root / ".devops-ai"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "## Project\n\n",
+        "- **Name:** myapp\n",
+        "- **Language:** Python\n",
+        "- **Runner:** uv\n\n",
+        "## Testing\n\n",
+        "- **Unit tests:** uv run pytest tests/unit\n",
+        "- **Quality checks:** uv run ruff check src/\n",
+    ]
+    if integration is not None:
+        lines.append(f"- **Integration tests:** {integration}\n")
+    (config_dir / "project.md").write_text("".join(lines))
 
 
 def _python_plan(project_root: Path, **overrides: Any) -> QualityPlan:
@@ -192,6 +214,141 @@ class TestDetectQualityConfig:
         integration.mkdir(parents=True)
         (integration / "__init__.py").write_text("")
         (integration / "conftest.py").write_text("")
+
+        plan = detect_quality_config(tmp_path)
+
+        assert plan is not None
+        assert plan.test_integration_cmd is None
+
+    def test_derives_integration_cmd_from_underscore_test_suffix(
+        self, tmp_path: Path,
+    ) -> None:
+        """pytest's other default `python_files` pattern. Detection supports
+        both spellings, so both are exercised — a regression in this branch
+        would silently drop the target and the CI job for a supported suite."""
+        _write_project_md(tmp_path)
+        integration = tmp_path / "tests" / "integration"
+        integration.mkdir(parents=True)
+        (integration / "thing_test.py").write_text("def test_thing(): pass\n")
+
+        plan = detect_quality_config(tmp_path)
+
+        assert plan is not None
+        assert plan.test_integration_cmd == "uv run pytest tests/integration"
+
+    def test_no_integration_cmd_when_only_matches_are_directories(
+        self, tmp_path: Path,
+    ) -> None:
+        """`rglob` yields directories too. A directory named `test_fixtures.py/`
+        collects nothing, so treating it as a test file arms a job for an empty
+        collection — pytest exit 5, the wrong-red this guard exists to avoid."""
+        _write_project_md(tmp_path)
+        integration = tmp_path / "tests" / "integration"
+        integration.mkdir(parents=True)
+        (integration / "test_fixtures.py").mkdir()
+        (integration / "fixtures_test.py").mkdir()
+
+        plan = detect_quality_config(tmp_path)
+
+        assert plan is not None
+        assert plan.test_integration_cmd is None
+
+    def test_configured_integration_cmd_wins_over_derivation(
+        self, tmp_path: Path,
+    ) -> None:
+        """project.md has a first-class `Integration tests` field. A project
+        that configures selectors or a different runner keeps them — rewriting
+        `tests/unit` into the unit command would run a different suite."""
+        _write_project_md(
+            tmp_path,
+            integration='uv run pytest tests/integration -m "not slow"',
+        )
+        integration = tmp_path / "tests" / "integration"
+        integration.mkdir(parents=True)
+        (integration / "test_thing.py").write_text("def test_thing(): pass\n")
+
+        plan = detect_quality_config(tmp_path)
+
+        assert plan is not None
+        assert (
+            plan.test_integration_cmd
+            == 'uv run pytest tests/integration -m "not slow"'
+        )
+
+    def test_configured_integration_cmd_is_normalized_for_uv(
+        self, tmp_path: Path,
+    ) -> None:
+        """Same portability rewrite the other configured commands get. The
+        selector is what makes this fail if the field is ignored — without it
+        derivation produces the same string and the test pins nothing."""
+        _write_project_md(
+            tmp_path, integration=".venv/bin/pytest tests/integration -m slow",
+        )
+        integration = tmp_path / "tests" / "integration"
+        integration.mkdir(parents=True)
+        (integration / "test_thing.py").write_text("def test_thing(): pass\n")
+
+        plan = detect_quality_config(tmp_path)
+
+        assert plan is not None
+        assert (
+            plan.test_integration_cmd == "uv run pytest tests/integration -m slow"
+        )
+
+    @pytest.mark.parametrize(
+        "placeholder",
+        ["Not configured", "not configured.", '[command, or "Not configured"]'],
+    )
+    def test_placeholder_integration_field_falls_back_to_derivation(
+        self, tmp_path: Path, placeholder: str,
+    ) -> None:
+        """The template ships both spellings of "nothing here yet". Running
+        either as a command is worse than deriving one."""
+        _write_project_md(tmp_path, integration=placeholder)
+        integration = tmp_path / "tests" / "integration"
+        integration.mkdir(parents=True)
+        (integration / "test_thing.py").write_text("def test_thing(): pass\n")
+
+        plan = detect_quality_config(tmp_path)
+
+        assert plan is not None
+        assert plan.test_integration_cmd == "uv run pytest tests/integration"
+
+    def test_configured_integration_cmd_needs_no_tests_unit_convention(
+        self, tmp_path: Path,
+    ) -> None:
+        """Derivation needs a `tests/unit` path to map onto; a configured
+        command needs nothing to map onto at all."""
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "project.md").write_text(
+            "## Project\n\n"
+            "- **Name:** myapp\n"
+            "- **Language:** TypeScript\n"
+            "- **Runner:** npm\n\n"
+            "## Testing\n\n"
+            "- **Unit tests:** npm test\n"
+            "- **Quality checks:** npm run lint\n"
+            "- **Integration tests:** npm run test:integration\n"
+        )
+        integration = tmp_path / "tests" / "integration"
+        integration.mkdir(parents=True)
+        (integration / "test_thing.py").write_text("def test_thing(): pass\n")
+
+        plan = detect_quality_config(tmp_path)
+
+        assert plan is not None
+        assert plan.test_integration_cmd == "npm run test:integration"
+
+    def test_configured_integration_cmd_still_needs_the_tests(
+        self, tmp_path: Path,
+    ) -> None:
+        """The directory decides whether to emit; the field only decides what
+        runs. A configured command over an empty directory is still exit 5."""
+        _write_project_md(
+            tmp_path, integration="uv run pytest tests/integration",
+        )
+        (tmp_path / "tests" / "unit").mkdir(parents=True)
 
         plan = detect_quality_config(tmp_path)
 

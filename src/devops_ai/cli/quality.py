@@ -27,7 +27,8 @@ class QualityPlan:
     setup_cmd: str
     # Structural gates (tests/architecture/) — derived from the unit test command.
     test_arch_cmd: str | None = None
-    # Integration tests (tests/integration/) — derived from the unit test command,
+    # Integration tests (tests/integration/) — project.md's `Integration tests`
+    # command when it carries one, derived from the unit test command otherwise,
     # and only when that directory holds tests. None means the project has none,
     # so no Makefile target and no CI job are emitted for it.
     test_integration_cmd: str | None = None
@@ -51,6 +52,7 @@ def detect_quality_config(project_root: Path) -> QualityPlan | None:
     unit_tests = _extract_field(content, "Unit tests")
     quality_checks = _extract_field(content, "Quality checks")
     lint_fast = _extract_field(content, "Lint \\(fast\\)")
+    integration_tests = _extract_field(content, "Integration tests")
     e2e_cmd = _extract_field(content, "Command", section="E2E")
 
     if not unit_tests or not quality_checks:
@@ -76,6 +78,8 @@ def detect_quality_config(project_root: Path) -> QualityPlan | None:
         unit_tests = _normalize_uv_cmd(unit_tests)
         if lint_fast:
             lint_fast = _normalize_uv_cmd(lint_fast)
+        if integration_tests:
+            integration_tests = _normalize_uv_cmd(integration_tests)
         if e2e_cmd:
             e2e_cmd = _normalize_uv_cmd(e2e_cmd)
 
@@ -91,8 +95,11 @@ def detect_quality_config(project_root: Path) -> QualityPlan | None:
     # Derive structural-gates command from the unit test command
     test_arch_cmd = _derive_test_arch_cmd(unit_tests)
 
-    # Derive the integration command — only for projects that have the directory
-    test_integration_cmd = _derive_test_integration_cmd(unit_tests, project_root)
+    # The integration command — configured if project.md carries one, derived
+    # otherwise; either way only for projects that have the tests
+    test_integration_cmd = _resolve_test_integration_cmd(
+        integration_tests, unit_tests, project_root,
+    )
 
     return QualityPlan(
         project_root=project_root,
@@ -165,35 +172,71 @@ def _derive_test_arch_cmd(test_unit_cmd: str) -> str | None:
     return None
 
 
-def _derive_test_integration_cmd(
-    test_unit_cmd: str, project_root: Path,
+def _resolve_test_integration_cmd(
+    configured: str | None, test_unit_cmd: str, project_root: Path,
 ) -> str | None:
-    """Derive the integration-test command (tests/integration/) from the unit
-    test command.
+    """The integration-test command (tests/integration/) for this project.
 
-    Two conditions, both necessary. The unit command must name tests/unit —
-    otherwise there is no convention to map onto (same rule as test-arch). And
-    tests/integration/ must hold at least one test file: pytest exits non-zero
-    on a missing path (usage error, 4) and on an empty collection (5), so a
-    target or a CI job emitted for a project without integration tests would be
-    red for a reason that has nothing to do with the code. Checking for a file
-    rather than just the directory covers the dir-exists-but-empty case.
+    The directory decides *whether* to emit; project.md decides *what* runs.
+
+    Whether: tests/integration/ must hold at least one test file. pytest exits
+    non-zero on a missing path (usage error, 4) and on an empty collection (5),
+    so a target or a CI job emitted for a project without integration tests
+    would be red for a reason that has nothing to do with the code. Checking
+    for a file rather than just the directory covers the dir-exists-but-empty
+    case.
+
+    What: project.md's `Integration tests` field is the source of truth when it
+    carries a real command — a project with its own selectors, markers or
+    runner keeps them instead of having them rewritten away. When it carries
+    nothing usable (absent, "Not configured", or the template's unedited
+    `[...]` placeholder) the command is derived from the unit command, which
+    then has to name tests/unit — otherwise there is no convention to map onto
+    (same rule as test-arch).
     """
-    if "tests/unit" not in test_unit_cmd:
-        return None
     integration_dir = project_root / "tests" / "integration"
     if not integration_dir.is_dir():
         return None
     if not _has_test_files(integration_dir):
         return None
+    explicit = _configured_cmd(configured)
+    if explicit:
+        return explicit
+    if "tests/unit" not in test_unit_cmd:
+        return None
     return test_unit_cmd.replace("tests/unit", "tests/integration")
+
+
+def _configured_cmd(value: str | None) -> str | None:
+    """A project.md field value if it is a command, None if it is a placeholder.
+
+    The template ships `- **Integration tests:** [command, or "Not configured"]`,
+    so both the bracketed placeholder and the literal "Not configured" reach
+    here from real project.md files. Running either as a command is worse than
+    deriving one.
+    """
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.rstrip(".").casefold() == "not configured":
+        return None
+    if text.startswith("[") and text.endswith("]"):
+        return None
+    return text
 
 
 def _has_test_files(directory: Path) -> bool:
     """Whether pytest would collect anything under `directory` — its two default
-    `python_files` patterns, searched recursively."""
+    `python_files` patterns, searched recursively.
+
+    `rglob` yields directories as well as files, and a directory named
+    `test_fixtures.py/` collects nothing; `is_file()` is what keeps it from
+    arming a job for an empty collection.
+    """
     return any(
-        next(directory.rglob(pattern), None) is not None
+        any(p.is_file() for p in directory.rglob(pattern))
         for pattern in ("test_*.py", "*_test.py")
     )
 
