@@ -152,4 +152,3 @@ A run isn't done until:
   always-on gates' job, not the audit's.
 - **Boundary with "stay clean":** keeping MAP.md current as code changes is kbuild's Architecture
   Reconciliation; the audit's Refresh mode is for re-deriving it on demand, not per-commit.
-</content>
