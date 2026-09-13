@@ -267,11 +267,16 @@ cd ~/Documents/dev/devops-ai && uv tool install -e . --reinstall
 | `dotenv://<path>#<KEY>` | key `KEY` in the `KEY=value` file at `path` |
 | `op://<vault>/<item>/<field>` | a 1Password item field, read with your own `op` grant |
 | `bao://<mount>/<path>#<key>` | an OpenBao / HashiCorp Vault KV v2 key *(coming)* |
-| `akv://<vault>/<secret>` | an Azure Key Vault secret *(coming)* |
+| `akv://<vault>/<secret>` | an Azure Key Vault secret, read with your own `az login` session. `akv://<vault>/<secret>/<version>` pins a version; the bare form reads the current one |
 
 `env://NAME` is the canonical form and `$NAME` the shorthand; both fall back to `./.env`,
 and an exported variable always wins over the file. A `KEY=value` file may use `#`
 comment lines, blank lines, an `export ` prefix, and single or double quotes.
+
+Each vault-backed scheme needs only the tool you already sign in with: `op signin`
+for `op://`, and `az login` for `akv://` — no Azure SDK, no service principal, no
+extra configuration. `az login --identity` works too, so the same reference
+resolves on a VM or Container App with a managed identity.
 
 Resolution happens on the host, with your credentials — your `op` grant, your `az`
 session, your Vault token. A command started by `ksecret run` receives plain values in
@@ -297,11 +302,11 @@ terminal output.
 ### In a kinfra sandbox
 
 `[sandbox.secrets]` in `.devops-ai/infra.toml` goes through the same resolver
-`ksecret` uses, so every **implemented** reference above works there. The two marked
-*(coming)* do not yet: until their provider ships, `bao://…` and `akv://…` are
-unclaimed schemes, which means they are treated as literals (see the first row) and
-the URI itself is injected as the value. `ksecret check` labels them `literal` — that
-is how you tell.
+`ksecret` uses, so every **implemented** reference above works there. The one marked
+*(coming)* does not yet: until its provider ships, `bao://…` is an unclaimed
+scheme, which means it is treated as a literal (see the first row) and the URI
+itself is injected as the value. `ksecret check` labels it `literal` — that is how
+you tell.
 
 ```toml
 [sandbox.secrets]

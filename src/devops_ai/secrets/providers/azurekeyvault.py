@@ -1,0 +1,146 @@
+"""Azure Key Vault secrets: `akv://<vault>/<secret>`, read through the `az` CLI.
+
+A bare reference reads the secret's current version; `akv://<vault>/<secret>/<version>`
+reads that one. Auth is whatever `az login` established — a developer session, a
+managed identity, a service principal — so the provider adds no credential handling
+of its own, exactly as the 1Password provider adds nothing to an `op` grant.
+
+Azure CLI failures are classified from stderr, not from exit status: `az keyvault
+secret show` exits 3 for a missing secret and 1 for an unreachable vault, and neither
+code is documented API. Its `ERROR:` lines are.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+
+from ..context import ResolveContext
+from ..errors import ProviderError
+
+SCHEME = "akv://"
+TIMEOUT = 30
+
+
+def handles(ref: str) -> bool:
+    """Claim the scheme even when nothing follows it, so a typo is a malformed
+    reference rather than a literal that quietly resolves to itself."""
+    return ref.startswith(SCHEME)
+
+
+def resolve(ref: str, ctx: ResolveContext) -> str:
+    """Read the secret through `az`, translating its failures into guidance."""
+    vault, secret, version = _parse(ref)
+
+    # The child is spawned with `env=ctx.env`, and exec resolves the program on
+    # *that* environment's PATH — including its fallback when the variable is
+    # absent. Resolve here on the same PATH and hand the child the absolute
+    # path, so there is no second search that could disagree with this one.
+    executable = shutil.which("az", path=ctx.env.get("PATH", os.defpath))
+    if executable is None:
+        raise ProviderError(
+            "Azure CLI (az) not found. "
+            "Install: brew install azure-cli "
+            "— or use $VAR references instead."
+        )
+
+    command = [
+        executable, "keyvault", "secret", "show",
+        "--vault-name", vault,
+        "--name", secret,
+        # JSON, not TSV: a value that ends in a newline or contains a tab comes
+        # back byte-identical through `json.loads`, where TSV's row terminator
+        # would be indistinguishable from the value's own trailing newline.
+        "--query", "value", "--output", "json",
+        # Keep stderr to az's own ERROR: lines, so classification reads signal.
+        "--only-show-errors",
+    ]
+    if version is not None:
+        command += ["--version", version]
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            # The operator's locale is not the secret's encoding: under C, a
+            # non-ASCII value would raise UnicodeDecodeError before it could be
+            # returned.
+            encoding="utf-8",
+            timeout=TIMEOUT,
+            env=dict(ctx.env),
+        )
+    except subprocess.TimeoutExpired:
+        raise ProviderError(
+            f"Azure CLI timed out reading {ref} after {TIMEOUT}s. "
+            f"Check your network and that `az account show` succeeds."
+        ) from None
+
+    if result.returncode != 0:
+        raise ProviderError(_diagnose(ref, vault, secret, result.stderr or ""))
+
+    return _value(ref, result.stdout)
+
+
+def _parse(ref: str) -> tuple[str, str, str | None]:
+    """Split a reference into vault, secret and optional version."""
+    parts = ref[len(SCHEME):].split("/")
+    if len(parts) not in (2, 3) or not all(parts):
+        raise ProviderError(
+            f"Malformed reference {ref}. Expected "
+            f"{SCHEME}<vault>/<secret> or {SCHEME}<vault>/<secret>/<version>."
+        )
+    vault, secret = parts[0], parts[1]
+    return vault, secret, parts[2] if len(parts) == 3 else None
+
+
+def _value(ref: str, stdout: str) -> str:
+    """The secret from az's JSON output, or a failure that never quotes it."""
+    try:
+        value = json.loads(stdout)
+    except ValueError:
+        raise ProviderError(
+            f"Azure CLI returned output that is not JSON for {ref}."
+        ) from None
+    if not isinstance(value, str):
+        raise ProviderError(f"Secret {ref} has no value in Azure Key Vault.")
+    return value
+
+
+def _diagnose(ref: str, vault: str, secret: str, stderr: str) -> str:
+    """Name what went wrong from az's own error text.
+
+    Only az's `ERROR:` lines are quoted back, and only for failures with no
+    tailored guidance: a retrieval that failed holds no value to leak, but the
+    invariant is absolute, so nothing else from the child reaches the message.
+    """
+    lowered = stderr.lower()
+    if "secretnotfound" in lowered or "was not found in this key vault" in lowered:
+        return f"Secret not found in Azure Key Vault: {ref}."
+    if "az login" in lowered or "please run" in lowered:
+        return (
+            f"Azure CLI is not logged in, so {ref} cannot be read. Run: az login"
+        )
+    if "forbidden" in lowered or "not authorized" in lowered or "denied" in lowered:
+        return (
+            f"Access denied to {secret} in Key Vault {vault}. Your Azure "
+            f"identity needs the Key Vault Secrets User role on that vault."
+        )
+    if "failed to resolve" in lowered or "name or service not known" in lowered:
+        return (
+            f"Key Vault {vault} could not be reached — check the vault name "
+            f"in {ref}."
+        )
+    return f"Azure CLI failed reading {ref}.{_az_errors(stderr)}"
+
+
+def _az_errors(stderr: str) -> str:
+    """az's own ERROR: lines, joined — empty when it printed none."""
+    lines = [
+        line.partition("ERROR:")[2].strip()
+        for line in stderr.splitlines()
+        if line.startswith("ERROR:")
+    ]
+    return (" " + " ".join(lines)) if lines else ""
