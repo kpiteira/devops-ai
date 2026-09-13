@@ -206,3 +206,29 @@ briefs and tests reference them. -->
   turn typos like `$MY-VAR` into silent self-resolving literals. Karl chose to keep
   the current broad behaviour for M1 and revisit the grammar at feature close
   (2026-09-12). No change in this milestone.
+- [x] 2026-09-13 (M2, M3) decision confirmed: a `bao://` or `akv://` string in an
+  existing `[sandbox.secrets]` stops being an unclaimed literal and resolves against
+  its backend; a project that cannot reach the backend now gets a failed `kinfra impl`
+  where it previously got the URI injected verbatim. Intended by the spec; no config in
+  the repo carried either. Acknowledged by Karl 2026-09-13 (PR #51, PR #49).
+- [x] 2026-09-13 (M2) decision: the `bao://` provider follows **no** HTTP redirect —
+  not cross-host, not same-host. Any 3xx is an error naming the status and the address
+  variable in use. Rationale (Karl): redirect handling is attack surface "we're not
+  sized to respond to properly right now"; the official Vault client's follow-with-token
+  behaviour for HA standby→active is deliberately not matched — point the address at the
+  active node or a load balancer. Acknowledged by Karl 2026-09-13 (PR #51).
+- [x] 2026-09-13 (M2) fact-correction: the homelab OpenBao at
+  `vault.home.mynerd.place` presents a public Let's Encrypt wildcard certificate behind
+  Traefik, single node, no client certificates (verified by live handshake and homelab
+  config, 2026-09-13). The provider's TLS support — system trust store plus
+  `BAO_CACERT`/`VAULT_CACERT` — is sufficient; skip-verify and client certificates are
+  not added. Confirmed by Karl 2026-09-13.
+- [x] 2026-09-13 (M3) decision: a **disabled** Key Vault secret (or disabled pinned
+  version) is treated exactly as a secret that does not exist — same exit code and
+  not-found message naming the reference; no disabled-specific wording and no
+  pin-a-version workaround. Rationale: a pinned version never rotates, and a disabled
+  secret should not be routed around. The genuine RBAC-denied diagnosis stays separate.
+  Acknowledged by Karl 2026-09-13 (PR #49).
+- Deferred (M2): multi-line secret values abort kinfra's `.env.secrets` writer with a
+  bare traceback — pre-existing, made reachable by KV-stored PEMs. Issue #50; out of
+  M2's outcome. Karl 2026-09-13.
