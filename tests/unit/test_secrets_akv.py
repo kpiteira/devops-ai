@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -25,8 +26,13 @@ from devops_ai.secrets import (
     resolve,
     schemes,
 )
+from devops_ai.secrets.providers import azurekeyvault
 
 REF = "akv://a-vault/a-secret"
+# A Key Vault version id is 32 hexadecimal characters; the provider refuses
+# anything else without calling Azure, so tests about *other* things need a
+# real-shaped one to get past it.
+VERSION = "3a7f1c9e2b4d5068a1c3e5f7092b4d6e"
 ARGV_LOG = "argv.json"
 
 
@@ -128,9 +134,9 @@ class TestReadingASecret:
 
     def test_a_versioned_reference_pins_that_version(self, tmp_path: Path) -> None:
         log = fake_az(tmp_path / "bin", stdout=json.dumps("v"))
-        resolve("K", f"{REF}/abc123", context(tmp_path))
+        resolve("K", f"{REF}/{VERSION}", context(tmp_path))
         argv = recorded(log)
-        assert argv[argv.index("--version") + 1] == "abc123"
+        assert argv[argv.index("--version") + 1] == VERSION
         assert argv[argv.index("--name") + 1] == "a-secret"
 
     def test_the_value_never_reaches_the_child_argv(self, tmp_path: Path) -> None:
@@ -220,9 +226,15 @@ class TestMalformedReferences:
     def test_an_ordinary_reference_is_not_escaped_or_rejected(
         self, tmp_path: Path
     ) -> None:
-        """The guard must not touch anything legitimate, accents included."""
+        """The guard must not touch a reference Azure would accept.
+
+        It used to read `akv://kv-1/café-name`, on the reasoning that an accent
+        is legitimate. Key Vault does not store one, so that reference is now
+        refused by name — `TestSegmentsAreValidatedBeforeAzIsSpawned` covers it.
+        What this still pins is that neither guard fires on an ordinary name.
+        """
         fake_az(tmp_path / "bin", stdout=json.dumps("v"))
-        assert resolve("K", "akv://kv-1/caf\u00e9-name", context(tmp_path)) == "v"
+        assert resolve("K", "akv://kv-1/an-ordinary-name", context(tmp_path)) == "v"
 
     @pytest.mark.parametrize(
         "ref",
@@ -339,10 +351,10 @@ class TestAzureCliFailures:
     ) -> None:
         """Disabling is per version, so the pinned read is the other half."""
         _, message = self._read(
-            tmp_path, self.DISABLED_STDERR, ref=f"{REF}/abc123"
+            tmp_path, self.DISABLED_STDERR, ref=f"{REF}/{VERSION}"
         )
         assert message == (
-            f"K: Secret not found in Azure Key Vault: {REF}/abc123."
+            f"K: Secret not found in Azure Key Vault: {REF}/{VERSION}."
         )
 
     def test_an_unrecognised_denial_never_relays_the_word_disabled(
@@ -365,10 +377,15 @@ class TestAzureCliFailures:
     ) -> None:
         """Hiding the state must not cost an unrelated diagnosis.
 
-        `_parse` accepts arbitrary segments, so `akv://v/disabled secret` is a
-        reachable typo. Azure's answer echoes the caller's own text back, which
+        Azure's invalid-name answer echoes the caller's own text back, which
         discloses nothing about the vault — the caller wrote it. Filtering it
         anyway threw away the real reason.
+
+        `akv://a-vault/disabled secret` was how this arrived before issue #60;
+        that reference is refused without a call now, so the echo is put where
+        it always actually came from — az's stderr — and the guard is still the
+        one under test. Whether Azure can still word an invalid-name reply this
+        way is exactly the question `hide_state` must not assume an answer to.
         """
         _, message = self._read(
             tmp_path,
@@ -377,7 +394,6 @@ class TestAzureCliFailures:
                 "disabled secret"
             )
             + "Code: BadParameter\n",
-            ref="akv://a-vault/disabled secret",
         )
         assert "invalid name: disabled secret" in message
 
@@ -395,7 +411,6 @@ class TestAzureCliFailures:
                 "(BadParameter) The request URI contains an invalid name: "
                 "disabled secret"
             ),
-            ref="akv://a-vault/disabled secret",
         )
         # An absence on its own would also hold if the message had changed shape
         # entirely, so pin the line that should have been there all along.
@@ -416,7 +431,7 @@ class TestAzureCliFailures:
         assert "Key Vault Secrets User" in message
         assert "not found" not in message.lower()
 
-    def test_a_vault_named_like_the_login_prompt_is_still_unreachable(
+    def test_an_unreachable_vault_is_not_read_as_a_login_prompt(
         self, tmp_path: Path
     ) -> None:
         """The uncoded path echoes names too — the assumption that broke this.
@@ -424,21 +439,27 @@ class TestAzureCliFailures:
         A DNS failure carries no Azure error code *and* quotes the host, so
         "an echoed name always arrives with a code" was false exactly here. A
         logged-in user was told to log in, and the real failure vanished.
+
+        The vault that proved it was literally named `az login`, which issue #60
+        now refuses before any lookup. The anchoring this pins is not about that
+        one name: az writes the phrase mid-sentence in the reply to a perfectly
+        legal vault too, and only the message-start anchor keeps it inert.
         """
-        vault = "az login"
+        vault = "unreachable-kv"
         fake_az(
             tmp_path / "bin",
             code=1,
             stderr=azure_error(
                 f"HTTPSConnection(host='{vault}.vault.azure.net', port=443): "
-                f"Failed to resolve '{vault}.vault.azure.net'"
+                f"Failed to resolve '{vault}.vault.azure.net' — "
+                f"please run 'az login' if this persists"
             ),
         )
         with pytest.raises(SecretResolutionError) as caught:
             resolve("K", f"akv://{vault}/a-secret", context(tmp_path))
         message = caught.value.message
         assert "could not be reached" in message
-        assert "is not logged in" not in message
+        assert "is not logged in" not in message, "the phrase claimed the branch"
 
     def test_the_real_login_message_is_still_recognised(
         self, tmp_path: Path
@@ -504,24 +525,28 @@ class TestAzureCliFailures:
     def test_a_secret_named_like_a_code_is_not_diagnosed_as_that_code(
         self, tmp_path: Path
     ) -> None:
-        """Where the earlier code anchoring still leaked: an *invalid* name.
+        """Where the earlier code anchoring still leaked: a code spelled in prose.
 
-        `(Forbidden)` is not a legal Key Vault name, which is the point — az
-        rejects it with `BadParameter` and echoes it into the message, where a
+        `(Forbidden)` is not a legal Key Vault name, which was the point — az
+        rejected it with `BadParameter` and echoed it into the message, where a
         scan for `(forbidden)` found it and reported a denial. Codes are read
         only from the fields az writes codes in, so the echo is inert.
+
+        Issue #60 stops that name being a name at all; the parenthesised token
+        still has to stay inert wherever else az's prose puts one, which is what
+        a second parenthesis on the same line is here to prove.
         """
-        name = "(Forbidden)"
         fake_az(
             tmp_path / "bin",
             code=1,
             stderr=azure_error(
-                f"(BadParameter) The request URI contains an invalid name: {name}"
+                "(BadParameter) The request URI contains an invalid name "
+                "(Forbidden) is not among the accepted forms"
             )
             + "Code: BadParameter\n",
         )
         with pytest.raises(SecretResolutionError) as caught:
-            resolve("K", f"akv://a-vault/{name}", context(tmp_path))
+            resolve("K", REF, context(tmp_path))
         message = caught.value.message
         assert "Key Vault Secrets User" not in message, "an echoed name is not a code"
         assert "invalid name" in message
@@ -557,8 +582,8 @@ class TestAzureCliFailures:
         """
         fake_az(tmp_path / "bin", code=1, stderr="")
         with pytest.raises(SecretResolutionError) as caught:
-            resolve("K", f"{REF}/abc123", context(tmp_path))
-        assert "--version abc123" in caught.value.message
+            resolve("K", f"{REF}/{VERSION}", context(tmp_path))
+        assert f"--version {VERSION}" in caught.value.message
 
     def test_the_suggested_retry_does_not_print_the_secret(
         self, tmp_path: Path
@@ -650,83 +675,40 @@ class TestAzureCliFailures:
         The timeout itself is shortened; everything else, including the kill, is
         the shipped path.
         """
-        from devops_ai.secrets.providers import azurekeyvault
-
         monkeypatch.setattr(azurekeyvault, "TIMEOUT", 0.3)
         slow_az(tmp_path / "bin", seconds=10)
         with pytest.raises(SecretResolutionError, match="timed out"):
             resolve("K", REF, context(tmp_path))
 
-    def test_a_version_that_is_not_a_version_id_says_so(
+    # `akv://v/s/latest` and `akv://v/bad_name/abc123` used to be diagnosed from
+    # az's reply here. Both are refused without a call now, which is issue #60's
+    # point; `TestSegmentsAreValidatedBeforeAzIsSpawned` holds those cases, and
+    # the `/latest` guidance with them. What remains below is the branch that is
+    # still reachable: az answering BadParameter about a well-formed reference.
+
+    def test_an_operation_refusal_about_another_version_is_not_borrowed(
         self, tmp_path: Path
     ) -> None:
-        """az's real answer to `akv://v/s/latest`, captured from the vault.
+        """The anchor names *this* version, so other text cannot claim the branch.
 
-        Key Vault reads a non-id path segment as an operation name, so its reply
-        never mentions versions at all.
+        az quotes a refused operation in its message, and nothing says the quoted
+        name is the version this reference pinned — an earlier form of this test
+        spelled a different one on both sides, so the anchor could not have
+        matched either way and it passed without exercising anything.
         """
         fake_az(
             tmp_path / "bin",
             code=1,
             stderr=azure_error(
-                "(BadParameter) Method GET does not allow operation 'latest'"
+                "(BadParameter) Method GET does not allow operation 'somethingelse'"
             ),
         )
         with pytest.raises(SecretResolutionError) as caught:
-            resolve("K", f"{REF}/latest", context(tmp_path))
+            resolve("K", f"{REF}/{VERSION}", context(tmp_path))
         message = caught.value.message
-        assert "latest is not a version id" in message
-        assert "list-versions" in message
-
-    def test_an_invalid_secret_name_is_not_blamed_on_the_version(
-        self, tmp_path: Path
-    ) -> None:
-        """az's real answer to a name Azure will not accept, captured from the vault.
-
-        `_parse` takes any non-empty segment, so BadParameter arrives for bad
-        *names* too. Blaming the version would bury it under advice to list the
-        versions of a name Azure has already rejected.
-        """
-        fake_az(
-            tmp_path / "bin",
-            code=1,
-            stderr=azure_error(
-                "(BadParameter) The request URI contains an invalid name: bad_name"
-            ),
-        )
-        with pytest.raises(SecretResolutionError) as caught:
-            resolve("K", "akv://a-vault/bad_name/abc123", context(tmp_path))
-        message = caught.value.message
-        assert "invalid name: bad_name" in message, "az's own reason must survive"
-        assert "version id" not in message
+        assert "is not a version id" not in message, "a different name claimed it"
         assert "list-versions" not in message
-
-    def test_a_name_that_impersonates_the_operation_text_still_reads_truthfully(
-        self, tmp_path: Path
-    ) -> None:
-        """The anchor names *this* version, so echoed text cannot claim the branch.
-
-        az echoes the rejected name verbatim, and the name is the caller's — the
-        same opening the error-code anchoring closed for `forbidden`.
-        """
-        version = "zz99"
-        # The collision has to name *this* version. An earlier version of this
-        # test spelled a different one, so the anchor could not have matched
-        # either way and the test passed without exercising anything.
-        impostor = f"does not allow operation '{version}'"
-        fake_az(
-            tmp_path / "bin",
-            code=1,
-            stderr=azure_error(
-                f"(BadParameter) The request URI contains an invalid name: {impostor}"
-            ),
-        )
-        with pytest.raises(SecretResolutionError) as caught:
-            resolve("K", f"akv://a-vault/{impostor}/{version}", context(tmp_path))
-        message = caught.value.message
-        assert "version id" not in message
-        assert "list-versions" not in message
-        assert "invalid name" in message, "az's real reason must survive"
+        assert "does not allow operation" in message, "az's real reason must survive"
 
     def test_bad_parameter_without_a_pinned_version_is_not_blamed_on_one(
         self, tmp_path: Path
@@ -753,16 +735,19 @@ class TestSuggestedCommandsAreSafeToPaste:
     """Guidance this module tells a human to run is built, not interpolated.
 
     A reference is not always the operator's own typing — a committed
-    `[sandbox.secrets]` entry is one too — and `_parse` accepts any non-empty
-    segment. The property under test is what a *shell* would make of the
-    suggested command, so the assertions parse it with `shlex.split` rather
-    than looking for quote characters.
+    `[sandbox.secrets]` entry is one too — and interpolating its segments raw put
+    a command substitution into text a human is told to paste into a shell.
+
+    Since issue #60 no segment carrying one can get past `_parse`, so these
+    call the builder directly rather than pretending a reference could still
+    deliver the payload. The quoting is kept, and kept under test, because the
+    guarantee belongs to the function that writes the line: the next caller need
+    not know how far away the validation is, or whether it still holds.
+
+    The property is what a *shell* would make of the command, so the assertions
+    parse it with `shlex.split` rather than looking for quote characters.
     """
 
-    # Slash-free on purpose: `_parse` splits on "/", so a payload containing one
-    # is rejected as malformed long before it reaches any guidance. That is not a
-    # defence — `$(id)` and `;whoami` need no slash at all.
-    #
     # The spaces are load-bearing for the *test*, not the attack: `shlex.split`
     # tokenizes, it does not evaluate, so a payload with no space comes back as
     # one token whether or not it was ever quoted, and the assertion below could
@@ -770,13 +755,8 @@ class TestSuggestedCommandsAreSafeToPaste:
     # and the test goes red — which is the only reason it is worth running.
     HOSTILE = "$(id) ; whoami"
 
-    def test_a_hostile_segment_stays_one_literal_argument_in_the_retry(
-        self, tmp_path: Path
-    ) -> None:
-        fake_az(tmp_path / "bin", code=1, stderr="")
-        with pytest.raises(SecretResolutionError) as caught:
-            resolve("K", f"akv://a-vault/{self.HOSTILE}", context(tmp_path))
-        command = caught.value.message.split("run: ", 1)[1]
+    def test_a_hostile_segment_stays_one_literal_argument_in_the_retry(self) -> None:
+        command = azurekeyvault._retry("a-vault", self.HOSTILE, None)
         assert shlex.split(command) == [
             "az", "keyvault", "secret", "show",
             "--vault-name", "a-vault", "--name", self.HOSTILE,
@@ -784,26 +764,17 @@ class TestSuggestedCommandsAreSafeToPaste:
         ], "a shell would run the segment instead of passing it"
 
     def test_a_hostile_segment_stays_one_literal_argument_in_list_versions(
-        self, tmp_path: Path
+        self,
     ) -> None:
-        fake_az(
-            tmp_path / "bin",
-            code=1,
-            stderr=azure_error(
-                "(BadParameter) Method GET does not allow operation 'latest'"
-            ),
+        command = azurekeyvault._az_command(
+            "list-versions", "--vault-name", "a-vault", "--name", self.HOSTILE
         )
-        with pytest.raises(SecretResolutionError) as caught:
-            resolve("K", f"akv://a-vault/{self.HOSTILE}/latest", context(tmp_path))
-        command = caught.value.message.split("take an id from: ", 1)[1]
         assert shlex.split(command) == [
             "az", "keyvault", "secret", "list-versions",
             "--vault-name", "a-vault", "--name", self.HOSTILE,
         ]
 
-    def test_a_segment_carrying_a_single_quote_still_survives_whole(
-        self, tmp_path: Path
-    ) -> None:
+    def test_a_segment_carrying_a_single_quote_still_survives_whole(self) -> None:
         """The case that separates real quoting from a wrapper in quotes.
 
         `shlex.join` encloses in single quotes, so an embedded `'` has to be
@@ -811,10 +782,7 @@ class TestSuggestedCommandsAreSafeToPaste:
         payload as three shell words and passes every other test in this class.
         """
         payload = "it's $(id); rm -rf ~"
-        fake_az(tmp_path / "bin", code=1, stderr="")
-        with pytest.raises(SecretResolutionError) as caught:
-            resolve("K", f"akv://a-vault/{payload}", context(tmp_path))
-        command = caught.value.message.split("run: ", 1)[1]
+        command = azurekeyvault._retry("a-vault", payload, None)
         assert shlex.split(command) == [
             "az", "keyvault", "secret", "show",
             "--vault-name", "a-vault", "--name", payload,
@@ -824,13 +792,17 @@ class TestSuggestedCommandsAreSafeToPaste:
     def test_an_ordinary_name_is_not_dressed_up_in_quotes(
         self, tmp_path: Path
     ) -> None:
-        """Quoting must not make the message a real failure prints any uglier."""
+        """Quoting must not make the message a real failure prints any uglier.
+
+        Through `resolve`, because this one is about what an operator actually
+        sees: every name a reference can still carry is an ordinary one.
+        """
         fake_az(tmp_path / "bin", code=1, stderr="")
         with pytest.raises(SecretResolutionError) as caught:
-            resolve("K", f"{REF}/abc123", context(tmp_path))
+            resolve("K", f"{REF}/{VERSION}", context(tmp_path))
         assert (
-            "az keyvault secret show --vault-name a-vault --name a-secret "
-            "--version abc123 --output none"
+            f"az keyvault secret show --vault-name a-vault --name a-secret "
+            f"--version {VERSION} --output none"
         ) in caught.value.message
 
 
@@ -863,3 +835,197 @@ class TestAzIsFoundOnThePathTheChildWillUse:
         ctx = ResolveContext(base_dir=tmp_path, env={})
         with pytest.raises(SecretResolutionError, match="Azure CLI .az. not found"):
             resolve("K", REF, ctx)
+
+
+# --- Azure's own name rules, applied before az is spawned ---
+
+
+class TestSegmentsAreValidatedBeforeAzIsSpawned:
+    """The class of defect this closes: a segment az echoes back into its error.
+
+    Rounds 6-11 of PR #49 were each one unvalidated segment reappearing inside
+    `az`'s message — a name spelling an error code, a NUL, a line break forging a
+    `Code:` line, a name reading `disabled secret`, a name claiming the login
+    branch. Each was patched where it surfaced. Azure will not accept any of
+    those names in the first place, so refusing them here ends the class rather
+    than the instance, and ends the doomed round-trip with it.
+
+    Every test asserts az was never spawned, because "refused at the source" is
+    the property, not merely "refused".
+    """
+
+    VALID_VERSION = "3a7f1c9e2b4d5068a1c3e5f7092b4d6e"
+
+    def refuse(self, ref: str, tmp_path: Path) -> str:
+        """The message for a refused reference, proving az never ran."""
+        log = fake_az(tmp_path / "bin", stdout=json.dumps("never-read"))
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", ref, context(tmp_path))
+        assert not log.exists(), "az was spawned for a reference Azure would reject"
+        return caught.value.message
+
+    # --- vaults ---
+
+    @pytest.mark.parametrize(
+        ("vault", "why"),
+        [
+            ("kv", "two characters is below Azure's minimum of three"),
+            ("k" * 25, "twenty-five is above Azure's maximum of twenty-four"),
+            ("my_vault", "an underscore is not a Key Vault name character"),
+            ("az login", "the round-6 vault: a space, and a DNS echo with no code"),
+            ("kv.1", "a dot is not one either"),
+            ("café-kv", "nor is an accent, however readable"),
+        ],
+    )
+    def test_a_vault_azure_would_reject_never_reaches_it(
+        self, vault: str, why: str, tmp_path: Path
+    ) -> None:
+        message = self.refuse(f"akv://{vault}/a-secret", tmp_path)
+        assert "is not a Key Vault name" in message, why
+        assert vault in message, "the offending segment is not named"
+
+    @pytest.mark.parametrize("vault", ["kv1", "k" * 24, "kv-devops-ai-accept"])
+    def test_a_vault_azure_accepts_is_left_alone(
+        self, vault: str, tmp_path: Path
+    ) -> None:
+        """The bounds are inclusive, and the real acceptance vault is one of them."""
+        fake_az(tmp_path / "bin", stdout=json.dumps("v"))
+        assert resolve("K", f"akv://{vault}/a-secret", context(tmp_path)) == "v"
+
+    # --- secrets ---
+
+    @pytest.mark.parametrize(
+        ("secret", "why"),
+        [
+            ("my_secret", "the underscore the issue names: a clear message at last"),
+            ("café-name", "an accent Azure will not store"),
+            ("(Forbidden)", "the round-7 name that was read back as an error code"),
+            ("disabled secret", "the round-10 name that claimed a vault state"),
+            ("$(id) ; whoami", "a payload that had to be quoted out of guidance"),
+            ("a.b", "a dot: legal in a hostname, not in a secret name"),
+        ],
+    )
+    def test_a_secret_azure_would_reject_never_reaches_it(
+        self, secret: str, why: str, tmp_path: Path
+    ) -> None:
+        message = self.refuse(f"akv://a-vault/{secret}", tmp_path)
+        assert "is not a Key Vault secret name" in message, why
+        assert secret in message, "the offending segment is not named"
+
+    @pytest.mark.parametrize("secret", ["s", "a-secret", "A1-b2", "9"])
+    def test_a_secret_azure_accepts_is_left_alone(
+        self, secret: str, tmp_path: Path
+    ) -> None:
+        """Deliberately unbounded in length: Key Vault caps a secret name and
+        this does not, so the rule refuses only what Azure certainly would."""
+        fake_az(tmp_path / "bin", stdout=json.dumps("v"))
+        assert resolve("K", f"akv://a-vault/{secret}", context(tmp_path)) == "v"
+
+    # --- versions ---
+
+    @pytest.mark.parametrize(
+        ("version", "why"),
+        [
+            ("latest", "what an operator writes when they mean the current version"),
+            ("abc123", "hexadecimal, but six characters of it"),
+            ("0" * 31, "one short"),
+            ("0" * 33, "one over"),
+            ("g" * 32, "thirty-two characters, none of them hexadecimal"),
+            ("does not allow operation 'zz99'", "the round-11 impostor"),
+        ],
+    )
+    def test_a_version_that_is_not_an_id_never_reaches_azure(
+        self, version: str, why: str, tmp_path: Path
+    ) -> None:
+        message = self.refuse(f"{REF}/{version}", tmp_path)
+        assert "is not a version id" in message, why
+        assert version in message, "the offending segment is not named"
+
+    def test_the_refused_version_still_says_where_to_find_a_real_one(
+        self, tmp_path: Path
+    ) -> None:
+        """The guidance survives the round-trip it replaces.
+
+        On main, `akv://v/s/latest` spent a network call to learn that Key Vault
+        reads a non-id segment as an operation name; the message built from that
+        answer is the useful one. Refusing at the source must not cost it.
+        """
+        message = self.refuse(f"{REF}/latest", tmp_path)
+        assert "Omit it to read the current version" in message
+        assert (
+            "az keyvault secret list-versions --vault-name a-vault --name a-secret"
+            in message
+        )
+
+    @pytest.mark.parametrize(
+        "version", [VALID_VERSION, VALID_VERSION.upper(), "0" * 32]
+    )
+    def test_a_real_version_id_is_left_alone(
+        self, version: str, tmp_path: Path
+    ) -> None:
+        """Azure writes ids in lowercase; upper case is accepted rather than
+        risk refusing an id a caller pasted from somewhere that changed it."""
+        log = fake_az(tmp_path / "bin", stdout=json.dumps("v"))
+        assert resolve("K", f"{REF}/{version}", context(tmp_path)) == "v"
+        assert recorded(log)[-2:] == ["--version", version]
+
+    # --- the shape of a refusal ---
+
+    def test_the_secret_is_blamed_before_the_version(self, tmp_path: Path) -> None:
+        """Two bad segments name the first one, not whichever is checked last.
+
+        On main this reference reached az, whose BadParameter answer had to be
+        kept from being blamed on the version. Order does that work now.
+        """
+        message = self.refuse("akv://a-vault/bad_name/abc123", tmp_path)
+        assert "bad_name" in message and "secret name" in message
+        assert "version id" not in message
+
+    def test_an_unprintable_character_is_escaped_not_echoed(
+        self, tmp_path: Path
+    ) -> None:
+        """A refused segment is attacker-shaped by definition.
+
+        It is named in a message an operator reads in a terminal, so an ANSI
+        escape in it would be executed by the terminal rather than shown. Only
+        the unprintable characters are escaped: an accent stays an accent, or
+        the message hides the very thing it is about.
+        """
+        message = self.refuse("akv://a-vault/x\x1b[2Ky", tmp_path)
+        assert "\\x1b" in message
+        assert "\x1b" not in message
+
+    def test_check_reports_a_refused_reference_rather_than_raising(
+        self, tmp_path: Path
+    ) -> None:
+        """`check` classifies; it never crashes on input it was asked to judge."""
+        fake_az(tmp_path / "bin", stdout=json.dumps("never-read"))
+        assert check("K", "akv://a-vault/my_secret", context(tmp_path)).status == ERROR
+
+    @pytest.mark.parametrize(
+        ("pattern", "segment"),
+        [
+            (azurekeyvault._VAULT_NAME, "a-vault"),
+            (azurekeyvault._SECRET_NAME, "a-secret"),
+            (azurekeyvault._VERSION_ID, "0" * 32),
+        ],
+    )
+    def test_no_rule_accepts_a_segment_ending_in_a_newline(
+        self, pattern: "re.Pattern[str]", segment: str
+    ) -> None:
+        """`$` matches before a final newline; `\\Z` does not.
+
+        Written against the patterns rather than through `resolve`, because the
+        line-break guard refuses such a reference first and would make the test
+        pass whichever anchor these carried — green, and blind. A newline in a
+        segment is what rounds 6-11 were about, so the rule that screens segments
+        has to refuse one on its own, not by standing behind another check.
+        """
+        assert pattern.match(segment) is not None, "the sound segment is refused"
+        assert pattern.match(segment + "\n") is None
+
+    def test_a_refusal_never_quotes_a_value(self, tmp_path: Path) -> None:
+        """The reference is not the secret, but az's stdout is — and az did not
+        run, so there is nothing of the vault's in the message by construction."""
+        message = self.refuse("akv://a-vault/my_secret", tmp_path)
+        assert "never-read" not in message

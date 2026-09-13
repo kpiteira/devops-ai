@@ -278,7 +278,11 @@ for `op://`, and `az login` for `akv://` — no Azure SDK, no service principal,
 extra configuration. The `akv://` provider adds nothing to your `az` session and
 shells out to `az` with the environment it was given, so whichever way that session
 was established — including `az login --identity` on a host with a managed identity —
-is what reads the secret. `bao://` needs no CLI at all: it takes an address and a
+is what reads the secret. Its vault and secret names are checked against Azure's own
+rules before `az` is called — a vault is 3 to 24 characters of letters, digits and
+hyphens, a secret name letters, digits and hyphens, a pinned version 32 hexadecimal
+characters — so `akv://kv-1/my_secret` is refused by name rather than after a round
+trip that could only have failed. `bao://` needs no CLI at all: it takes an address and a
 token from the environment, described in its own section below.
 
 Resolution happens on the host, with your credentials — your `op` grant, your `az`

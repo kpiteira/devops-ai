@@ -1,7 +1,10 @@
 """Azure Key Vault secrets: `akv://<vault>/<secret>`, read through the `az` CLI.
 
 A bare reference reads the secret's current version; `akv://<vault>/<secret>/<version>`
-reads that one. Auth is whatever `az login` established — a developer session, a
+reads that one. Vault, secret and version are each checked against the shape Key
+Vault requires before anything is spawned, so a reference it could never accept is
+refused here by name instead of arriving as an echo inside az's error text
+(issue #60). Auth is whatever `az login` established — a developer session, a
 managed identity, a service principal — so the provider adds no credential handling
 of its own, exactly as the 1Password provider adds nothing to an `op` grant.
 
@@ -28,6 +31,23 @@ from ..errors import EnvironmentEncodingError, ProviderError
 SCHEME = "akv://"
 TIMEOUT = 30
 NUL = "\0"
+
+# The rules a reference's segments must satisfy before anything is spawned.
+# Each is deliberately *more* permissive than Key Vault — which additionally
+# constrains where a vault name's hyphens may sit and how long a secret name may
+# be — so that this refuses only what Azure certainly refuses. az still answers
+# for the rest, and now only for names it could have accepted.
+#
+# `\Z`, not `$`: `$` also matches before a final newline, so `^...{3,24}$` accepts
+# `my-vault\n`. That is unreachable today, since the line-break guard above runs
+# first — but a newline in a segment is the whole reason these rules exist, and a
+# rule that admits one is not a rule, whatever currently stands in front of it.
+_VAULT_NAME = re.compile(r"^[a-zA-Z0-9-]{3,24}\Z")
+_SECRET_NAME = re.compile(r"^[0-9a-zA-Z-]+\Z")
+# Key Vault writes version ids in lower case (measured: twelve ids in the
+# acceptance vault, all 32 lower-case hex). Upper case is accepted anyway, rather
+# than refuse an id that survived a round trip through something that recased it.
+_VERSION_ID = re.compile(r"^[0-9a-fA-F]{32}\Z")
 
 
 def handles(ref: str) -> bool:
@@ -113,8 +133,9 @@ def _parse(ref: str) -> tuple[str, str, str | None]:
     # just `\n`, so the test is `str.splitlines()` itself rather than a list of
     # characters to keep in step with it.
     #
-    # Neither is the deferred question of validating names against Azure's rules:
-    # these cannot reach, or cannot safely survive, the child process at all.
+    # They are checked ahead of the name rules below because the generic
+    # malformed-reference message names the whole reference, and a reference
+    # that never splits into segments would reach it carrying them.
     if NUL in ref or ref.splitlines() != [ref]:
         raise ProviderError(
             f"Malformed reference {_visible(ref)}. A reference cannot contain a "
@@ -123,24 +144,54 @@ def _parse(ref: str) -> tuple[str, str, str | None]:
     parts = ref[len(SCHEME):].split("/")
     if len(parts) not in (2, 3) or not all(parts):
         raise ProviderError(
-            f"Malformed reference {ref}. Expected "
+            f"Malformed reference {_visible(ref)}. Expected "
             f"{SCHEME}<vault>/<secret> or {SCHEME}<vault>/<secret>/<version>."
         )
     vault, secret = parts[0], parts[1]
-    return vault, secret, parts[2] if len(parts) == 3 else None
+    version = parts[2] if len(parts) == 3 else None
+
+    # Segments Azure itself would reject are refused here rather than sent, in
+    # the order they appear, so a reference wrong in two places names the first.
+    if _VAULT_NAME.match(vault) is None:
+        raise ProviderError(
+            f"{_visible(vault)} is not a Key Vault name in {_visible(ref)}. "
+            f"A vault name is 3 to 24 characters of letters, digits and hyphens."
+        )
+    if _SECRET_NAME.match(secret) is None:
+        raise ProviderError(
+            f"{_visible(secret)} is not a Key Vault secret name in "
+            f"{_visible(ref)}. A secret name is letters, digits and hyphens "
+            f"only — no underscores, spaces, dots or accents."
+        )
+    if version is not None and _VERSION_ID.match(version) is None:
+        # The guidance az's own refusal used to earn, now given without the
+        # call: Key Vault reads a non-id segment as an operation name, so its
+        # answer never mentions versions at all and cost a round-trip to get.
+        # `list-versions` returns identifiers and attributes only, never values,
+        # so it is safe to send an operator there.
+        raise ProviderError(
+            f"{_visible(version)} is not a version id in {_visible(ref)} — a "
+            f"version id is 32 hexadecimal characters. Omit it to read the "
+            f"current version, or take an id from: "
+            + _az_command("list-versions", "--vault-name", vault, "--name", secret)
+        )
+    return vault, secret, version
 
 
 def _visible(ref: str) -> str:
-    """The reference with only its offending characters escaped.
+    """The reference with only its unprintable characters escaped.
 
     Echoing a raw line break or NUL into a terminal hides the very thing the
-    message is about. Everything else is left alone, so an accented name stays
-    readable instead of being mangled into escapes.
+    message is about, and an ANSI escape is worse than hidden: the terminal acts
+    on it. A refused segment is named in a message a human reads, and a refused
+    segment is by definition one nobody vetted, so the whole unprintable class is
+    escaped rather than the two characters that happened to be found first.
+
+    Everything printable is left alone — `str.isprintable()` counts an accent as
+    printable and a space as printable — so a name a human can read stays one.
     """
     return "".join(
-        char.encode("unicode_escape").decode("ascii")
-        if char == NUL or char.splitlines() != [char]
-        else char
+        char if char.isprintable() else char.encode("unicode_escape").decode("ascii")
         for char in ref
     )
 
@@ -178,14 +229,18 @@ def _diagnose(
     than a guess. A disabled secret is the exception: it is answered as absent,
     on purpose, and never reaches the Forbidden branch.
 
-    None of that may be read out of the raw response. `_parse` accepts any
-    non-empty segment, so a secret named `(Forbidden)` reaches az — which answers
-    `BadParameter` and echoes the rejected name back inside its message. A scan
-    of the whole response then reports an invalid name as access denied, and a
-    name carrying `does not allow operation '<version>'` steals the bad-version
-    branch. Both were reproduced before this was written. So: a code counts only
-    where az writes codes, and message text counts only at a message's start,
-    which is the one position an echoed name can never occupy.
+    None of that may be read out of the raw response. az echoes a rejected name
+    back inside its message, so a scan of the whole response reported an invalid
+    name as access denied, and a name carrying `does not allow operation
+    '<version>'` stole the bad-version branch. Both were reproduced before this
+    was written. So: a code counts only where az writes codes, and message text
+    counts only at a message's start, which is the one position an echoed name
+    can never occupy.
+
+    `_parse` now refuses the names that made those echoes reachable, which is
+    where that class of defect is actually closed (issue #60). This anchoring
+    stays as the second line: it is what holds if Azure ever echoes something
+    else, and it costs nothing to keep.
     """
     codes, messages = _az_error_fields(stderr)
 
@@ -207,19 +262,12 @@ def _diagnose(
     )
     if coded("SecretNotFound") or disabled:
         return f"Secret not found in Azure Key Vault: {ref}."
-    # az appends a pinned version to the request path, so Key Vault reads a
-    # segment that is not a version id as an *operation* name and refuses it —
-    # true, and useless to whoever wrote `/latest`. `list-versions` returns
-    # identifiers and attributes only, never values, so it is safe to send an
-    # operator there.
-    if version is not None and coded("BadParameter") and _refused_operation(
-        messages, version
-    ):
-        return (
-            f"{version} is not a version id in {ref}. Omit it to read the "
-            f"current version, or take an id from: "
-            + _az_command("list-versions", "--vault-name", vault, "--name", secret)
-        )
+    # A branch reading Key Vault's "does not allow operation '<segment>'" reply
+    # used to sit here: az appends a pinned version to the request path, so a
+    # segment that is not a version id arrives as an *operation* name. `_parse`
+    # refuses those segments without a call now, so the reply cannot arrive and
+    # the guidance it built is issued there instead. Keeping both would leave one
+    # sentence written in two places, only one of which can ever run.
     # Anchored at the start of the message, which is the one position an echoed
     # name cannot occupy: az names the rejected input at the *end* of an
     # invalid-name message and inside a URL elsewhere. A looser scan here read a
@@ -288,12 +336,16 @@ def _retry(vault: str, secret: str, version: str | None) -> str:
 def _az_command(*args: str) -> str:
     """An `az` command line that is safe for an operator to paste into a shell.
 
-    `_parse` accepts any non-empty segment, and a reference does not only come
-    from the operator's own keyboard — a committed `[sandbox.secrets]` entry is
-    one too. Interpolating those segments raw put `$(…)` into text this module
-    explicitly tells a human to run, which is a command substitution waiting for
-    a copy-paste. Quoting makes it an argument instead. Ordinary vault and secret
-    names need no quotes, so the message a real failure produces is unchanged.
+    A reference does not only come from the operator's own keyboard — a committed
+    `[sandbox.secrets]` entry is one too — and interpolating its segments raw put
+    `$(…)` into text this module explicitly tells a human to run, a command
+    substitution waiting for a copy-paste. Quoting makes it an argument instead.
+
+    `_parse`'s name rules now leave nothing shell-significant in a vault or
+    secret segment, so no caller can reach this with such a payload today. The
+    quoting stays because the guarantee belongs to the function that builds the
+    line, not to the distance between it and a check somewhere else. Ordinary
+    names need no quotes, so a real failure's message is unchanged either way.
     """
     return shlex.join(["az", "keyvault", "secret", *args])
 
@@ -301,9 +353,6 @@ def _az_command(*args: str) -> str:
 _ERROR_LINE = re.compile(r"^ERROR:\s*(?:\(([A-Za-z]+)\)\s*)?(.*)$")
 _CODE_LINE = re.compile(r"^Code:\s*([A-Za-z]+)\s*$")
 _INNER_CODE_LINE = re.compile(r'^\s*"code":\s*"([A-Za-z]+)"')
-_OPERATION_REFUSAL = re.compile(
-    r"^method\s+\w+\s+does not allow operation\s+'(.*)'\.?$"
-)
 
 
 def _az_error_fields(stderr: str) -> tuple[frozenset[str], tuple[str, ...]]:
@@ -334,19 +383,6 @@ def _az_error_fields(stderr: str) -> tuple[frozenset[str], tuple[str, ...]]:
     return frozenset(codes), tuple(messages)
 
 
-def _refused_operation(messages: tuple[str, ...], version: str) -> bool:
-    """True when az's message *is* Key Vault refusing this version as an operation.
-
-    Anchored at the message start and compared against the pinned version, so a
-    secret name spelling the same sentence cannot claim the branch.
-    """
-    for message in messages:
-        refusal = _OPERATION_REFUSAL.match(message.strip().lower())
-        if refusal is not None and refusal.group(1) == version.lower():
-            return True
-    return False
-
-
 def _az_errors(stderr: str, *, hide_state: bool = False) -> str:
     """az's own ERROR: lines, joined — empty when it printed none.
 
@@ -360,7 +396,8 @@ def _az_errors(stderr: str, *, hide_state: bool = False) -> str:
     it can be relayed whole; filtering it unconditionally — as an earlier
     version did — threw away az's real reason for a reference like
     `akv://v/disabled secret` and left a message claiming az had printed no
-    ERROR: line at all.
+    ERROR: line at all. `_parse` refuses that reference outright now, but the
+    asymmetry it taught is the reason this parameter exists.
     """
     lines = [
         line.partition("ERROR:")[2].strip()
