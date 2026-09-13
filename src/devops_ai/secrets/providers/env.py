@@ -15,6 +15,14 @@ from ..errors import ProviderError
 SCHEME = "env://"
 SHORTHAND = "$"
 FALLBACK_FILE = ".env"
+# This provider hands back what `os.environ` holds, and that is bytes the OS
+# gave us: Python decoded them with `surrogateescape`, so a surrogate in
+# U+DC80..U+DCFF stands for a real byte and has to reach the child as that byte.
+# Every other provider returns text, and the resolver refuses a surrogate from
+# one of those — it stands for nothing, and `encode_env` would quietly hand the
+# child a different secret than the backend holds. Only this module can know
+# which kind its values are, so only this module says so.
+INHERITS_OS_BYTES = True
 
 
 def handles(ref: str) -> bool:

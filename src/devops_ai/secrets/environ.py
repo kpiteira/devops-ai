@@ -34,12 +34,11 @@ ENCODING = "utf-8"
 # the variable carrying it is typically one this process merely inherited.
 #
 # Deliberately the same handler for a *resolved* value, which looks wrong and
-# is not: `env://NAME` resolves to an inherited value, so its surrogates stand
-# for real bytes too, and encoding those strictly would refuse a reference that
-# works today. The values where a surrogate stands for nothing are the ones a
-# provider manufactures with `json.loads` — `akv://` and `bao://` — and that is
-# where they are refused, at the boundary that still knows which kind it has
-# (`providers._text.utf8_text`). By here a `str` carries no provenance at all.
+# is not. By here a `str` carries no provenance, so this cannot tell an
+# inherited byte from a surrogate a text format invented — and it does not have
+# to: `resolver._representable` has already refused the second kind for every
+# provider but `env://`, whose values are inherited bytes by definition. What
+# reaches this line is therefore only ever the kind `surrogateescape` is for.
 ERRORS = "surrogateescape"
 
 

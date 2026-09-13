@@ -25,6 +25,17 @@ OK = "ok"
 LITERAL = "literal"
 ERROR = "error"
 
+# The attribute a provider sets to say its values are bytes the OS handed us
+# rather than text a format invented, so `encode_env`'s `surrogateescape` is
+# right for them and this module's check is not.
+#
+# Read off the provider rather than listed here, because listing it would make
+# adding a provider touch the resolver — the one thing this package's
+# architecture forbids. It is an opt-out, never an opt-in: a provider added
+# tomorrow is checked because its author did nothing, and passing raw bytes
+# through is the line someone has to choose to write.
+INHERITS_OS_BYTES = "INHERITS_OS_BYTES"
+
 
 class Provider(Protocol):
     """What a provider module exports."""
@@ -116,7 +127,7 @@ def resolve(
     if provider is None:
         return ref
     try:
-        return provider.resolve(ref, context)
+        return _representable(provider.resolve(ref, context), ref, provider)
     except ProviderError as exc:
         raise SecretResolutionError(
             var_name=var_name,
@@ -124,6 +135,34 @@ def resolve(
             message=f"{var_name}: {exc}",
             reason=str(exc),
         ) from None
+
+
+def _representable(value: str, ref: str, provider: Provider) -> str:
+    """`value` unchanged, or a refusal — never something a child cannot receive.
+
+    A `str` carries no provenance, so this is the last point that knows where a
+    value came from. Downstream, `encode_env` encodes with `surrogateescape`:
+    for an inherited value that is right, and for a surrogate standing for no
+    byte it silently hands the child a *different secret* than the vault holds.
+
+    Parsing a text format is what manufactures one — `json.loads` turns a
+    `\uD800` escape into a lone surrogate, and nothing says the next provider
+    will use JSON to do it. So the rule is on what a provider *returns*, not on
+    how it got there: every value goes through here, whatever the provider
+    parsed and however it spelled the call.
+    """
+    if getattr(provider, INHERITS_OS_BYTES, False):
+        return value
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        # Never `from`, and nothing of `value` in the sentence: the exception
+        # being replaced quotes the character it choked on and its position.
+        raise ProviderError(
+            f"{ref} resolved to a value that is not valid text: it contains an "
+            f"unpaired surrogate, which has no UTF-8 encoding."
+        ) from None
+    return value
 
 
 def resolve_all(

@@ -24,7 +24,6 @@ import subprocess
 from ..context import ResolveContext
 from ..environ import encode_env
 from ..errors import EnvironmentEncodingError, ProviderError
-from ._text import utf8_text
 
 SCHEME = "akv://"
 TIMEOUT = 30
@@ -156,10 +155,10 @@ def _value(ref: str, stdout: str) -> str:
         ) from None
     if not isinstance(value, str):
         raise ProviderError(f"Secret {ref} has no value in Azure Key Vault.")
-    # az's output was decoded UTF-8 strict, so no surrogate survives that — but
-    # `json.loads` manufactures one from a `\uD800` escape. Shared with the
-    # other JSON-speaking provider rather than repeated: see `_text`.
-    return utf8_text(value, ref, "Azure Key Vault")
+    # `json.loads` can manufacture a lone surrogate from a `\uD800` escape,
+    # which no encoding can represent. Refused for every provider at once by
+    # `resolver._representable`, so this one need not know about it.
+    return value
 
 
 def _diagnose(

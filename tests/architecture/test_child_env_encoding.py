@@ -11,13 +11,17 @@ with `encode_env`.
 
 *Upstream* — `encode_env` encodes with `surrogateescape`, which is right for the
 inherited values `env://` resolves to and wrong for a surrogate that stands for
-no byte. Only parsing JSON can manufacture one (every other string here came
-from a strict UTF-8 decode), so every provider that parses JSON must put its
-value through `_text.utf8_text`.
+no byte. Parsing a text format manufactures those, and JSON is only today's way
+of doing it, so the rule is on what a provider **returns**, not on how it got
+there: every installed provider is exercised, and one that invented a surrogate
+with YAML, a custom decoder or `ast.literal_eval` fails the same test as one
+using `json.loads`.
 
-A one-time scan is not an invariant: a fourth spawn site, or a third JSON
-provider, could reintroduce either defect with every existing test still green,
-because nothing that exists today would exercise it.
+A one-time scan is not an invariant: a fourth spawn site, or a provider parsing
+something new, could reintroduce either defect with every existing test still
+green, because nothing that exists today would exercise it. Nor is a rule keyed
+on source spelling — `json.loads` and `json.load` are the same defect, which is
+why the upstream half no longer reads source at all.
 
 Import aliases are resolved rather than assumed away — `import subprocess as sp`
 and `from subprocess import run` are the same spawn as `subprocess.run`, and a
@@ -32,18 +36,22 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
+from devops_ai.secrets import ResolveContext, SecretResolutionError, resolver
+from devops_ai.secrets.resolver import installed_providers
+
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src" / "devops_ai"
 PROVIDERS = SRC / "secrets" / "providers"
 
 ENCODE_ENV = "encode_env"
-UTF8_TEXT = "utf8_text"
-# Every spelling that turns a `\uD800` escape into a lone surrogate. `loads`
-# alone would be a gate you walk around by parsing from the stream instead —
-# the same evasion by spelling that import aliases were below. `.decode()` is
-# deliberately not here: it is `bytes.decode` far more often than
-# `JSONDecoder.decode`, so the class name is watched instead of the method.
-JSON_PARSERS = {"loads", "load", "JSONDecoder"}
+# A surrogate *inside* the range `surrogateescape` handles. U+D800 would raise
+# on the way out and be noticed; U+DCFF silently becomes byte 0xFF — a
+# different secret, with nothing reported. The dangerous half of the class, and
+# the half a test using U+D800 alone would miss.
+SECRET_BODY = "recognisable-secret-body"
+INVENTED_SURROGATE = f"\udcff{SECRET_BODY}"
 # `subprocess` spawns that accept an environment.
 SUBPROCESS_SPAWNS = {"run", "Popen", "call", "check_call", "check_output"}
 # `os` spawns that take one positionally. None are used today; the gate is what
@@ -58,14 +66,6 @@ WATCHED = {"subprocess": SUBPROCESS_SPAWNS, "os": OS_SPAWNS}
 
 def source_files() -> list[Path]:
     return sorted(SRC.rglob("*.py"))
-
-
-def provider_modules() -> list[Path]:
-    """One module per provider; `_`-prefixed modules are shared code."""
-    return sorted(
-        p for p in PROVIDERS.glob("*.py")
-        if p.name != "__init__.py" and not p.name.startswith("_")
-    )
 
 
 class Resolver:
@@ -104,23 +104,6 @@ class Resolver:
         elif isinstance(func, ast.Name):
             return self.functions.get(func.id)
         return None
-
-
-def _calls_any_of(tree: ast.AST, names: set[str]) -> bool:
-    """True if any of `names` is called anywhere, however it was imported."""
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        if isinstance(func, ast.Name) and func.id in names:
-            return True
-        if isinstance(func, ast.Attribute) and func.attr in names:
-            return True
-    return False
-
-
-def parses_json(path: Path) -> bool:
-    return _calls_any_of(ast.parse(path.read_text(), str(path)), JSON_PARSERS)
 
 
 def _is_call_to(node: ast.expr, name: str) -> bool:
@@ -184,25 +167,47 @@ def test_every_spawn_that_passes_an_environment_encodes_it() -> None:
     )
 
 
-def test_every_provider_that_parses_json_refuses_lone_surrogates() -> None:
-    """`json.loads` is the only way a resolved value can carry a surrogate.
+@pytest.mark.parametrize(
+    "provider", installed_providers(), ids=lambda p: p.SCHEME
+)
+def test_no_provider_can_hand_a_child_a_value_it_cannot_receive(
+    provider: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every provider, exercised — not every provider that spells it `json.loads`.
 
-    Every other string in the package came from a strict UTF-8 decode, which no
-    surrogate survives. A JSON escape is not a decode.
+    The defect is a value, so the rule is on the value. A provider is made to
+    return a lone surrogate and the resolver must refuse it, whatever the
+    provider parsed and however it spelled the call. A provider added tomorrow
+    is covered by existing, because the parametrisation walks the package.
     """
-    offenders = []
-    for path in provider_modules():
-        if not parses_json(path):
-            continue
-        if not _calls_any_of(
-            ast.parse(path.read_text(), str(path)), {UTF8_TEXT}
-        ):
-            offenders.append(
-                f"{path.relative_to(ROOT)} parses JSON but never calls "
-                f"{UTF8_TEXT}(): a `\\uD800` escape would reach the child as a "
-                f"raw byte instead of the value's UTF-8"
-            )
-    assert not offenders, "\n  ".join(offenders)
+    monkeypatch.setattr(resolver, "provider_for", lambda ref: provider)
+    monkeypatch.setattr(provider, "resolve", lambda ref, ctx: INVENTED_SURROGATE)
+    ref = f"{provider.SCHEME}whatever"
+
+    if getattr(provider, resolver.INHERITS_OS_BYTES, False):
+        assert resolver.resolve("K", ref, ResolveContext()) == INVENTED_SURROGATE
+        return
+
+    with pytest.raises(SecretResolutionError) as caught:
+        resolver.resolve("K", ref, ResolveContext())
+    message = caught.value.message
+    assert "unpaired surrogate" in message
+    assert SECRET_BODY not in message, "the refusal quoted the value"
+    assert "dcff" not in message.lower(), "not even as an escape"
+
+
+def test_the_inherited_bytes_opt_out_is_exactly_one_scheme() -> None:
+    """Widening it is a decision about what a child may receive, not a detail.
+
+    Pinned rather than merely asserted non-empty: every scheme listed here is a
+    provider whose values skip the check above, so adding one has to be a line
+    someone chose to write and a reviewer chose to accept.
+    """
+    opted_out = {
+        p.SCHEME for p in installed_providers()
+        if getattr(p, resolver.INHERITS_OS_BYTES, False)
+    }
+    assert opted_out == {"env://"}
 
 
 def test_the_gate_sees_the_sites_it_is_meant_to_guard() -> None:
@@ -222,15 +227,12 @@ def test_the_gate_sees_the_sites_it_is_meant_to_guard() -> None:
         f"(ksecret run, op://, akv://), the walk found {guarded}"
     )
 
-    # A superset, never an equality: pinning the exact list would turn the
-    # legitimate addition of a third JSON provider into a red that reads as
-    # "the walk is broken". The rule above is what a new provider has to
-    # satisfy; this only proves the walk still reaches the known two.
-    json_providers = {p.name for p in provider_modules() if parses_json(p)}
-    missing = {"azurekeyvault.py", "openbao.py"} - json_providers
-    assert not missing, (
-        f"the walk no longer sees {sorted(missing)} as JSON-speaking, so the "
-        f"rule above would pass them without checking anything"
+    # The parametrised rule above would run zero cases, silently, if the walk
+    # over the providers package ever came back empty — a green sweep of
+    # nothing. Counted here rather than trusted.
+    schemes = {p.SCHEME for p in installed_providers()}
+    assert {"env://", "dotenv://", "op://", "akv://", "bao://"} <= schemes, (
+        f"the provider walk no longer reaches the known schemes: {sorted(schemes)}"
     )
 
 

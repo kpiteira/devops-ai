@@ -248,16 +248,19 @@ briefs and tests reference them. -->
   builds the POSIX bytes environment for all
   three spawn sites (`ksecret run`, the `op://` and `akv://` providers), encoding with
   `surrogateescape` so a value inherited from `os.environ` round-trips, and naming only
-  the variable for the one input that still cannot encode. The providers that can
-  manufacture such a value are the two that parse JSON — `akv://` and `bao://`, whose
-  `json.loads` turns a `\uD800` escape into a lone surrogate standing for no byte — and
-  both reject it at their own boundary through one shared `providers._text.utf8_text`,
-  since `surrogateescape` is correct for the inherited values `env://` resolves to and a
-  `str` carries no provenance by the time it reaches the environment. Both halves are
-  enforced structurally rather than by inventory
-  (`tests/architecture/test_child_env_encoding.py`): every spawn that passes an
-  environment builds it with `encode_env`, and every provider that parses JSON goes
-  through `utf8_text`. This refines the encoding
+  the variable for the one input that still cannot encode. Parsing a text format is what
+  manufactures such a value — `json.loads` turns a `\uD800` escape into a lone surrogate
+  standing for no byte, and JSON is only today's way of doing it — so the rule is on what
+  a provider *returns*, not on how it got there: `resolver` refuses any resolved value
+  with no UTF-8 encoding, for every provider at once. The single exception is declared by
+  the provider it describes: `env://` sets `INHERITS_OS_BYTES`, because its values are
+  bytes the OS handed us, where a surrogate stands for a real byte and
+  `surrogateescape` is correct. An opt-out, never an opt-in — a provider added later is
+  checked because its author did nothing. Both halves are enforced structurally rather
+  than by inventory (`tests/architecture/test_child_env_encoding.py`): every spawn that
+  passes an environment builds it with `encode_env`, and every *installed* provider is
+  exercised with a lone surrogate, so one inventing it with YAML or a custom decoder
+  fails the same test as one using `json.loads`. This refines the encoding
   promise, which was silent on the *parent's* locale: under `LC_ALL=C` CPython encoded the
   environment with the locale's codec, so `ksecret run` could not pass a non-ASCII secret
   at all and the resulting `UnicodeEncodeError` quoted a character of it. Refusing to run

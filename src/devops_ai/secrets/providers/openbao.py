@@ -26,7 +26,6 @@ from typing import NamedTuple
 
 from ..context import ResolveContext
 from ..errors import ProviderError
-from ._text import utf8_text
 
 SCHEME = "bao://"
 KEY_SEPARATOR = "#"
@@ -75,12 +74,13 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
     # number or a boolean is possible. Render it as it was stored rather than
     # refuse a secret the user can plainly see in their vault.
     #
-    # Only the `str` branch needs checking: `json.dumps` defaults to
-    # `ensure_ascii`, so a surrogate nested in a rendered structure comes back
-    # as the seven ASCII characters of its escape, which encode fine.
+    # A `\uD800` escape nested in a rendered structure is harmless: `json.dumps`
+    # defaults to `ensure_ascii`, so it comes back as the seven ASCII characters
+    # of the escape. A bare string one is not, and `resolver._representable`
+    # refuses it for every provider rather than each parser guarding itself.
     if not isinstance(value, str):
         return json.dumps(value)
-    return utf8_text(value, ref, "The server")
+    return value
 
 
 def _parse(ref: str) -> tuple[str, str, str]:

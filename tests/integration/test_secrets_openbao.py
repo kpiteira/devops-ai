@@ -179,8 +179,9 @@ class TestTheRequest:
         the escape into a lone surrogate. Returned unchanged it would reach
         `encode_env`, whose `surrogateescape` hands the child a raw byte
         instead of the value's UTF-8 — a different secret than the vault holds,
-        with nothing raised. Shares `_text.utf8_text` with `akv://`, the other
-        JSON-speaking provider, so the class is closed in one place.
+        with nothing raised. Refused in `resolver._representable`, which every
+        provider's value passes through, so the class is closed in one place
+        rather than once per provider that happens to parse JSON.
         """
         body = "recognisable-secret-body"
         bao.answer = lambda path: kv2(key=f"\ud800{body}")

@@ -616,11 +616,13 @@ class TestAzureCliFailures:
         hand the child a raw byte instead of the value's UTF-8 — a different
         secret than the vault holds, with nothing raised. That handler is right
         for an inherited value (`env://` resolves to one), so the refusal
-        belongs at a provider boundary, which still knows which kind it has.
+        belongs where a value's provenance is still known.
 
-        Shared with `bao://`, the other JSON-speaking provider, in
-        `providers._text`; `tests/architecture/test_child_env_encoding.py`
-        keeps a third one from forgetting.
+        Refused for every provider at once in `resolver._representable`, not
+        here — a rule keyed on this provider, or on the spelling `json.loads`,
+        is one the next provider walks past.
+        `tests/architecture/test_child_env_encoding.py` exercises every
+        installed provider with the same value.
         """
         body = "recognisable-secret-body"
         fake_az(tmp_path / "bin", stdout=f'"\\ud800{body}"')
