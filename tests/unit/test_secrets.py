@@ -358,19 +358,18 @@ class TestOpenBaoReferenceShape:
         with pytest.raises(SecretResolutionError, match="bao login"):
             resolve("K", "bao://kv/a#key", context)
 
-    def test_a_machine_with_no_home_at_all_still_gets_the_guidance(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """`Path.home()` raises with no HOME and no passwd entry — a container."""
+    def test_a_context_with_no_home_reads_no_token_file_at_all(self) -> None:
+        """The home is the context's, and there is no fallback to the process's.
 
-        def no_home() -> Path:
-            raise RuntimeError("Could not determine home directory.")
-
-        monkeypatch.setattr(Path, "home", staticmethod(no_home))
-
+        `Path.home()` would consult `os.environ`, making this the one input the
+        provider does not take from `ctx.env` — so a deliberately sanitised
+        context could still read the operator's `~/.vault-token`. Every real
+        caller carries HOME, so only such a context sees this.
+        """
         context = ResolveContext(env={"BAO_ADDR": self.ADDRESS})
-        with pytest.raises(SecretResolutionError, match="bao login"):
+        with pytest.raises(SecretResolutionError, match="bao login") as exc:
             resolve("K", "bao://kv/a#key", context)
+        assert "which writes" not in exc.value.message, "no file was looked for"
 
     def test_an_empty_token_file_is_no_token_at_all(self, tmp_path: Path) -> None:
         (tmp_path / ".vault-token").write_text("\n")

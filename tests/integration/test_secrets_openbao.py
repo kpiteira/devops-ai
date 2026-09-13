@@ -235,9 +235,11 @@ class TestServerFailures:
 
         # The token may have come from either spelling or from the file, and a
         # refusal is remedied the same way whichever it was — so name both
-        # rather than the one the reader happens not to use.
+        # rather than the one the reader happens not to use. Same for the
+        # command: a Vault-only install has no `bao` binary to run.
         message = str(raised.value)
         assert "BAO_TOKEN" in message and "VAULT_TOKEN" in message
+        assert "bao login" in message and "vault login" in message
 
     def test_a_missing_secret_points_at_the_mount_and_path(
         self, bao: FakeBao

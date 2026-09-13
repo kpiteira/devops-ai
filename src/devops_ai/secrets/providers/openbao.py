@@ -177,16 +177,16 @@ def _token(ctx: ResolveContext) -> str:
             # Distinct from "no token": the file is there and unusable, and
             # "log in again" is only the right advice once you know that.
             raise ProviderError(
-                f"Cannot read the OpenBao token file {path}: {_reason(exc)}. "
-                f"Run `bao login` to rewrite it."
+                f"Cannot read the token file {path}: {_reason(exc)}. "
+                f"Run `bao login` (or `vault login`) to rewrite it."
             ) from None
         if from_file:
             return _single_line(from_file, str(path))
 
     where = f", which writes {path}" if path is not None else ""
     raise ProviderError(
-        f"No OpenBao token. Run `bao login`{where}, or export BAO_TOKEN "
-        f"(or VAULT_TOKEN)."
+        f"No OpenBao or Vault token. Run `bao login` (or `vault login`)"
+        f"{where}, or export BAO_TOKEN (or VAULT_TOKEN)."
     )
 
 
@@ -199,26 +199,26 @@ def _single_line(token: str, source: str) -> str:
     """
     if "\r" in token or "\n" in token:
         raise ProviderError(
-            f"The OpenBao token from {source} contains a line break, so it "
-            f"cannot be sent. Run `bao login` to replace it."
+            f"The token from {source} contains a line break, so it cannot "
+            f"be sent. Run `bao login` (or `vault login`) to replace it."
         )
     return token
 
 
 def _home(ctx: ResolveContext) -> Path | None:
-    """The home of the environment being resolved in, not the process's.
+    """The home of the environment being resolved in, and only that.
 
-    None when there is no home to speak of: `Path.home()` raises where HOME is
-    unset and the user has no passwd entry, which is an ordinary container. The
-    token file is then simply one more place the token is not.
+    `Path.home()` would fall back to the process environment, which would make
+    this the one input the module reads from somewhere other than `ctx.env` —
+    the same inconsistency the empty `ProxyHandler` exists to remove. Every
+    real caller carries `HOME` already (`ResolveContext` defaults its env to
+    `os.environ`, and `layered_env` copies it), so the only context this
+    changes is a deliberately sanitised one, which should not reach an ambient
+    `~/.vault-token`. None means the token file is one more place the token is
+    not.
     """
     home = ctx.env.get("HOME", "").strip()
-    if home:
-        return Path(home)
-    try:
-        return Path.home()
-    except RuntimeError:
-        return None
+    return Path(home) if home else None
 
 
 def _tls(ctx: ResolveContext) -> ssl.SSLContext | None:
@@ -370,9 +370,9 @@ def _status_error(
     """
     if code in (401, 403):
         return ProviderError(
-            f"OpenBao refused the token for {ref} (HTTP {code}). Run "
-            f"`bao login`, or export a BAO_TOKEN (or VAULT_TOKEN) with read "
-            f"access."
+            f"The server refused the token for {ref} (HTTP {code}). Run "
+            f"`bao login` (or `vault login`), or export a BAO_TOKEN (or "
+            f"VAULT_TOKEN) with read access."
         )
     if code == 404:
         return ProviderError(
