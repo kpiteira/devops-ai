@@ -241,53 +241,22 @@ briefs and tests reference them. -->
   #49 (issue #60) — nothing is blocked meanwhile. Item 6 (disclosure residual on disabled-as-absent): keep the
   RBAC diagnosis; residual accepted.
 - [x] 2026-09-13 (#58) outcome refinement: a spawned child receives the exact UTF-8 bytes
-  of every resolved value whatever the parent's locale. That encoding never leaks a value
-  character, and cannot fail for any value a provider can legitimately return; a value with
-  no UTF-8 encoding at all is refused by name rather than silently altered — never passed
-  on as different bytes, and never quoted in the refusal. One shared `secrets.encode_env()`
-  builds the POSIX bytes environment for all
-  three spawn sites (`ksecret run`, the `op://` and `akv://` providers), encoding with
-  `surrogateescape`, so a byte the parent's locale could *not* decode — the one
-  `os.environ` therefore holds as a surrogate — reaches the child unchanged.
-  The promise is about values devops-ai *resolves into* a child's environment, and
-  deliberately not about the ones it merely inherits. An inherited variable is handed on
-  exactly as the parent holds it, through `os.fsencode` — the inverse of the decode that
-  produced it — because it is not ours to re-spell. `PATH` is why: a directory whose
-  on-disk name is the byte `E9` is not found by a child told to look in `C3 A9`, and
-  under a *decodable* non-UTF-8 locale (`iso8859-15`, where `E9` is held as `é` rather
-  than as a surrogate) those two differ. Encoding the whole environment alike turned
-  `ksecret run -- <bare command>` into exit 127; measured on Linux, not reasoned. So
-  `encode_env` takes the names its caller declared, and a provider spawn declares them
-  too: an env file's literal lines are laid over the environment *before* anything
-  resolves, precisely so a declared `OP_ACCOUNT` reaches the `op` that the next line
-  spawns, and they were read from a file decoded as strict UTF-8 — so they can hold
-  characters an ASCII locale cannot spell, and the promise covers them at that spawn
-  exactly as at the final one. A reference's *own* name is not declared: until it
-  resolves, that name still holds whatever was inherited, and claiming it would re-spell
-  the very variable this paragraph is about. `ResolveContext` carries that provenance
-  beside the environment (`secrets.context_for`), so the two are built together and the
-  answer cannot drift between `ksecret run`, `ksecret check`, `--infra` and kinfra's
-  provisioning. Inherit is the default, so a caller that forgets fails to
-  apply the promise to its own values rather than silently re-spelling a child's whole
-  environment. What remains open for Karl on PR #62 is narrower than it was: a `$VAR` or
-  `env://` entry is *declared*, so it is encoded UTF-8 like any other, and whether that
-  one case should instead preserve the inherited bytes is a one-line decision that
-  changes nothing above. Parsing a text format is what
-  manufactures such a value — `json.loads` turns a `\uD800` escape into a lone surrogate
-  standing for no byte, and JSON is only today's way of doing it — so the rule is on what
-  a provider *returns*, not on how it got there: `resolver` refuses any resolved value
-  with no UTF-8 encoding, for every provider at once. The single exception is declared by
-  the provider it describes: `env://` sets `INHERITS_OS_BYTES`, because its values are
-  bytes the OS handed us, where a surrogate stands for a real byte and
-  `surrogateescape` is correct. An opt-out, never an opt-in — a provider added later is
-  checked because its author did nothing. Both halves are enforced structurally rather
-  than by inventory (`tests/architecture/test_child_env_encoding.py`): every spawn that
-  passes an environment builds it with `encode_env`, and every *installed* provider is
-  exercised with a lone surrogate, so one inventing it with YAML or a custom decoder
-  fails the same test as one using `json.loads`. This refines the encoding
-  promise, which was silent on the *parent's* locale: under `LC_ALL=C` CPython encoded the
-  environment with the locale's codec, so `ksecret run` could not pass a non-ASCII secret
-  at all and the resulting `UnicodeEncodeError` quoted a character of it. Refusing to run
-  under a non-UTF-8 locale was rejected — minimal images ship no `C.UTF-8` for PEP 538
-  coercion to find, and containers and CI are what this is for. Confirmed by Karl
-  2026-09-13; delivered by #58.
+  of every resolved value whatever the parent's locale, and that encoding never leaks a
+  value character. Under `LC_ALL=C` CPython encoded the child environment with the locale's
+  codec, so `ksecret run` could not pass a non-ASCII secret and the `UnicodeEncodeError`
+  quoted a character of it. Refusing to run under a non-UTF-8 locale was rejected (minimal
+  images lack `C.UTF-8`; containers and CI are what this is for). Shape: one shared
+  `secrets.encode_env()` at every spawn site, re-encoding only the entries the caller
+  declared (inherited variables such as `PATH` pass through as the parent holds them), and
+  the resolver refusing by name any resolved value with no UTF-8 encoding, for every
+  provider; both enforced by `tests/architecture/test_child_env_encoding.py`. Promise
+  confirmed by Karl 2026-09-13; delivered by [#62](https://github.com/kpiteira/devops-ai/pull/62)
+  (`bb7e4f8`).
+- [x] 2026-09-13 (#58) decision: a `$VAR` / `env://` reference whose inherited value is not
+  valid UTF-8 passes its raw bytes through to the child (`INHERITS_OS_BYTES` on the env
+  provider) — the one documented exception to the promise above. The alternative, refusing
+  by name, would break a working reference on a variable the user may not control.
+  Karl 2026-09-13: keep as shipped. Also accepted: the six locale tests skip on macOS with
+  the encoding named (#57's Linux integration job is the guard); `ksecret run` exits 1 with
+  a message on an unencodable value; the `op://`/`akv://` spawn sites changed as part of
+  the class fix.
