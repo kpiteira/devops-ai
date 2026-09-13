@@ -397,6 +397,9 @@ class TestAzureCliFailures:
             ),
             ref="akv://a-vault/disabled secret",
         )
+        # An absence on its own would also hold if the message had changed shape
+        # entirely, so pin the line that should have been there all along.
+        assert "invalid name: disabled secret" in message
         assert "printed no ERROR" not in message
 
     def test_a_genuine_permission_denial_still_names_the_role(
