@@ -88,16 +88,28 @@ def run_child(
     return subprocess.run(
         ["uv", "run", "--project", str(ROOT), "python", "-c",
          PRECONDITION + code],
-        cwd=cwd, env=env, capture_output=True, text=True, timeout=300,
+        cwd=cwd, env=env, capture_output=True, timeout=300,
+        # Not a bare `text=True`: that decodes the child's stdout with the
+        # *parent's* locale codec, so running pytest itself under `LC_ALL=C`
+        # broke these on the accented bytes the child deliberately wrote —
+        # the same defect as #58, one layer up, in the harness that proves it.
+        # `surrogateescape` so any byte round-trips back out exactly.
+        encoding="utf-8", errors="surrogateescape",
     )
 
 
 def test_a_non_ascii_repo_path_is_decoded_not_crashed_on(
     tmp_path: Path, c_locale: dict[str, str]
 ) -> None:
-    """A path is bytes; `git rev-parse` emits them raw and the locale is no codec."""
-    repo = tmp_path / "caf\u00e9-repo"
-    repo.mkdir()
+    """A path is bytes; `git rev-parse` emits them raw and the locale is no codec.
+
+    The directory is named in bytes rather than as a `str`. `Path.mkdir()` goes
+    through `os.fsencode`, so when pytest *itself* runs under `LC_ALL=C` the
+    parent cannot even create `café-repo` — it raises before the child under
+    test is reached. Bytes are what the filesystem takes either way.
+    """
+    repo = os.fsencode(tmp_path) + "/café-repo".encode()
+    os.mkdir(repo)
     for args in (["git", "init", "-q", "."], ["git", "config", "user.email", "t@t"],
                  ["git", "config", "user.name", "T"]):
         subprocess.run(args, cwd=repo, check=True, capture_output=True)
@@ -106,12 +118,12 @@ def test_a_non_ascii_repo_path_is_decoded_not_crashed_on(
         "import os, sys\n"
         "from pathlib import Path\n"
         "from devops_ai.worktree import main_repo_root\n"
-        f"r = main_repo_root(Path(os.fsdecode({os.fsencode(repo)!r})))\n"
+        f"r = main_repo_root(Path(os.fsdecode({repo!r})))\n"
         "sys.stdout.buffer.write(os.fsencode(r) if r else b'None')",
         c_locale, tmp_path,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.encode("utf-8", "surrogateescape") == os.fsencode(repo)
+    assert result.stdout.encode("utf-8", "surrogateescape") == repo
 
 
 def test_the_materialised_secrets_file_is_written_as_utf8(
