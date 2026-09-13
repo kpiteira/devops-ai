@@ -230,8 +230,14 @@ class TestServerFailures:
     ) -> None:
         bao.answer = lambda path: (status, '{"errors":["permission denied"]}')
 
-        with pytest.raises(SecretResolutionError, match="bao login"):
-            read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
+        with pytest.raises(SecretResolutionError, match="bao login") as raised:
+            read("bao://kv/a#key", VAULT_ADDR=bao.addr, VAULT_TOKEN="t")
+
+        # The token may have come from either spelling or from the file, and a
+        # refusal is remedied the same way whichever it was — so name both
+        # rather than the one the reader happens not to use.
+        message = str(raised.value)
+        assert "BAO_TOKEN" in message and "VAULT_TOKEN" in message
 
     def test_a_missing_secret_points_at_the_mount_and_path(
         self, bao: FakeBao
@@ -375,9 +381,11 @@ class TestRedirects:
         bao.location = other.addr + "/v1/kv/data/a"
 
         try:
-            with pytest.raises(SecretResolutionError, match="different host"):
-                read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="s3cret-token")
+            with pytest.raises(SecretResolutionError, match="different host") as e:
+                read("bao://kv/a#key", VAULT_ADDR=bao.addr, VAULT_TOKEN="s3cret")
             assert other.asked == [], "the token must not reach another server"
+            assert "VAULT_ADDR" in str(e.value), "guidance names the spelling used"
+            assert "BAO_ADDR" not in str(e.value)
         finally:
             elsewhere.shutdown()
             elsewhere.server_close()
@@ -387,7 +395,7 @@ class TestRedirects:
         ("case", "location"),
         [("no location header", None), ("a loop back to itself", "/v1/kv/data/a")],
     )
-    def test_a_redirect_the_token_was_never_at_stake_in_says_so(
+    def test_a_redirect_with_no_cross_host_hop_reports_an_unfollowable_redirect(
         self, bao: FakeBao, case: str, location: str | None
     ) -> None:
         """A bare 30x means three different things, and two are not a hop.
@@ -435,7 +443,12 @@ class TestAmbientProxies:
         Measured before the empty handler: the proxy received
         `GET http://…/v1/kv/data/a` carrying `X-Vault-Token`, and the vault
         server received nothing at all. `getproxies()` reads `os.environ`, not
-        the resolve context, so the variables are set there.
+        the resolve context, so the variables are set there — and the no-proxy
+        variables are cleared, because `ProxyHandler` consults those before
+        using a proxy at all. Both servers are on `127.0.0.1`, so an inherited
+        `no_proxy=localhost,127.0.0.1` would send the request straight to the
+        vault with the empty handler removed, and this check would then pass
+        while proving nothing.
         """
         proxy = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         seen = FakeBao(addr=f"http://127.0.0.1:{proxy.server_address[1]}")
@@ -444,6 +457,8 @@ class TestAmbientProxies:
             target=proxy.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
         )
         thread.start()
+        for name in ("NO_PROXY", "no_proxy"):
+            monkeypatch.delenv(name, raising=False)
         for name in ("HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
             monkeypatch.setenv(name, seen.addr)
 

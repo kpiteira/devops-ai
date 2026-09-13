@@ -232,7 +232,7 @@ def _tls(ctx: ResolveContext) -> ssl.SSLContext | None:
             return ssl.create_default_context(cafile=cafile)
         except OSError as exc:
             raise ProviderError(
-                f"Cannot read the CA bundle {name} names ({cafile}): "
+                f"Cannot read the CA bundle named by {name} ({cafile}): "
                 f"{_reason(exc)}."
             ) from None
     return None
@@ -307,7 +307,7 @@ def _read_secret(
         # every one of them.
         exc.close()
         raise _status_error(
-            exc.code, ref, mount, path, redirects.refused_a_hop
+            exc.code, ref, mount, path, server, redirects.refused_a_hop
         ) from None
     except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
         # HTTPException is not an OSError: a truncated body raises
@@ -340,13 +340,25 @@ def _read_secret(
 
 
 def _status_error(
-    code: int, ref: str, mount: str, path: str, refused_a_hop: bool = False
+    code: int,
+    ref: str,
+    mount: str,
+    path: str,
+    server: Server,
+    refused_a_hop: bool = False,
 ) -> ProviderError:
-    """What an HTTP status means, without reading the body back to the user."""
+    """What an HTTP status means, without reading the body back to the user.
+
+    Both spellings are supported everywhere, so remediation that names only one
+    sends half the users to a variable they never set. Where the answer depends
+    on which was chosen, `server.variable` says; where it does not, both are
+    named, matching how `_token` already asks for one.
+    """
     if code in (401, 403):
         return ProviderError(
             f"OpenBao refused the token for {ref} (HTTP {code}). Run "
-            f"`bao login`, or export a BAO_TOKEN with read access."
+            f"`bao login`, or export a BAO_TOKEN (or VAULT_TOKEN) with read "
+            f"access."
         )
     if code == 404:
         return ProviderError(
@@ -361,8 +373,8 @@ def _status_error(
         if refused_a_hop:
             return ProviderError(
                 f"The server redirected {ref} to a different host (HTTP "
-                f"{code}), which a token must not follow. Point BAO_ADDR at "
-                f"the server that holds the secret."
+                f"{code}), which a token must not follow. Point "
+                f"{server.variable} at the server that holds the secret."
             )
         # Same host, so the token was never at stake: urllib stopped for its
         # own reasons — no `Location` to follow, or a loop of them.
