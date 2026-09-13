@@ -2,7 +2,7 @@
 name: kselfreview
 description: Adversarial pass over your OWN uncommitted or unpushed work before spending an external review round. Four interrogations drawn from measured failure classes — falsify every check, source every factual claim, run every procedure twice, re-examine closed findings. Finds the defects a diff-reading reviewer structurally cannot.
 metadata:
-  version: "0.1.1"
+  version: "0.2.0"
 ---
 
 # kselfreview — interrogate your own work before anyone else does
@@ -213,9 +213,39 @@ After each round of changes, revisit what was previously decided:
 
 ---
 
+## The shape check — isolated or systemic?
+
+*Not a fifth interrogation: this runs over the **findings** the four produced, after
+they are all in, and it is the last thing you do before writing the report.*
+
+Ask of every finding: **is this an isolated incident, or one site of a mechanism that
+has others?** Label each `isolated` or `systemic → <root cause>` — a `systemic` label
+with no root cause named is an `isolated` one wearing a label.
+
+Then the shape check over the list as a whole: **if two findings share a mechanism, the
+report names the mechanism once, not the sites.** One finding, one root cause, the sites
+listed underneath it as evidence that the class is real. A list of five siblings reads
+as five small things to patch; the same list collapsed to its mechanism reads as the one
+thing to change, which is what it is.
+
+This is the pass's cheapest yield and its easiest miss, because the four interrogations
+above work finding by finding and a finding has no view of its siblings. Measured: PR #49
+went to review with a class of defect — unvalidated `akv://` segments echoed into `az`
+error text — that had five sites. Nothing named the class; Copilot found the sites one at
+a time across rounds 6–11, each patch correct and none of them the fix, and the class was
+filed afterwards as #60. A shape check before the first review round had one row to write.
+
+The same rule as `kreview`'s decides what a `systemic` finding becomes: if the root cause
+sits on **pinned Surface** (something the brief or the spec pins), it is not yours to
+close — it goes to the human, named, with its sites as evidence. Otherwise: the class fix
+in one commit, or one issue for the class. Never a patch per site.
+
+---
+
 ## Output
 
-A short report. Findings ranked, each with file:line, the mechanism, a concrete
+A short report. Findings ranked, each with file:line, its `isolated | systemic → <root
+cause>` label, the mechanism, a concrete
 failure scenario, and — stated separately — whether you **verified it by running
 something** or reasoned by inspection. Do not blur those two.
 

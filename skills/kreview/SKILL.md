@@ -2,7 +2,7 @@
 name: kreview
 description: Address PR review comments critically — assess each comment against the PR's written review scope, recommend action (implement/push-back/discuss/out-of-scope), and execute. Works with any reviewer (Copilot, human, other bots). Single-round engine; kbabysit drives the multi-round loop.
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # Address PR Review Comments
@@ -70,6 +70,54 @@ gh pr checks "$PR_NUMBER" 2>/dev/null || true
 `gh pr view --comments` only shows issue comments — never rely on it alone. Fetch full
 `.body` content; review comments can be 2000+ characters with the key detail in later sections.
 
+**Suppressed comments are findings.** Copilot folds part of its output into a
+`### Suppressed comments (N)` section of the **review body** instead of opening threads —
+each entry a line `**path:line**` followed by the finding text and often a code snippet.
+They are not a lesser class of finding, and a triage that reads only threads is blind to
+them: on devops-ai #49, 15 suppressed entries appeared across 11 of the 13 Copilot
+reviews, while only **4** of those 13 reviews opened a thread at all — and from round 6
+(14:27) on, 7 of the last 8 opened none, so 8 of the 9 findings that whole phase produced
+existed only in the bodies. Parse them out:
+
+````bash
+# --paginate runs the --jq filter per page, so emit a marker line per review and let awk
+# carry that review's commit_id down its body. The fence toggle stops a `**path:line**`
+# line *inside* a quoted snippet from being counted as a finding of its own.
+gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
+  --jq '.[] | select(.state != "PENDING") | "@@REVIEW\t\(.id)\t\(.commit_id)", (.body // "")' \
+| awk -F'\t' '
+    $1=="@@REVIEW" { rid=$2; sha=$3; sup=0; fence=0; next }
+    /^```/         { fence=!fence; next }
+    fence          { next }
+    /^#+ +Suppressed comments/     { sup=1; next }
+    sup && /^- \*\*Files reviewed/ { sup=0 }
+    sup && /^\*\*[^*]+:[0-9]+\*\*$/ {
+      s=substr($0,3,length($0)-4); p=s; sub(/:[0-9]+$/,"",p); l=s; sub(/^.*:/,"",l)
+      print rid"\t"sha"\t"p"\t"l }'
+# one row per suppressed finding: review-id · the commit the review judged · path · line
+````
+
+Measured on devops-ai #49 (2026-09-13): 15 rows, matching the `(N)` in every one of the
+11 headers, with the two review-less rounds — an approval and a round whose single
+finding *did* open a thread — correctly yielding none.
+
+Each row is a **line-anchored finding** and is triaged like any other. Two differences,
+both mechanical:
+
+- **Provenance is computed the same way**, with the review's own `commit_id` standing in
+  for `originalCommit.oid` and the parsed line for `originalLine` in the snippet below.
+  Suppressed findings are included in the provenance counts, so `kbabysit`'s second-order
+  stop sees them: a round whose line-anchored findings — suppressed ones included — all
+  sit on fix commits is that reviewer's last round. On #49 that stop would have fired at
+  round 6 instead of round 13: its only two findings were suppressed, at
+  `azurekeyvault.py:245` and `:160`, and blaming both at the review's own commit
+  (`70a8f107`) against the boundary (`5a9b106d`, the first review still in the history)
+  puts them on `23ee88a2` and `63465ed7` — two review-fix commits. Seven paid rounds went
+  to findings the loop already had the rule to stop on, and could not see.
+- **There is no thread to reply in.** The disposition goes in the round report (which is
+  posted as a PR comment, so the record is durable and public), and an IMPLEMENT names
+  the finding in the fix commit message. Nothing to resolve, so nothing is resolved.
+
 **The review scope.** The PR body carries a `## Review scope` section — the outcomes this
 PR delivers, in the author's words (`kbabysit` refuses to start without it; attended runs
 should ask for it rather than infer one). Read it before triaging: it is the reference every
@@ -108,8 +156,10 @@ FIRST_REVIEWED_SHA=$(printf '%s\n' "$REVIEWS" | while read -r ts sha; do
 
 
 # Per finding: blame at the commit the comment was made against (originalCommit.oid,
-# originalLine from the thread fetch) — never at the current head, where a later fix that
-# touched the line would claim it and every old finding would look second-order.
+# originalLine from the thread fetch; for a suppressed finding, the review's own commit_id
+# and the line parsed out of its `**path:line**` header) — never at the current head, where
+# a later fix that touched the line would claim it and every old finding would look
+# second-order.
 BLAME_SHA=$(git blame -L "$ORIGINAL_LINE,$ORIGINAL_LINE" --porcelain "$ORIGINAL_COMMIT" -- "$FILE" \
   2>/dev/null | head -1 | cut -d' ' -f1)
 if [ -z "$FIRST_REVIEWED_SHA" ]; then
@@ -135,8 +185,10 @@ submitted review"), which is not the same as "no review": the round report's **B
 line carries which. `kbabysit` still
 forbids force-pushing mid-loop, for the threads' sake. A line that pre-dates the PR blames to an
 ancestor of the first reviewed head too, so it counts as original: the reviewer is still
-looking at first-order code (scope decides whether it is this PR's). Findings without a
-line (review bodies, issue comments) have no provenance; they count as neither. Measured on
+looking at first-order code (scope decides whether it is this PR's). Only a finding with
+**no line at all** — a review-level remark, an issue comment — is unanchored and has no
+provenance; a suppressed comment carries a `path:line` and is anchored like any thread.
+Measured on
 devops-ai #27: the 6th of 14 Copilot reviews was the first whose findings all sat on fix
 commits, and from the 9th on every review was entirely second-order; the 8th still found a
 real first-order defect, a generated test that raised before asserting.
@@ -158,6 +210,38 @@ round, process only comments newer than the round you last handled (compare `cre
 | Is this a style nitpick with no functional benefit? | Low value — likely push back |
 | Could this suggestion make things worse? | Push back with reasoning |
 | Does the reviewer lack context for this suggestion? | Discuss or push back |
+
+### Before the disposition: isolated or systemic?
+
+Every finding gets one question **before** it gets a verdict, because the answer changes
+the verdict: **does a deeper change close the class this finding belongs to?** The answer
+goes in its own column of the disposition table, as `isolated` or `systemic → <root cause>`.
+
+- **isolated** — the finding is the whole of its class. Patch it and the class is gone.
+- **systemic → \<root cause\>** — the finding is one site of a mechanism that has others.
+  Naming the root cause *is* the work: a `systemic` verdict with no root cause named is an
+  `isolated` one wearing a label.
+
+A `systemic` verdict then forces one of exactly two moves, and the pinned Surface decides
+which:
+
+- **On pinned Surface** — anything the brief or the spec pins — it is **DISCUSS**, with the
+  root cause named, listed under *For the human* in the round report. Not implemented site
+  by site, and not implemented as a class fix either: changing pinned Surface is the
+  human's decision, not a round's. `kbabysit` reads it as a stop signal and escalates
+  rather than buying the next round.
+- **Off the pinned Surface** — either the class fix **in one commit**, or **one issue
+  naming the class** (one issue for the class, never one per site). Per-site patches
+  spread across rounds are the failure this column exists to prevent.
+
+Measured: PR #49's rounds 6–11 were five patches to five echo sites of a single root cause
+— unvalidated `akv://` segments echoed back into `az` error text. Every patch was correct;
+none was the fix; round 12 was clean only because the echo sites ran out; the class was
+filed afterwards as #60. One `systemic → unvalidated segments reach the error text` in
+round 6 would have bought that outcome for one round instead of six.
+
+Two findings in the same round that share a mechanism are one `systemic` row with one root
+cause, not two `isolated` rows that happen to rhyme.
 
 ## Categorize: IMPLEMENT / PUSH BACK / DISCUSS / OUT OF SCOPE
 
@@ -182,6 +266,8 @@ true, severe, or easy does not move it in.
 **DISCUSS** when the comment:
 - Involves architectural decisions needing human input
 - Presents valid trade-offs where both options are reasonable
+- Is `systemic` and its root cause sits on pinned Surface (above) — name the root cause,
+  not the site
 
 **OUT OF SCOPE** when fixing it serves no outcome in the Review scope. It becomes an issue,
 never a commit on this branch — including when the finding is a real defect. The reply names
@@ -275,7 +361,10 @@ resolving does and doesn't do: it's hygiene for humans — Copilot is documented
 comments on re-review even when threads were resolved or dismissed (your prior replies are
 the real memory), and bots don't read thread replies at all.
 Review-level bodies and issue comments have no thread to resolve — address their points in the
-round report, and reply on the PR only if a point needs a visible answer.
+round report, and reply on the PR only if a point needs a visible answer. **Suppressed
+comments have no thread either**, but unlike a review-level remark they carry a `path:line`
+and a verdict: their dispositions go in the round report row by row, and an IMPLEMENT names
+the finding in the fix commit message so the trail survives without a thread.
 
 Push the commit(s) after replies are posted. Note: in repos with review automation, a push may
 itself trigger the next review round — that's `kbabysit`'s concern, not yours.
@@ -290,13 +379,20 @@ consumes):
 ```markdown
 ## Review round report — PR #N, round R
 **Reviewers heard from:** copilot, ... · **Comments processed:** X new (Y skipped: resolved/outdated)
+**Reviewer effort level:** <as the review body reports it, e.g. Lite | Balanced | not reported>
 
-| # | Reviewer | File:Line | Provenance | Comment (gist) | Verdict | Action taken |
-|---|----------|-----------|------------|----------------|---------|--------------|
+| # | Reviewer | File:Line | Source | Provenance | Comment (gist) | Isolated/systemic | Verdict | Action taken |
+|---|----------|-----------|--------|------------|----------------|-------------------|---------|--------------|
+
+`Source` is `thread` or `suppressed` — both are line-anchored, and the difference only
+decides where the reply goes. `Isolated/systemic` is never blank: `isolated`, or
+`systemic → <root cause>`.
 
 **Boundary:** <sha> | none (no reviews) | none reachable (N reviews, all pre-rebase) | missing <sha>
-**Provenance:** N on original diff · N on review-fix commits · N unknown · N unanchored
+**Provenance:** N on original diff · N on review-fix commits · N unknown · N unanchored — of the line-anchored, N from threads and N suppressed
 **Implemented:** N (commit <sha>) · **Pushed back:** N · **Out of scope → issues:** N (#…) · **Discuss (open for human):** N
+**Systemic:** N (N on pinned Surface → for the human, N closed as a class fix, N filed as one issue)
+**For the human — systemic on pinned Surface:** <root cause + what pins the Surface, one line each | none>
 **Gates:** tests ✓/✗ · quality ✓/✗ · CI ✓/✗
 **Re-review recommended:** yes/no — <one line why>
 ```
@@ -304,4 +400,6 @@ consumes):
 Recommend re-review only when the round changed code beyond trivia (a typo-level fix doesn't
 need another full review). A round of pure push-backs never needs re-review — there's nothing
 new to look at. The provenance line is not yours to act on: `kbabysit` reads it, and a round
-with nothing on the original diff is the reviewer's last round whatever you recommend.
+with nothing on the original diff is the reviewer's last round whatever you recommend. The
+systemic lines are the same kind of fact: a systemic root cause on pinned Surface ends the
+loop whatever you recommend, because the next round would only find the next site.
