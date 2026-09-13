@@ -529,7 +529,12 @@ def test_an_encode_env_the_module_rebinds_is_not_vouched_for() -> None:
         "subprocess.run(cmd, env=encode_env(raw_env))\n"
     )
     for source in (shadowed_by_a_def, shadowed_by_a_param, shadowed_by_assignment):
-        assert offenders_in(ast.parse(source), "m.py") != [], source
+        # The *reason*, not merely "some offender": a bare `!= []` would be
+        # satisfied by an unrelated rule firing, and could not tell the shadow
+        # being caught from the file being rejected for something else.
+        offenders = offenders_in(ast.parse(source), "m.py")
+        assert len(offenders) == 1, (source, offenders)
+        assert f"does not go through {ENCODE_ENV}()" in offenders[0], offenders
 
 
 def test_an_os_spawn_is_refused_rather_than_guessed_at() -> None:
