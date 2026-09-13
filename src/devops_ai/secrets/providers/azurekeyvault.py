@@ -203,18 +203,30 @@ def _exists(
     a plain write does. Any other failure is raised rather than read as room to
     write: a vault that cannot answer has not said the secret is missing.
     """
-    result = subprocess.run(
-        [
-            executable, "keyvault", "secret", "show",
-            "--vault-name", vault, "--name", secret,
-            "--query", "id", "--output", "tsv", "--only-show-errors",
-        ],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=TIMEOUT,
-        env=encode_env(ctx.env, utf8_keys=ctx.declared),
-    )
+    try:
+        result = subprocess.run(
+            [
+                executable, "keyvault", "secret", "show",
+                "--vault-name", vault, "--name", secret,
+                "--query", "id", "--output", "tsv", "--only-show-errors",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=TIMEOUT,
+            env=encode_env(ctx.env, utf8_keys=ctx.declared),
+        )
+    except EnvironmentEncodingError as exc:
+        raise ProviderError(str(exc)) from None
+    except subprocess.TimeoutExpired:
+        # Neither of these is a ProviderError, and neither the CLI nor the
+        # resolver translates anything else — so without this a firewalled
+        # vault answers `--if-absent` with a traceback.
+        raise ProviderError(
+            f"Azure CLI timed out after {TIMEOUT}s checking whether {ref} "
+            f"exists. Nothing was written. Check your network and that "
+            f"`az account show` succeeds."
+        ) from None
     if result.returncode == 0:
         return True
     if _reads_as_absent(*_az_error_fields(result.stderr or "")):
@@ -407,12 +419,18 @@ def _diagnose(
 
     if _reads_as_absent(codes, messages):
         return f"Secret not found in Azure Key Vault: {ref}."
-    if coded("Conflict") and message_starts("secret "):
+    if writing and coded("Conflict") and message_starts("secret "):
         # A deleted secret's name is not free until the deletion finishes, and
         # on a vault with purge protection not until it is recovered or purged.
         # Verified against the acceptance vault, which answers `(Conflict)` with
         # an `ObjectIsBeingDeleted` inner code. Relayed whole: the message names
         # only the secret the caller asked for, and the remedy is in it.
+        #
+        # Gated on `writing`, and not only because a read cannot provoke it: an
+        # ungated branch would answer some future `(Conflict)` on a *read* with
+        # "was not written", telling a caller their write failed when they
+        # never made one — a change to M1-M3 read behaviour, out of a milestone
+        # that promised none.
         return (
             f"{ref} was not written.{_az_errors(stderr)} Recover it with "
             f"`az keyvault secret recover`, purge it, or use another name."

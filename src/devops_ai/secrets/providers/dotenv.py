@@ -134,7 +134,11 @@ def _with_key(text: str, key: str, value: str, path: Path) -> str:
             # reader believes is a property of the reader, and this file has
             # just been told what the key is.
             continue
-        kept.append(line + _ending(raw))
+        # The line's own `export ` and indentation, not just its ending: a
+        # `.env` that is `source`d stops exporting the variable if the word is
+        # dropped, which is a change to what the file *does* — well outside
+        # "set this key".
+        kept.append(envfile.prefix(raw) + line + _ending(raw))
         replaced = True
 
     if not replaced:
@@ -200,7 +204,18 @@ def _save(path: Path, text: str, existed: bool) -> None:
 
     Written beside the target and moved onto it, so a failure midway leaves the
     old file intact rather than a truncated one: this file is what a sandbox,
-    a compose run or a colleague reads next.
+    a compose run or a colleague reads next. Flushed to the disk before the
+    rename, so a machine that loses power right after this returns finds the
+    new contents rather than an empty file under the old name.
+
+    Beside the target rather than in the system temp directory, because
+    `os.replace` is only atomic within a filesystem. The cost is the residual:
+    a process killed between the write and the rename leaves one `.ksecret-*`
+    file there, 0600 and holding the value. Atomicity is worth more than that.
+
+    One writer at a time is assumed. Each write is a read-modify-write of the
+    whole file, so two racing calls do not corrupt it — `os.replace` sees to
+    that — but the later one wins outright and the earlier key is simply gone.
 
     A file that was already there keeps its own permissions — the user chose
     them, and a write to one key is not the moment to overrule that. A file we
@@ -216,6 +231,8 @@ def _save(path: Path, text: str, existed: bool) -> None:
     try:
         with os.fdopen(handle, "wb") as stream:
             stream.write(text.encode("utf-8"))
+            stream.flush()
+            os.fsync(stream.fileno())
         if existed:
             shutil.copymode(path, temporary)
         else:

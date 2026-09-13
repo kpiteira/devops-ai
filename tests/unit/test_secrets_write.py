@@ -170,6 +170,18 @@ class TestTheDotenvFile:
 
         assert after == original.replace("TARGET=old", f"TARGET={VALUE}")
 
+    def test_an_export_prefix_survives_the_line_that_is_replaced(
+        self, tmp_path: Path
+    ) -> None:
+        """Dropping the word changes what the file *does* when it is sourced,
+        which is well outside "set this key". Falsified by rebuilding the line
+        as `KEY=value`: this fails, and nothing else does."""
+        (tmp_path / "f.env").write_text("  export TARGET=old\nB=2\n")
+
+        after = wrote(tmp_path, "dotenv://f.env#TARGET", VALUE)
+
+        assert after == f"  export TARGET={VALUE}\nB=2\n"
+
     def test_crlf_endings_survive_the_line_that_is_replaced(
         self, tmp_path: Path
     ) -> None:
@@ -669,6 +681,54 @@ class TestWhatOpIsHanded:
         sent = json.loads(calls_of(log)[-1]["stdin"])
         assert [f["value"] for f in sent["fields"]] == [VALUE, VALUE]
 
+    def test_a_field_of_the_same_name_inside_a_section_is_left_alone(
+        self, tmp_path: Path
+    ) -> None:
+        """Measured against a real item (op 2.39.0): section fields share the
+        flat `fields` array, and `op read op://v/item/token` returns the
+        *top-level* one. Matching by label alone set both, overwriting a
+        credential the reference could not even name — `_parse` refuses the
+        four-segment form that addresses it.
+
+        Note the shape: a top-level field carries `"section": null`, it does
+        not omit the key.
+        """
+        log = fake_cli(
+            tmp_path / "bin",
+            "op",
+            op_answers(
+                **{
+                    "item list": {
+                        "stdout": json.dumps(
+                            [{"id": "sectioned000000000000001", "title": "my-item"}]
+                        )
+                    },
+                    "item get": {
+                        "stdout": json.dumps(
+                            {
+                                "id": "sectioned000000000000001",
+                                "fields": [
+                                    {"id": "toplevel", "label": "token",
+                                     "section": None, "value": "old"},
+                                    {"id": "insection", "label": "token",
+                                     "section": {"id": "s", "label": "Section"},
+                                     "value": "a-different-credential"},
+                                ],
+                            }
+                        )
+                    },
+                }
+            ),
+        )
+
+        write("op://a-vault/my-item/token", VALUE, on_path(tmp_path / "bin"))
+
+        sent = json.loads(calls_of(log)[-1]["stdin"])
+        assert [f["value"] for f in sent["fields"]] == [
+            VALUE,
+            "a-different-credential",
+        ]
+
     def test_two_items_of_the_same_title_are_refused_rather_than_guessed(
         self, tmp_path: Path
     ) -> None:
@@ -959,6 +1019,76 @@ class TestLeavingAnExistingSecretAlone:
         )
 
         assert [call["argv"][:2] for call in calls_of(log)][-1] == ["item", "edit"]
+
+    def test_a_section_field_is_not_read_as_this_reference_being_set(
+        self, tmp_path: Path
+    ) -> None:
+        """The mirror of the write defect: skipping on a section field's value
+        would print the reference while the field it names stayed empty."""
+        log = fake_cli(
+            tmp_path / "bin",
+            "op",
+            op_answers(
+                **{
+                    "item list": {
+                        "stdout": json.dumps(
+                            [{"id": "sectioned000000000000001", "title": "my-item"}]
+                        )
+                    },
+                    "item get": {
+                        "stdout": json.dumps(
+                            {
+                                "id": "sectioned000000000000001",
+                                "fields": [
+                                    {"id": "toplevel", "label": "token",
+                                     "section": None},
+                                    {"id": "insection", "label": "token",
+                                     "section": {"id": "s", "label": "Section"},
+                                     "value": "a-different-credential"},
+                                ],
+                            }
+                        )
+                    },
+                }
+            ),
+        )
+
+        write(
+            "op://a-vault/my-item/token",
+            VALUE,
+            on_path(tmp_path / "bin"),
+            if_absent=True,
+        )
+
+        assert [call["argv"][:2] for call in calls_of(log)][-1] == ["item", "edit"]
+
+    def test_a_vault_that_times_out_is_a_sentence_not_a_traceback(
+        self, tmp_path: Path
+    ) -> None:
+        """`TimeoutExpired` is not a ProviderError, and neither the CLI nor the
+        resolver translates anything else, so an unwrapped spawn here reached
+        the operator as a traceback."""
+        directory = tmp_path / "bin"
+        directory.mkdir()
+        (directory / "az").write_text(
+            f"#!{sys.executable}\nimport time\ntime.sleep(60)\n", encoding="utf-8"
+        )
+        (directory / "az").chmod(0o755)
+        monkeyed = azurekeyvault.TIMEOUT
+        try:
+            azurekeyvault.TIMEOUT = 1
+            with pytest.raises(ProviderError) as caught:
+                write(
+                    "akv://a-vault/a-secret",
+                    VALUE,
+                    on_path(directory),
+                    if_absent=True,
+                )
+        finally:
+            azurekeyvault.TIMEOUT = monkeyed
+
+        assert "timed out" in str(caught.value)
+        assert "Nothing was written" in str(caught.value)
 
     def test_the_host_environment_refuses_either_way(self) -> None:
         with pytest.raises(ProviderError):

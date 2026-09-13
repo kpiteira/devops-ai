@@ -37,6 +37,25 @@ def entry(line: str) -> tuple[str, str] | None:
     return key, _unquote(value.strip())
 
 
+def prefix(line: str) -> str:
+    """What comes before the key on this line, which a writer must carry over.
+
+    `entry` throws this away — it is reading a value, and `export FOO=1` and
+    `FOO=1` name the same key. A writer cannot: a `.env` that is `source`d
+    stops exporting the variable if the word is dropped, so rebuilding the
+    line as `KEY=value` would change what the file does to every process that
+    reads it after. Lives beside `entry` because it is the same rule read from
+    the other side, and the two must agree on where the key starts.
+    """
+    body = line.splitlines()[0] if line else line
+    indent = body[: len(body) - len(body.lstrip())]
+    rest = body[len(indent):]
+    if not rest.startswith(_EXPORT):
+        return indent
+    after = rest[len(_EXPORT):]
+    return indent + _EXPORT + after[: len(after) - len(after.lstrip())]
+
+
 def parse(text: str) -> dict[str, str]:
     """Parse env-file text into an ordered mapping. Malformed lines are ignored."""
     values: dict[str, str] = {}

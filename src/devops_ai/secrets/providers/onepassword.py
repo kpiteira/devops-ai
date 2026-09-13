@@ -33,6 +33,11 @@ SCHEME = "op://"
 TIMEOUT = 30
 SEGMENTS = 3
 NUL = "\0"
+# What `op` says when nobody is signed in. Narrower than the substring `sign`
+# the read path has used since M1, which also matches `assign` — so a refused
+# field assignment would have been reported as a missing session. The read
+# path keeps its wording: M1's behaviour is not this milestone's to move.
+SIGNIN_MARKERS = ("sign in", "signed in", "signin")
 # The category a created item is given, and the one agent-memory's `agent
 # create` already uses. It matters beyond taste: `op item create` adds a
 # category's built-in fields to whatever template it is handed, so a field
@@ -44,6 +49,15 @@ CONCEALED = "CONCEALED"
 # `op read` resolves a field by either of these, so a write has to match on
 # both: a field a human created has an opaque `id` and the `label` they typed.
 FIELD_NAMES = ("label", "id")
+# Section fields arrive in the same flat `fields` array as top-level ones,
+# distinguished only by this key — and a top-level field carries it as an
+# explicit `null` rather than omitting it (measured against a real item, op
+# 2.39.0). A three-segment reference addresses a *top-level* field:
+# `op read op://v/item/token` returns the top-level `token` even when a section
+# field shares that label, and the section one is reached by the four-segment
+# form this provider refuses to write. Matching without this check would set
+# both, overwriting a credential nobody named.
+SECTION = "section"
 # `?attribute=otp` and friends turn a reference into a request for something
 # derived from a field rather than the field itself. There is nothing to store
 # behind one.
@@ -113,6 +127,9 @@ def write(
         # The whole item, because `op item edit --template` keeps only the
         # fields the template lists: a template carrying just this one field
         # deletes every other custom field on the item (measured, 2026-09-13).
+        # This rests on `op item get --format=json` returning concealed values
+        # in the clear, which it does (measured against a real item, op 2.39.0)
+        # — were a version to mask them, this would write the masks back.
         document = _document(
             executable, ctx, ref, "read",
             ["item", "get", item_id, "--vault", vault, "--format=json"],
@@ -170,6 +187,12 @@ def _find(
     depend on the wording of an error message. A listing answers the question
     as data — and it is the same call that proves vault access in the first
     place.
+
+    The cost is that a write transfers the vault's item list — ids and titles,
+    never values — so a run storing N secrets into a vault of M items reads
+    N×M records. That is the price of not parsing an error message, and it is
+    chosen rather than paid by accident: a later reader should not quietly
+    turn this back into an `op item get`.
 
     An archived item is not in the listing, so a title that survives only in
     the archive reads here as free. That is the intended answer: the write
@@ -252,11 +275,7 @@ def _set_field(document: dict[str, Any], field: str, value: str) -> None:
     if not isinstance(document.get("fields"), list):
         document["fields"] = []
     fields = document["fields"]
-    matched = [
-        entry
-        for entry in _fields(document)
-        if any(entry.get(name) == field for name in FIELD_NAMES)
-    ]
+    matched = _named(document, field)
     for entry in matched:
         entry["value"] = value
     if not matched:
@@ -273,11 +292,17 @@ def _has_value(document: dict[str, Any], field: str) -> bool:
     reference to one of those names an empty slot rather than a secret. Writing
     into it is what `--if-absent` is for.
     """
-    return any(
-        entry.get("value")
+    return any(entry.get("value") for entry in _named(document, field))
+
+
+def _named(document: dict[str, Any], field: str) -> list[dict[str, Any]]:
+    """The item's top-level fields that the reference's last segment names."""
+    return [
+        entry
         for entry in _fields(document)
-        if any(entry.get(name) == field for name in FIELD_NAMES)
-    )
+        if not entry.get(SECTION)
+        and any(entry.get(name) == field for name in FIELD_NAMES)
+    ]
 
 
 def _fields(document: dict[str, Any]) -> list[dict[str, Any]]:
@@ -356,11 +381,14 @@ def _op(
 
     if result.returncode != 0:
         stderr = (result.stderr or "").lower()
-        if "sign" in stderr or "auth" in stderr:
+        if any(marker in stderr for marker in SIGNIN_MARKERS):
             raise ProviderError(
                 f"1Password not authenticated, so {ref} was not written. "
                 f"Run: eval $(op signin)"
             )
+        # Everything else — a refused vault, an item somebody else locked —
+        # falls to the sentence below, which sends the reader to their access
+        # rather than to a session that is already fine.
         raise ProviderError(
             f"1Password refused to {doing} for {ref}. Run "
             f"`op {' '.join(args[:2])} --help` and check the vault, the item "
