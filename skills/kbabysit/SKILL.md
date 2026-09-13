@@ -47,9 +47,9 @@ What that costs you, and how this skill pays it:
   So the PR number must either be passed explicitly (`/kbabysit 42`) or be resolvable from
   the checkout. Step 0 reads the explicit number **first** and only falls back to
   `gh pr view` — the other order silently babysits the branch's PR when you asked for a
-  different one. The fork starts in the invoking session's working directory (verified
-  2026-09-12), so that fallback resolves correctly; when neither source yields a number,
-  say so and stop rather than guessing.
+  different one — and stops outright if the two disagree, because the loop pushes fixes and
+  `kreview` resolves the PR from the checkout too. The fork starts in the invoking session's
+  working directory (verified 2026-09-12), so that fallback resolves correctly.
 - **`background: false`** makes the invoking turn wait for the report instead of collecting
   it from a background task later. The ownership rule below — an unread review round is not
   done — is the reason: a report that lands as a background notification after the session
@@ -77,12 +77,24 @@ Copilot round sat overnight on a side PR nobody owned. For a milestone PR the ex
 ## 0. Preflight
 
 ```bash
-PR_NUMBER=$(printf '%s' "$ARGUMENTS" | sed 's/^#//' | grep -oE '^[0-9]+')   # explicit <pr-number>, if given
-[ -n "$PR_NUMBER" ] || PR_NUMBER=$(gh pr view --json number -q '.number')   # else this branch's PR
-[ -n "$PR_NUMBER" ] || echo "NO PR: no number in the arguments and none open for this branch"
+ARG_PR=$(printf '%s' "$ARGUMENTS" | sed 's/^#//' | grep -oE '^[0-9]+')      # explicit <pr-number>, if given
+BRANCH_PR=$(gh pr view --json number -q '.number' 2>/dev/null)              # this checkout's own PR, if any
+PR_NUMBER="${ARG_PR:-$BRANCH_PR}"
+
+if [ -z "$PR_NUMBER" ]; then echo "TARGET: none — no number in the arguments and no PR open for this branch"
+elif [ -n "$ARG_PR" ] && [ "$ARG_PR" != "$BRANCH_PR" ]; then echo "TARGET: not this checkout — #$ARG_PR vs branch PR #${BRANCH_PR:-none}"
+else echo "TARGET: #$PR_NUMBER"; fi
+
 REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner')
 gh pr view "$PR_NUMBER" --json state,isDraft,mergeable,headRefName,baseRefName,statusCheckRollup
 ```
+
+**Anything but `TARGET: #N` ends the run before step 1** — say which of the two it was and
+stop. The second case looks harmless and is not: this loop does not only *read* a PR, it
+commits and pushes fixes, and `kreview` resolves the PR from the checkout the same way. Given
+`/kbabysit 42` from a branch whose PR is #43, a naive run would poll #42's reviews and push
+#42's fixes onto #43. Babysitting a PR means being on its branch; the fix is
+`git checkout` (or `gh pr checkout 42`), not a cleverer argument.
 
 - PR closed/merged → report and stop.
 - Draft → mark ready (`gh pr ready`) only if the work is actually complete; otherwise stop.
@@ -140,7 +152,9 @@ the loop on a reviewer that never comes.
 
 ## 3. Triage and address — one kreview round
 
-Run `kreview` in **autonomous mode** for this round. It fetches the full review surface
+Run `kreview` in **autonomous mode** for this round. It resolves the PR from the checkout,
+which step 0 has already established is `$PR_NUMBER` — that check is what makes this safe.
+It fetches the full review surface
 (review bodies, threads with resolved/outdated state, issue comments, CI), gives each new
 finding its **provenance** (on the PR's original diff, or on a review-fix commit) and one of
 four dispositions — IMPLEMENT / PUSH BACK / DISCUSS / OUT OF SCOPE — implements what's real
