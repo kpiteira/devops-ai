@@ -47,8 +47,15 @@ def fake_cli(directory: Path, name: str, answers: dict[str, dict]) -> Path:
         f"log = pathlib.Path({str(log)!r})\n"
         f"answers = json.loads({json.dumps(json.dumps(answers))})\n"
         "argv = sys.argv[1:]\n"
-        # Only the calls that take a template are read from: `subprocess.run`
-        # leaves stdin inherited otherwise, and a read of it would block.
+        # Which calls read stdin is not a convenience here — it is a claim
+        # about `op`, and a wrong one would make an update that real `op`
+        # ignores pass. Measured against op 2.39.0: `item create` reads a
+        # template from stdin when given the `-` positional, and `item edit`
+        # reads one from bare stdin (its own help: "cat updatedLogin.json | op
+        # item edit oldLogin"). `az ... secret set` never reads stdin, but is
+        # listed so a stray read cannot hang the suite. The real proof that a
+        # template is consumed is the acceptance test against a live vault,
+        # which writes twice and reads the second value back.
         "stdin = None\n"
         "if '-' in argv or (len(argv) > 1 and argv[1] in ('edit', 'set')):\n"
         "    stdin = sys.stdin.read()\n"
@@ -458,6 +465,30 @@ class TestWhatAzIsHanded:
             write("akv://a-vault/a-secret", VALUE, on_path(tmp_path / "bin"))
 
         assert "Secrets User" not in str(caught.value)
+
+    def test_a_read_is_never_told_that_its_write_failed(
+        self, tmp_path: Path
+    ) -> None:
+        """The soft-delete branch is a write's answer. Ungated it would tell a
+        *reader* to recover a secret so their write could proceed — a change to
+        M1-M3 read behaviour out of a milestone that promised none."""
+        fake_cli(
+            tmp_path / "bin",
+            "az",
+            {
+                "keyvault secret show": {
+                    "code": 1,
+                    "stderr": "ERROR: (Conflict) Secret s is being deleted.\n"
+                              "Code: Conflict\n",
+                }
+            },
+        )
+
+        with pytest.raises(Exception) as caught:
+            resolve("K", "akv://a-vault/a-secret", on_path(tmp_path / "bin"))
+
+        assert "was not written" not in str(caught.value)
+        assert "reading" in str(caught.value)
 
     def test_a_read_still_names_the_read_role(self, tmp_path: Path) -> None:
         """The control for the test above: the flag changed one branch, not
