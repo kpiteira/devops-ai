@@ -64,13 +64,12 @@ OS_SPAWNS = {
     "spawnve", "spawnvpe", "spawnle", "spawnlpe",
 }
 WATCHED = {"subprocess": SUBPROCESS_SPAWNS, "os": OS_SPAWNS}
-# Where `encode_env` may legitimately come from, so a call to it can be resolved
-# to an import rather than merely matched by name. Split by `ImportFrom.level`
-# because `.module` drops the leading dots: `from ..environ import encode_env`
-# (the real spelling in both providers) and `from environ import encode_env` (an
-# unrelated top-level module this gate must not vouch for) are both `"environ"`
-# here, and only the level tells them apart.
-ENCODER_MODULES_RELATIVE = {"environ"}
+# Where `encode_env` may legitimately come from, as *absolute* module names. A
+# relative import is resolved against the importing file's own package before
+# being compared against these, because `ImportFrom.module` drops the leading
+# dots: `from ..environ import encode_env` names `devops_ai.secrets.environ`
+# inside a provider and `devops_ai.other.environ` inside some future
+# `devops_ai.other`, and the AST spells the two identically.
 ENCODER_MODULES_ABSOLUTE = {"devops_ai.secrets", "devops_ai.secrets.environ"}
 # `env` is the 11th parameter of `Popen`, and `run`/`call`/`check_*` forward
 # their positional arguments to it — so `Popen(cmd, ..., raw_env)` passes an
@@ -102,12 +101,20 @@ class Resolver:
     can ask one question of a call rather than three.
     """
 
-    def __init__(self, tree: ast.AST) -> None:
+    def __init__(self, tree: ast.AST, package: str | None = None) -> None:
         self.modules: dict[str, str] = {}       # local name -> "subprocess"|"os"
         self.functions: dict[str, tuple[str, str]] = {}  # local name -> (mod, attr)
         self.encoders: set[str] = set()         # local names bound to encode_env
         self.wildcards: set[str] = set()        # watched modules imported with `*`
-        rebound: set[str] = set()               # names this module defines itself
+        # The dotted package the parsed file lives in, so a relative import can
+        # be resolved to the module it actually names. Without it a relative
+        # encoder import cannot be proven and is refused.
+        self.package = package
+
+        # Pass 1 — imports. Everything below resolves against these, so they
+        # have to be complete first: `ast.walk` is breadth-first over the whole
+        # tree and gives no guarantee an assignment comes after the import it
+        # reads.
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -120,10 +127,8 @@ class Resolver:
             elif isinstance(node, ast.ImportFrom):
                 # Absolute or relative is not cosmetic here: `.module` omits the
                 # dots, so `from .subprocess import run` — a sibling module that
-                # is not the stdlib — would otherwise register as a real spawn,
-                # and `from environ import encode_env` as this package's helper.
-                absolute = node.level == 0
-                if absolute and node.module in WATCHED:
+                # is not the stdlib — would otherwise register as a real spawn.
+                if node.level == 0 and node.module in WATCHED:
                     for alias in node.names:
                         if alias.name == "*":
                             # `from subprocess import *` binds names that cannot
@@ -136,15 +141,29 @@ class Resolver:
                             self.functions[alias.asname or alias.name] = (
                                 node.module, alias.name
                             )
-                elif (
-                    node.module in ENCODER_MODULES_ABSOLUTE
-                    if absolute
-                    else node.module in ENCODER_MODULES_RELATIVE
-                ):
+                elif self._imports_this_packages_encoder(node):
                     for alias in node.names:
                         if alias.name == ENCODE_ENV:
                             self.encoders.add(alias.asname or alias.name)
-            elif isinstance(
+
+        # Pass 2 — names the module binds itself. Two opposite obligations: an
+        # alias *of* a spawn has to be followed, and a name shadowing an import
+        # has to stop being vouched for.
+        rebound: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign | ast.AnnAssign):
+                # `spawn = subprocess.run` then `spawn(cmd, env=raw)` reached a
+                # child while `target()` returned None for it, so the gate never
+                # looked at the call at all.
+                aliased = self._resolve(node.value) if node.value else None
+                if aliased is not None and aliased[1] in WATCHED[aliased[0]]:
+                    targets = (
+                        node.targets if isinstance(node, ast.Assign) else [node.target]
+                    )
+                    for target in targets:
+                        if isinstance(target, ast.Name):
+                            self.functions[target.id] = aliased
+            if isinstance(
                 node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
             ):
                 rebound.add(node.name)
@@ -178,16 +197,54 @@ class Resolver:
             and node.func.id in self.encoders
         )
 
+    def _imports_this_packages_encoder(self, node: ast.ImportFrom) -> bool:
+        """Is this `from ... import encode_env` *our* `encode_env`?
+
+        A relative import names no package on its own — `from ..environ import
+        encode_env` is `devops_ai.secrets.environ` inside a provider and
+        `devops_ai.other.environ` inside some future `devops_ai.other`, and the
+        AST spells them identically. So it is resolved against the file's own
+        package rather than pattern-matched, and a file whose package is unknown
+        gets no relative encoder binding at all — an unprovable binding is the
+        thing this gate must not vouch for.
+        """
+        if node.level == 0:
+            return node.module in ENCODER_MODULES_ABSOLUTE
+        if self.package is None:
+            return False
+        anchor = self.package.split(".")
+        # Level 1 is the file's own package; each extra dot climbs one more.
+        if node.level - 1 > len(anchor):
+            return False
+        anchor = anchor[: len(anchor) - (node.level - 1)]
+        resolved = ".".join(anchor + (node.module.split(".") if node.module else []))
+        return resolved in ENCODER_MODULES_ABSOLUTE
+
+    def _resolve(self, expr: ast.expr) -> tuple[str, str] | None:
+        """(`module`, `attribute`) this expression names, if it names one."""
+        if isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Name):
+            module = self.modules.get(expr.value.id)
+            if module is not None:
+                return module, expr.attr
+        elif isinstance(expr, ast.Name):
+            return self.functions.get(expr.id)
+        return None
+
     def target(self, node: ast.Call) -> tuple[str, str] | None:
         """(`module`, `attribute`) this call spawns through, if any."""
-        func = node.func
-        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
-            module = self.modules.get(func.value.id)
-            if module is not None:
-                return module, func.attr
-        elif isinstance(func, ast.Name):
-            return self.functions.get(func.id)
-        return None
+        return self._resolve(node.func)
+
+
+def package_of(path: Path) -> str:
+    """The dotted package a file under `src/` lives in.
+
+    What a relative import is resolved against. Both cases come out as "drop
+    the last component", though for different reasons: a module is anchored at
+    the package *containing* it, and a package's `__init__.py` is anchored at
+    the package it *is* — which is the same thing with `__init__` removed.
+    """
+    parts = path.relative_to(SRC.parent).with_suffix("").parts
+    return ".".join(parts[:-1])
 
 
 def read_source(path: Path) -> ast.AST:
@@ -219,13 +276,13 @@ def spawns_passing_an_environment() -> list[Spawn]:
     found = []
     for path in source_files():
         tree = read_source(path)
-        bindings = Resolver(tree)
+        bindings = Resolver(tree, package_of(path))
         for node, module, attr in watched_spawns(tree, bindings):
             found.append(Spawn(path, node, module, attr, bindings))
     return found
 
 
-def offenders_in(tree: ast.AST, where: str) -> list[str]:
+def offenders_in(tree: ast.AST, where: str, package: str | None = None) -> list[str]:
     """Every way this module could hand a child a locale-encoded environment.
 
     Takes a tree rather than walking `src/` so each rule below can be falsified
@@ -233,7 +290,7 @@ def offenders_in(tree: ast.AST, where: str) -> list[str]:
     offender in the package and putting it back afterwards.
     """
     offenders: list[str] = []
-    bindings = Resolver(tree)
+    bindings = Resolver(tree, package)
     for wildcarded in sorted(bindings.wildcards):
         # `from subprocess import *` leaves an alias literally named `*`. Every
         # name it binds is invisible, so a later bare `run(cmd, env=raw)` is not
@@ -299,7 +356,9 @@ def offenders_in(tree: ast.AST, where: str) -> list[str]:
 def test_every_spawn_that_passes_an_environment_encodes_it() -> None:
     offenders: list[str] = []
     for path in source_files():
-        offenders += offenders_in(read_source(path), str(path.relative_to(ROOT)))
+        offenders += offenders_in(
+            read_source(path), str(path.relative_to(ROOT)), package_of(path)
+        )
     assert not offenders, (
         "a child's environment must be built by devops_ai.secrets.encode_env, "
         "never by the locale's codec:\n  " + "\n  ".join(offenders)
@@ -356,14 +415,24 @@ def test_the_gate_sees_the_sites_it_is_meant_to_guard() -> None:
     the known sites fails here instead of reporting a clean sweep of an empty
     set.
     """
-    guarded = [
-        f"{p.relative_to(ROOT)}:{n.lineno}"
+    guarded = {
+        str(p.relative_to(ROOT))
         for p, n, module, _, _b in spawns_passing_an_environment()
         if module == "subprocess" and any(k.arg == "env" for k in n.keywords)
-    ]
-    assert len(guarded) >= 3, (
-        f"expected at least the three known env-passing spawn sites "
-        f"(ksecret run, op://, akv://), the walk found {guarded}"
+    }
+    # By identity, not by count. `len(...) >= 3` was satisfied by *any* three
+    # env-passing spawns, so a real site going invisible behind a new spelling
+    # was covered for as soon as an unrelated encoded call took its place — the
+    # walk would keep reporting three while guarding the wrong ones. A subset
+    # check still allows a fourth site to be added without touching this test.
+    known = {
+        "src/devops_ai/cli/ksecret.py",                        # ksecret run
+        "src/devops_ai/secrets/providers/onepassword.py",      # op://
+        "src/devops_ai/secrets/providers/azurekeyvault.py",    # akv://
+    }
+    assert known <= guarded, (
+        f"the walk stopped reaching {sorted(known - guarded)} — a known spawn "
+        f"site is now invisible to the gate; it found {sorted(guarded)}"
     )
 
     # The parametrised rule above would run zero cases, silently, if the walk
@@ -428,7 +497,11 @@ def test_a_lookalike_encode_env_does_not_satisfy_the_gate() -> None:
         return next(k.value for k in call.keywords if k.arg == "env")
 
     assert Resolver(real).is_encoder(env_argument(real))
-    assert Resolver(aliased).is_encoder(env_argument(aliased))
+    # The relative spelling needs the package it sits in to mean anything; this
+    # is a provider's, where `..environ` is `devops_ai.secrets.environ`.
+    assert Resolver(aliased, "devops_ai.secrets.providers").is_encoder(
+        env_argument(aliased)
+    )
     assert not Resolver(lookalike).is_encoder(env_argument(lookalike)), (
         "any object's .encode_env satisfied the gate"
     )
@@ -437,21 +510,24 @@ def test_a_lookalike_encode_env_does_not_satisfy_the_gate() -> None:
     )
 
 
-# Three ways this gate could vouch for a binding it cannot actually prove — one
-# mechanism, three spellings. Each below is a resolution the AST does not
-# support, so each fails closed rather than guessing.
+# One mechanism, six spellings: the gate resolves a name and then vouches for a
+# binding the AST does not actually establish. Each control below is one of
+# them, and every fix is in the same direction — prove the binding, or refuse
+# it. Found across two review rounds; kept together because the next spelling
+# will be a seventh instance of this and not a new idea.
 
 
-def test_a_relative_import_is_not_the_absolute_one_that_shares_its_tail() -> None:
-    """`ImportFrom.module` omits the dots, so `level` is the only separator.
+def test_a_relative_import_is_resolved_against_the_package_that_wrote_it() -> None:
+    """`ImportFrom.module` omits the dots, so the spelling alone proves nothing.
 
-    Both tables read it. `from ..environ import encode_env` is how both
-    providers import the real helper; `from environ import encode_env` is some
-    unrelated top-level module, and the two arrive here spelled identically.
-    The mirror image is on the spawn side: `from .subprocess import run` is a
-    sibling module, not the stdlib spawn this gate watches.
+    `from ..environ import encode_env` is `devops_ai.secrets.environ` inside a
+    provider and `devops_ai.other.environ` inside some future `devops_ai.other`
+    — the same six tokens, two different functions, and only one of them is the
+    helper this gate's invariant names. So the import is resolved against the
+    importing file's own package. The mirror image is on the spawn side:
+    `from .subprocess import run` is a sibling module, not the stdlib spawn.
     """
-    def accepts_encoder(source: str) -> bool:
+    def accepts_encoder(source: str, package: str | None = None) -> bool:
         tree = ast.parse(source + f"{ENCODE_ENV}(raw)\n")
         call = next(
             n for n in ast.walk(tree)
@@ -459,22 +535,87 @@ def test_a_relative_import_is_not_the_absolute_one_that_shares_its_tail() -> Non
             and isinstance(n.func, ast.Name)
             and n.func.id == ENCODE_ENV
         )
-        return Resolver(tree).is_encoder(call)
+        return Resolver(tree, package).is_encoder(call)
 
-    # The two spellings that exist in src/, plus the absolute ones tests use.
-    assert accepts_encoder("from .environ import encode_env\n")
-    assert accepts_encoder("from ..environ import encode_env\n")
+    # The two relative spellings that exist in src/, each in its real package.
+    assert accepts_encoder(
+        "from .environ import encode_env\n", "devops_ai.secrets"
+    )
+    assert accepts_encoder(
+        "from ..environ import encode_env\n", "devops_ai.secrets.providers"
+    )
+    # The absolute ones, which need no package at all.
     assert accepts_encoder("from devops_ai.secrets import encode_env\n")
     assert accepts_encoder("from devops_ai.secrets.environ import encode_env\n")
+
+    # A relative lookalike: the identical spelling, in a package where it names
+    # something else entirely. This is what resolving against the package buys
+    # — no amount of pattern-matching on `"environ"` could tell it apart.
+    assert not accepts_encoder(
+        "from .environ import encode_env\n", "devops_ai.other"
+    ), "devops_ai.other.environ.encode_env could vouch for the environment"
+    assert not accepts_encoder(
+        "from ..environ import encode_env\n", "devops_ai.other.deeper"
+    ), "a two-dot lookalike could vouch for the environment"
     # An unrelated top-level `environ`, indistinguishable once the dots are gone.
     assert not accepts_encoder("from environ import encode_env\n"), (
         "any top-level module named environ could vouch for the environment"
     )
-    # And the same confusion on the spawn table, in the other direction.
+    # And a relative import in a file whose package is unknown: unprovable, so
+    # refused rather than assumed.
+    assert not accepts_encoder("from ..environ import encode_env\n", None), (
+        "a binding that cannot be resolved cannot be vouched for"
+    )
+
+    # The same confusion on the spawn table, in the other direction.
     assert Resolver(ast.parse("from subprocess import run\n")).functions == {
         "run": ("subprocess", "run")
     }
     assert Resolver(ast.parse("from .subprocess import run\n")).functions == {}
+
+
+def test_a_name_assigned_from_a_spawn_is_followed_to_the_spawn() -> None:
+    """`spawn = subprocess.run` was not a spawn as far as this gate could tell.
+
+    `target()` returned `None` for the call, so it was dropped before any rule
+    ran — the gate did not approve the site, it never looked at it. Measured on
+    the real package, not only here: rewriting `onepassword.py` to spawn through
+    such an alias made a known site vanish from the walk.
+    """
+    aliased = (
+        "import subprocess\n"
+        "spawn = subprocess.run\n"
+        "spawn(cmd, env=raw_env)\n"
+    )
+    offenders = offenders_in(ast.parse(aliased), "m.py")
+    assert len(offenders) == 1, offenders
+    assert f"does not go through {ENCODE_ENV}()" in offenders[0]
+
+    # An annotated assignment is the same binding with a type on it.
+    annotated = (
+        "import subprocess\n"
+        "from typing import Any\n"
+        "spawn: Any = subprocess.Popen\n"
+        "spawn(cmd, env=raw_env)\n"
+    )
+    assert len(offenders_in(ast.parse(annotated), "m.py")) == 1
+
+    # Control: the same alias, encoded properly, is clean — so "offends on any
+    # aliased spawn" cannot satisfy the two above.
+    assert offenders_in(
+        ast.parse(
+            "from devops_ai.secrets import encode_env\n"
+            "import subprocess\n"
+            "spawn = subprocess.run\n"
+            "spawn(cmd, env=encode_env(raw_env))\n"
+        ),
+        "m.py",
+    ) == []
+    # And an assignment from something unwatched stays unwatched.
+    assert offenders_in(
+        ast.parse("import shutil\nspawn = shutil.copy\nspawn(a, env=raw_env)\n"),
+        "m.py",
+    ) == []
 
 
 def test_a_wildcard_import_of_a_spawn_module_fails_closed() -> None:

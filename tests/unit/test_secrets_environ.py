@@ -45,7 +45,17 @@ def test_a_byte_that_was_never_utf8_survives_the_round_trip() -> None:
     Encoding strictly would fail the spawn over a variable this process merely
     inherited, whose value is not even ours to fix.
     """
-    inherited = os.fsdecode(b"\xff\xfe")
+    # Never `os.fsdecode`: that uses the *test process's* filesystem codec, so
+    # this only produced surrogates on a UTF-8 (or ASCII) runner. Under a
+    # decodable non-UTF-8 locale such as ISO-8859-1 it yields the characters
+    # 'ÿþ' instead, whose UTF-8 is `c3 bf c3 be` — and the assertion failed on a
+    # correct implementation. Fourth site of a class this PR has now met at
+    # `run_child`'s `text=True`, the repo-path test's `Path.mkdir`, and the
+    # architecture gate's bare `read_text()`: the harness inherits a codec
+    # instead of naming one. The value under test is "a byte `os.environ` held
+    # as a surrogate", so say exactly that.
+    inherited = b"\xff\xfe".decode("utf-8", "surrogateescape")
+    assert inherited == "\udcff\udcfe", "the premise of this test, pinned"
     assert encode_env({"K": inherited}) == {b"K": b"\xff\xfe"}
 
 
