@@ -21,7 +21,7 @@ One page plus briefs. If the intent won't fit a page, it's probably two features
 # <Feature name>
 
 **Status:** planning | in progress | closing | closed
-**Signed off:** <!-- date + "Karl" once the human has corrected and signed the draft; empty until then -->
+**Signed off:** <!-- date + the human's name once the human has corrected and signed the draft; empty until then -->
 
 ## Intent
 
