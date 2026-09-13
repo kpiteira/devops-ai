@@ -9,8 +9,9 @@ them — the `BAO_*` spelling first, then `VAULT_*`, then the token file
 Two rules hold everywhere below. Nothing that answers back carries a value: a
 missing key is named, its siblings are not, and a server error is reported by
 status rather than by echoing a response body. And the token goes only to the
-server the user named: a redirect off that server is refused rather than
-followed, because urllib copies request headers onto the new request.
+server the user named — a redirect off that server is refused rather than
+followed, and an ambient `HTTP_PROXY` is not used, because urllib would carry
+the token header to both.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import NamedTuple
 
 from ..context import ResolveContext
 from ..errors import ProviderError
@@ -39,6 +41,17 @@ TRAVERSAL = frozenset({".", ".."})
 TIMEOUT = 30
 
 
+class Server(NamedTuple):
+    """Where to ask, and which variable said so.
+
+    Both spellings are supported, so guidance that names the wrong one sends the
+    user to a variable they never set.
+    """
+
+    variable: str
+    base: str
+
+
 def handles(ref: str) -> bool:
     return ref.startswith(SCHEME)
 
@@ -46,10 +59,10 @@ def handles(ref: str) -> bool:
 def resolve(ref: str, ctx: ResolveContext) -> str:
     """Read one key of the current version of a KV v2 secret."""
     mount, path, key = _parse(ref)
-    address = _address(ctx)
+    server = _address(ctx)
     token = _token(ctx)
 
-    values = _read_secret(address, mount, path, ref, token, _tls(ctx))
+    values = _read_secret(server, mount, path, ref, token, _tls(ctx))
     if key not in values:
         raise ProviderError(f"Key {key} not found in the secret at {mount}/{path}.")
     value = values[key]
@@ -75,7 +88,7 @@ def _parse(ref: str) -> tuple[str, str, str]:
     return mount, path, key
 
 
-def _address(ctx: ResolveContext) -> str:
+def _address(ctx: ResolveContext) -> Server:
     """The server to ask, `BAO_ADDR` before `VAULT_ADDR` as the `bao` CLI does."""
     for name in ADDRESS_VARS:
         value = ctx.env.get(name, "").strip()
@@ -110,7 +123,9 @@ def _address(ctx: ResolveContext) -> str:
             )
         # Rebuilt from the parts rather than returned raw, so nothing but the
         # server's own base can survive into the URL the reference builds.
-        return f"{parts.scheme}://{parts.netloc}{parts.path.rstrip('/')}"
+        return Server(
+            name, f"{parts.scheme}://{parts.netloc}{parts.path.rstrip('/')}"
+        )
     raise ProviderError(
         "No OpenBao server address. Export BAO_ADDR (or VAULT_ADDR) with the "
         "address of your server."
@@ -124,9 +139,13 @@ def _port_is_a_port(parts: urllib.parse.SplitResult) -> bool:
     instead. Unvalidated they travel to `getaddrinfo`, which answers that the
     *name* could not be resolved — a sentence about the wrong half of the
     address, from the function whose job is saying which half is wrong.
+
+    Port 0 is excluded for the same reason: it is the "pick me one" bind port,
+    never a destination, and reaches the user as an errno about assigning an
+    address rather than as the address guidance this exists to give.
     """
     try:
-        return parts.port is None or 0 <= parts.port <= 65535
+        return parts.port is None or 0 < parts.port <= 65535
     except ValueError:
         return False
 
@@ -228,10 +247,18 @@ class _SameServerRedirects(urllib.request.HTTPRedirectHandler):
     does not, and surfaces as the redirect status instead.
     """
 
+    def __init__(self) -> None:
+        # Whether a hop was refused, so the status error can say which of the
+        # three things a bare 30x means. A redirect also surfaces as a 30x when
+        # it carries no `Location` and when it loops, and neither of those is a
+        # different host.
+        self.refused_a_hop = False
+
     def redirect_request(  # type: ignore[no-untyped-def]
         self, req, fp, code, msg, headers, newurl
     ):
         if _origin(newurl) != _origin(req.full_url):
+            self.refused_a_hop = True
             return None
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
@@ -246,7 +273,7 @@ def _origin(url: str) -> tuple[str, str]:
 
 
 def _read_secret(
-    address: str,
+    server: Server,
     mount: str,
     path: str,
     ref: str,
@@ -256,32 +283,45 @@ def _read_secret(
     """GET the current version of `<mount>/<path>`; return its key/value map."""
     location = urllib.parse.quote(f"{mount}/data/{path}", safe="/")
     request = urllib.request.Request(
-        f"{address}/v1/{location}",
+        f"{server.base}/v1/{location}",
         headers={"X-Vault-Token": token},
         method="GET",
     )
+    redirects = _SameServerRedirects()
     opener = urllib.request.build_opener(
-        _SameServerRedirects(),
+        # An empty ProxyHandler, not the default one: `build_opener` would
+        # otherwise install a handler that reads `HTTP_PROXY` from the process
+        # environment — not from `ctx.env`, which is where everything else here
+        # comes from — and send the token header to that proxy instead of to
+        # the server the reference named.
+        urllib.request.ProxyHandler({}),
+        redirects,
         *([urllib.request.HTTPSHandler(context=tls)] if tls is not None else []),
     )
     try:
         with opener.open(request, timeout=TIMEOUT) as response:
             body = json.loads(response.read() or b"{}")
     except urllib.error.HTTPError as exc:
-        raise _status_error(exc.code, ref, mount, path) from None
+        # HTTPError *is* the response: raising past it without closing leaves a
+        # socket open for as long as the error is held, and `resolve_all` holds
+        # every one of them.
+        exc.close()
+        raise _status_error(
+            exc.code, ref, mount, path, redirects.refused_a_hop
+        ) from None
     except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
         # HTTPException is not an OSError: a truncated body raises
         # `IncompleteRead` out of `.read()`, which would otherwise leave the
         # provider as a traceback rather than a sentence.
         raise ProviderError(
-            f"Cannot reach the OpenBao server at {address}: {_reason(exc)}."
+            f"Cannot reach the OpenBao server at {server.base}: {_reason(exc)}."
         ) from None
     except ValueError:
         # JSONDecodeError and UnicodeDecodeError both land here: a body that is
         # not UTF-8 is no more JSON than one that is not parseable.
         raise ProviderError(
-            f"The server at {address} did not answer with JSON. Check that "
-            f"BAO_ADDR names an OpenBao server."
+            f"The server at {server.base} did not answer with JSON. Check that "
+            f"{server.variable} names an OpenBao server."
         ) from None
 
     envelope = body.get("data") if isinstance(body, dict) else None
@@ -299,7 +339,9 @@ def _read_secret(
     return values
 
 
-def _status_error(code: int, ref: str, mount: str, path: str) -> ProviderError:
+def _status_error(
+    code: int, ref: str, mount: str, path: str, refused_a_hop: bool = False
+) -> ProviderError:
     """What an HTTP status means, without reading the body back to the user."""
     if code in (401, 403):
         return ProviderError(
@@ -316,10 +358,18 @@ def _status_error(code: int, ref: str, mount: str, path: str) -> ProviderError:
             f"cannot answer for {ref} yet."
         )
     if code in (301, 302, 303, 307, 308):
+        if refused_a_hop:
+            return ProviderError(
+                f"The server redirected {ref} to a different host (HTTP "
+                f"{code}), which a token must not follow. Point BAO_ADDR at "
+                f"the server that holds the secret."
+            )
+        # Same host, so the token was never at stake: urllib stopped for its
+        # own reasons — no `Location` to follow, or a loop of them.
         return ProviderError(
-            f"The server redirected {ref} to a different host (HTTP {code}), "
-            f"which a token must not follow. Point BAO_ADDR at the server that "
-            f"holds the secret."
+            f"The server answered {ref} with a redirect (HTTP {code}) that "
+            f"could not be followed: it carried no location, or looped. The "
+            f"server is misconfigured."
         )
     return ProviderError(f"OpenBao returned HTTP {code} for {ref}.")
 

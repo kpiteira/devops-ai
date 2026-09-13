@@ -317,7 +317,11 @@ Only KV v2 mounts are supported; `mount` is the mount point, not the API's inter
 The certificate is verified against your system trust store unless `BAO_CACERT` names
 a bundle; there is no way to turn verification off. The token is presented only to the
 host `BAO_ADDR` names — a redirect to a different host is refused rather than followed,
-so point `BAO_ADDR` at the active node or the load balancer in front of it.
+so point `BAO_ADDR` at the active node or the load balancer in front of it. An ambient
+`HTTP_PROXY` / `HTTPS_PROXY` is deliberately not used either, for the same reason: a
+proxy configured for general web traffic is not a decision anyone made about a vault
+token. If you need a proxy to reach your vault, say so and it becomes an explicit
+setting rather than an inherited one.
 
 ### Which reference to use
 

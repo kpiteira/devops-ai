@@ -201,6 +201,19 @@ class TestOpenBaoReferenceShape:
                 ResolveContext(env={"BAO_ADDR": planted.as_uri(), "BAO_TOKEN": "t"}),
             )
 
+    @pytest.mark.parametrize("address", ["ftp://vault.example.com", "gopher://v/1"])
+    def test_a_scheme_urlopen_speaks_but_openbao_does_not_is_refused(
+        self, address: str
+    ) -> None:
+        """The sibling `file://` case names the scheme rule but does not isolate
+        it: `file://` has no host either, so `bool(parts.hostname)` refuses it
+        with the scheme check removed. These do have a host, so only the scheme
+        check stands between them and urllib opening an FTP connection.
+        """
+        context = ResolveContext(env={"BAO_ADDR": address, "BAO_TOKEN": "t"})
+        with pytest.raises(SecretResolutionError, match="http or https"):
+            resolve("K", "bao://kv/a#key", context)
+
     @pytest.mark.parametrize(
         "address",
         [
@@ -241,7 +254,12 @@ class TestOpenBaoReferenceShape:
 
     @pytest.mark.parametrize(
         "address",
-        ["http://127.0.0.1:99999", "http://127.0.0.1:-1", "http://127.0.0.1:abc"],
+        [
+            "http://127.0.0.1:99999",
+            "http://127.0.0.1:-1",
+            "http://127.0.0.1:abc",
+            "http://127.0.0.1:0",
+        ],
     )
     def test_an_address_whose_port_is_not_a_port_is_refused_as_an_address(
         self, address: str
@@ -250,6 +268,9 @@ class TestOpenBaoReferenceShape:
 
         `_address` is the function whose job is saying what a bad address is;
         a port outside 0-65535 is one, and `.port` parses only on access.
+        Port 0 is the bind-any port and never a destination: unrefused it
+        answers `[Errno 49] Can't assign requested address`, which is about
+        this machine rather than about the address the user typed.
         """
         context = ResolveContext(env={"BAO_ADDR": address, "BAO_TOKEN": "t"})
         with pytest.raises(SecretResolutionError, match="not a server address"):

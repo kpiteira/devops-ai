@@ -247,6 +247,43 @@ class TestServerFailures:
         with pytest.raises(SecretResolutionError, match="sealed"):
             read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
 
+    def test_a_status_error_does_not_leave_the_response_open(
+        self, bao: FakeBao
+    ) -> None:
+        """`HTTPError` is the response; `raise ... from None` still chains it.
+
+        `__suppress_context__` hides the chain from a traceback but keeps
+        `__context__`, and `resolve_all` holds every error it collected — so an
+        unclosed response stays open for as long as the caller holds the list.
+        Measured before `exc.close()`: 5 of 5 collected errors held an open one.
+        """
+        bao.answer = lambda path: (403, "{}")
+
+        with pytest.raises(SecretResolutionError) as raised:
+            read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
+
+        node: BaseException | None = raised.value
+        responses = []
+        while node is not None:
+            fp = getattr(node, "fp", None)
+            if fp is not None:
+                responses.append(fp)
+            node = node.__context__
+        assert responses, "the HTTPError must still be reachable to be checked"
+        assert all(fp.closed for fp in responses)
+
+    def test_the_json_failure_names_the_variable_that_was_used(
+        self, bao: FakeBao
+    ) -> None:
+        """`VAULT_ADDR` is a supported spelling; guidance naming `BAO_ADDR`
+        sends the user to a variable they never set."""
+        bao.answer = lambda path: (200, "<html>a proxy login page</html>")
+
+        with pytest.raises(SecretResolutionError, match="VAULT_ADDR") as raised:
+            read("bao://kv/a#key", VAULT_ADDR=bao.addr, VAULT_TOKEN="t")
+
+        assert "BAO_ADDR" not in str(raised.value)
+
     def test_an_unexpected_status_reports_the_code_and_not_the_body(
         self, bao: FakeBao
     ) -> None:
@@ -346,6 +383,30 @@ class TestRedirects:
             elsewhere.server_close()
             thread.join(timeout=5)
 
+    @pytest.mark.parametrize(
+        ("case", "location"),
+        [("no location header", None), ("a loop back to itself", "/v1/kv/data/a")],
+    )
+    def test_a_redirect_the_token_was_never_at_stake_in_says_so(
+        self, bao: FakeBao, case: str, location: str | None
+    ) -> None:
+        """A bare 30x means three different things, and two are not a hop.
+
+        Measured before the handler recorded whether it refused anything: a 302
+        with no `Location`, and a 302 looping to the same path, both came back
+        as "redirected to a different host" — a sentence about the one cause
+        that was not true in either case.
+        """
+        bao.answer = lambda path: (302, "")
+        bao.location = location
+
+        with pytest.raises(SecretResolutionError) as raised:
+            read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
+
+        message = str(raised.value)
+        assert "could not be followed" in message, case
+        assert "different host" not in message, case
+
     def test_a_redirect_on_the_same_server_is_followed(self, bao: FakeBao) -> None:
         """A server cleaning up its own path must still resolve."""
         def answer(path: str) -> tuple[int, str | bytes]:
@@ -360,6 +421,42 @@ class TestRedirects:
         assert [a.path for a in bao.asked] == [
             "/v1/kv/data/a", "/v1/kv/data/moved"
         ]
+
+
+# --- The token goes only to the named server, by every route ---
+
+
+class TestAmbientProxies:
+    def test_an_http_proxy_in_the_environment_never_sees_the_token(
+        self, bao: FakeBao, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`build_opener` installs a default `ProxyHandler` unless given one.
+
+        Measured before the empty handler: the proxy received
+        `GET http://…/v1/kv/data/a` carrying `X-Vault-Token`, and the vault
+        server received nothing at all. `getproxies()` reads `os.environ`, not
+        the resolve context, so the variables are set there.
+        """
+        proxy = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        seen = FakeBao(addr=f"http://127.0.0.1:{proxy.server_address[1]}")
+        proxy.fake = seen  # type: ignore[attr-defined]
+        thread = threading.Thread(
+            target=proxy.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        )
+        thread.start()
+        for name in ("HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
+            monkeypatch.setenv(name, seen.addr)
+
+        try:
+            got = read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="s3cret-token")
+
+            assert got == VALUE
+            assert seen.asked == [], "the proxy must never see the request"
+            assert bao.asked[0].token == "s3cret-token"
+        finally:
+            proxy.shutdown()
+            proxy.server_close()
+            thread.join(timeout=5)
 
 
 # --- The no-leak invariant ---
