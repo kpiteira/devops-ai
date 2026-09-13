@@ -1,6 +1,9 @@
 """Tests for quality infrastructure detection and artifact generation."""
 
 from pathlib import Path
+from typing import Any
+
+from ruamel.yaml import YAML
 
 from devops_ai.cli.quality import (
     QualityPlan,
@@ -14,6 +17,31 @@ from devops_ai.cli.quality import (
     generate_public_surface_check,
     generate_security_workflow,
 )
+
+
+def _parse_workflow(content: str) -> dict[str, Any]:
+    """Parse rendered workflow YAML — asserting on structure, not substrings,
+    so a mis-indented job fails the test instead of passing it."""
+    loaded: dict[str, Any] = YAML(typ="safe").load(content)
+    return loaded
+
+
+def _python_plan(project_root: Path, **overrides: Any) -> QualityPlan:
+    fields: dict[str, Any] = {
+        "project_root": project_root,
+        "project_name": "myapp",
+        "language": "python",
+        "runner": "uv",
+        "lint_cmd": "uv run ruff check src/",
+        "quality_cmd": "uv run ruff check src/ && uv run mypy src/",
+        "test_unit_cmd": "uv run pytest tests/unit",
+        "test_e2e_cmd": None,
+        "fix_cmd": None,
+        "setup_cmd": "uv sync --all-groups --all-extras",
+    }
+    fields.update(overrides)
+    return QualityPlan(**fields)
+
 
 # --- Detection ---
 
@@ -98,6 +126,77 @@ class TestDetectQualityConfig:
 
         assert plan is not None
         assert plan.test_arch_cmd is None
+
+    def test_derives_integration_cmd_when_directory_exists(
+        self, tmp_path: Path,
+    ) -> None:
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "project.md").write_text(
+            "## Project\n\n"
+            "- **Name:** myapp\n"
+            "- **Language:** Python\n"
+            "- **Runner:** uv\n\n"
+            "## Testing\n\n"
+            "- **Unit tests:** uv run pytest tests/unit\n"
+            "- **Quality checks:** uv run ruff check src/\n"
+        )
+        integration = tmp_path / "tests" / "integration"
+        integration.mkdir(parents=True)
+        (integration / "test_thing.py").write_text("def test_thing(): pass\n")
+
+        plan = detect_quality_config(tmp_path)
+
+        assert plan is not None
+        assert plan.test_integration_cmd == "uv run pytest tests/integration"
+
+    def test_no_integration_cmd_without_directory(self, tmp_path: Path) -> None:
+        """pytest exits non-zero on a missing path and on an empty collection —
+        a target or CI job for a project with no tests/integration/ would be red
+        for a reason that has nothing to do with the code."""
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "project.md").write_text(
+            "## Project\n\n"
+            "- **Name:** myapp\n"
+            "- **Language:** Python\n"
+            "- **Runner:** uv\n\n"
+            "## Testing\n\n"
+            "- **Unit tests:** uv run pytest tests/unit\n"
+            "- **Quality checks:** uv run ruff check src/\n"
+        )
+        (tmp_path / "tests" / "unit").mkdir(parents=True)
+
+        plan = detect_quality_config(tmp_path)
+
+        assert plan is not None
+        assert plan.test_integration_cmd is None
+
+    def test_no_integration_cmd_when_directory_has_no_tests(
+        self, tmp_path: Path,
+    ) -> None:
+        """A tests/integration/ holding only scaffolding collects nothing, and
+        pytest exits 5 on an empty collection — still the wrong kind of red."""
+        config_dir = tmp_path / ".devops-ai"
+        config_dir.mkdir()
+        (config_dir / "project.md").write_text(
+            "## Project\n\n"
+            "- **Name:** myapp\n"
+            "- **Language:** Python\n"
+            "- **Runner:** uv\n\n"
+            "## Testing\n\n"
+            "- **Unit tests:** uv run pytest tests/unit\n"
+            "- **Quality checks:** uv run ruff check src/\n"
+        )
+        integration = tmp_path / "tests" / "integration"
+        integration.mkdir(parents=True)
+        (integration / "__init__.py").write_text("")
+        (integration / "conftest.py").write_text("")
+
+        plan = detect_quality_config(tmp_path)
+
+        assert plan is not None
+        assert plan.test_integration_cmd is None
 
     def test_derives_fix_cmd_for_python(self, tmp_path: Path) -> None:
         """Derives ruff --fix from quality command."""
@@ -348,6 +447,24 @@ class TestGenerateJustfile:
 
         assert "test-e2e:" not in content
 
+    def test_integration_target_present_but_outside_check(self) -> None:
+        plan = _python_plan(
+            Path("/tmp/test"),
+            test_integration_cmd="uv run pytest tests/integration",
+        )
+
+        content = generate_justfile(plan)
+
+        assert "test-integration:\n    uv run pytest tests/integration" in content
+        assert "check: quality test-unit\n" in content
+
+    def test_no_integration_target_when_cmd_missing(self) -> None:
+        plan = _python_plan(Path("/tmp/test"))
+
+        content = generate_justfile(plan)
+
+        assert "test-integration" not in content
+
     def test_no_fix_omits_target(self) -> None:
         plan = QualityPlan(
             project_root=Path("/tmp/test"),
@@ -450,6 +567,46 @@ class TestGenerateMakefile:
         assert "test-arch:" not in content
         assert "check: quality test-unit\n" in content
 
+    def test_integration_target_present_but_outside_check(self) -> None:
+        plan = QualityPlan(
+            project_root=Path("/tmp/test"),
+            project_name="myapp",
+            language="python",
+            runner="uv",
+            lint_cmd="uv run ruff check src/",
+            quality_cmd="uv run ruff check src/",
+            test_unit_cmd="uv run pytest tests/unit",
+            test_e2e_cmd=None,
+            fix_cmd=None,
+            setup_cmd="uv sync --all-groups --all-extras",
+            test_integration_cmd="uv run pytest tests/integration",
+        )
+
+        content = generate_makefile(plan)
+
+        assert "test-integration:\n\tuv run pytest tests/integration" in content
+        assert "test-integration" in content.split("\n")[2]  # .PHONY line
+        # the always-run gate stays unit-only (rules/testing-taxonomy.md)
+        assert "check: quality test-unit\n" in content
+
+    def test_no_integration_target_when_cmd_missing(self) -> None:
+        plan = QualityPlan(
+            project_root=Path("/tmp/test"),
+            project_name="myapp",
+            language="python",
+            runner="uv",
+            lint_cmd="uv run ruff check src/",
+            quality_cmd="uv run ruff check src/",
+            test_unit_cmd="uv run pytest tests/unit",
+            test_e2e_cmd=None,
+            fix_cmd=None,
+            setup_cmd="uv sync --all-groups --all-extras",
+        )
+
+        content = generate_makefile(plan)
+
+        assert "test-integration" not in content
+
 
 # --- Pre-commit hook generator ---
 
@@ -532,6 +689,68 @@ class TestGenerateCiWorkflow:
         content = generate_ci_workflow(plan)
 
         assert "node" in content.lower() or "npm" in content.lower()
+
+    def test_integration_job_when_project_has_integration_tests(self) -> None:
+        plan = _python_plan(
+            Path("/tmp/test"),
+            test_integration_cmd="uv run pytest tests/integration",
+        )
+
+        workflow = _parse_workflow(generate_ci_workflow(plan))
+
+        assert "integration" in workflow["jobs"]
+        job = workflow["jobs"]["integration"]
+        assert job["runs-on"] == "ubuntu-latest"
+        assert [step.get("run") for step in job["steps"]] == [
+            None,  # checkout
+            None,  # setup-python
+            None,  # setup-uv
+            "uv sync --all-groups --all-extras",
+            "make test-integration",
+        ]
+
+    def test_integration_job_runs_on_same_events_as_check(self) -> None:
+        plan = _python_plan(
+            Path("/tmp/test"),
+            test_integration_cmd="uv run pytest tests/integration",
+        )
+
+        workflow = _parse_workflow(generate_ci_workflow(plan))
+
+        # PyYAML-family loaders read a bare `on:` key as the boolean True.
+        triggers = workflow.get("on", workflow.get(True))
+        assert triggers == {
+            "push": {"branches": ["main"]},
+            "pull_request": {"branches": ["main"]},
+        }
+        # One workflow, so both jobs share these triggers — no per-job `if`
+        # narrowing the integration job to a subset of them.
+        assert "if" not in workflow["jobs"]["integration"]
+
+    def test_no_integration_job_without_integration_tests(self) -> None:
+        plan = _python_plan(Path("/tmp/test"))
+
+        workflow = _parse_workflow(generate_ci_workflow(plan))
+
+        assert list(workflow["jobs"]) == ["check"]
+        assert "make test-integration" not in generate_ci_workflow(plan)
+
+    def test_check_job_unchanged_by_integration_job(self) -> None:
+        """The always-run gate keeps its unit-only, two-minute promise: adding
+        integration tests must not alter a single step of `check`."""
+        without = _parse_workflow(
+            generate_ci_workflow(_python_plan(Path("/tmp/test")))
+        )
+        with_integration = _parse_workflow(
+            generate_ci_workflow(
+                _python_plan(
+                    Path("/tmp/test"),
+                    test_integration_cmd="uv run pytest tests/integration",
+                )
+            )
+        )
+
+        assert with_integration["jobs"]["check"] == without["jobs"]["check"]
 
 
 class TestGeneratePublicSurfaceCheck:
