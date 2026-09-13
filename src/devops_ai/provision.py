@@ -9,7 +9,6 @@ of it — the main-repo base directory, and the slot's secrets file.
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 from collections.abc import Mapping
 from pathlib import Path
@@ -17,7 +16,7 @@ from pathlib import Path
 from devops_ai.secrets import (
     ResolveContext,
     SecretResolutionError,
-    literals,
+    layered_env,
     provider_for,
     resolve,
     resolve_all,
@@ -110,9 +109,7 @@ def _context(
     Sorting makes this order-independent: the two passes, not the key order,
     decide what a provider sees.
     """
-    env = dict(os.environ)
-    if siblings:
-        env.update(literals(siblings))
+    env = layered_env(siblings or {})
     if base_dir is None:
         return ResolveContext(env=env)
     return ResolveContext(base_dir=base_dir, env=env)

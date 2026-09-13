@@ -10,6 +10,7 @@ connection strings keep working, and an unrecognised scheme is reported by
 from __future__ import annotations
 
 import importlib
+import os
 import pkgutil
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -85,6 +86,22 @@ def literals(entries: Mapping[str, str]) -> dict[str, str]:
     the `op` process that the next line's reference spawns.
     """
     return {key: value for key, value in entries.items() if provider_for(value) is None}
+
+
+def layered_env(
+    entries: Mapping[str, str], base: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """The environment `entries` resolve in: literals laid over the process env.
+
+    Every caller that resolves a *mapping* of entries goes through this —
+    `ksecret run`, `ksecret check`, `ksecret check --infra` and kinfra's
+    `[sandbox.secrets]`. They have to agree: `--infra` exists to report what
+    kinfra will do, so a context it builds differently is a wrong answer about
+    the one thing it is for.
+    """
+    env = dict(os.environ if base is None else base)
+    env.update(literals(entries))
+    return env
 
 
 def resolve(

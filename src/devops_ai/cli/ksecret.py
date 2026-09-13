@@ -7,7 +7,6 @@ writes nothing to disk. `check` reports what resolves without ever showing a val
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -20,7 +19,7 @@ from devops_ai.secrets import (
     CheckResult,
     ResolveContext,
     SecretResolutionError,
-    literals,
+    layered_env,
     provider_for,
     read_env_file,
     resolve,
@@ -88,7 +87,7 @@ def run(
         typer.echo(f"ksecret run: {exc.strerror}: {exc.filename}", err=True)
         raise typer.Exit(1) from None
 
-    environ = _base_environment(entries)
+    environ = layered_env(entries)
     resolved, errors = resolve_all(
         _references(entries), ResolveContext(env=environ)
     )
@@ -128,7 +127,7 @@ def check(
         raise typer.Exit(1) from None
 
 
-    context = ResolveContext(env=_base_environment(entries))
+    context = ResolveContext(env=layered_env(entries))
 
     results = [check_ref(key, ref, context) for key, ref in entries.items()]
     results += [check_ref(_label(ref), ref, context) for ref in refs or []]
@@ -163,9 +162,13 @@ def _check_infra() -> list[CheckResult]:
         typer.echo("ksecret check: no infra.toml in .devops-ai/.", err=True)
         raise typer.Exit(1)
 
-    # Gitignored files live in the main checkout, not in a worktree cut from it.
+    # Gitignored files live in the main checkout, not in a worktree cut from it,
+    # and a declared literal is visible to a sibling reference — both are how
+    # kinfra resolves these, which is the whole promise of --infra.
     base_dir = main_repo_root(project_root) or project_root
-    context = ResolveContext(base_dir=base_dir)
+    context = ResolveContext(
+        base_dir=base_dir, env=layered_env(config.secrets)
+    )
     return [
         check_ref(key, config.secrets[key], context)
         for key in sorted(config.secrets)
@@ -205,18 +208,6 @@ def _collect(env_files: list[Path]) -> dict[str, str]:
     for path in env_files:
         entries.update(read_env_file(path))
     return entries
-
-
-def _base_environment(entries: dict[str, str]) -> dict[str, str]:
-    """The environment references resolve in: the parent's, literal lines on top.
-
-    Literal lines are placed before resolution and beat the parent's values, so
-    a reference can name a variable declared beside it — that is what carries
-    agent-memory's `OP_ACCOUNT=` line into the `op` process the next line needs.
-    """
-    environ = dict(os.environ)
-    environ.update(literals(entries))
-    return environ
 
 
 def _references(entries: dict[str, str]) -> dict[str, str]:

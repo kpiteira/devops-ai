@@ -18,6 +18,7 @@ from devops_ai.secrets import (
     ResolveContext,
     SecretResolutionError,
     check,
+    layered_env,
     parse_env_file,
     provider_for,
     resolve,
@@ -309,3 +310,30 @@ class TestCheck:
 
     def test_an_ok_line_is_just_the_status(self, project: Path) -> None:
         assert check("A", "dotenv://.env#PLAIN", ctx(project)).format() == "A: ok"
+
+
+class TestTheEnvironmentEntriesResolveIn:
+    """Literal entries are declarations, so they beat whatever the shell exported.
+
+    One definition, used by `ksecret run`, `ksecret check`, `check --infra` and
+    kinfra's `[sandbox.secrets]` — they must not drift.
+    """
+
+    def test_a_literal_line_overrides_the_parent_environment(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OP_ACCOUNT", "stale-from-the-shell")
+        environ = layered_env({"OP_ACCOUNT": "declared.1password.com"})
+        assert environ["OP_ACCOUNT"] == "declared.1password.com"
+
+    def test_the_parent_environment_still_passes_through(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("UNRELATED", "from-the-shell")
+        assert layered_env({"K": "literal"})["UNRELATED"] == "from-the-shell"
+
+    def test_references_are_not_placed_before_they_resolve(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("A", raising=False)
+        assert "A" not in layered_env({"A": "dotenv://.env#A"})

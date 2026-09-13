@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from devops_ai.cli.ksecret import _base_environment, app
+from devops_ai.cli.ksecret import app
 
 runner = CliRunner()
 
@@ -77,6 +77,48 @@ class TestCheckInfra:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, ["check", "--infra"])
         assert result.exit_code == 1
+
+
+class TestInfraReportsWhatKinfraWillDo:
+    """--infra's whole promise is agreement with kinfra. A confident wrong
+    answer about that is worse than the green no-op it replaced."""
+
+    @staticmethod
+    def _declare(project: Path, body: str) -> None:
+        infra = project / ".devops-ai" / "infra.toml"
+        head = infra.read_text().split("[sandbox.secrets]")[0]
+        infra.write_text(f"{head}[sandbox.secrets]\n{body}")
+
+    def test_a_reference_to_a_declared_literal_resolves(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("A", raising=False)
+        self._declare(project, 'A = "declared-value"\nB = "$A"\n')
+
+        result = runner.invoke(app, ["check", "--infra"])
+
+        assert result.exit_code == 0, result.output
+        assert "B: ok" in result.output
+        assert "A: literal" in result.output
+        assert "declared-value" not in result.output
+
+    def test_it_agrees_with_what_resolve_all_secrets_returns(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The two paths are checked against each other, not against a guess."""
+        from devops_ai.provision import resolve_all_secrets
+
+        monkeypatch.delenv("A", raising=False)
+        secrets = {"A": "declared-value", "B": "$A"}
+        self._declare(project, 'A = "declared-value"\nB = "$A"\n')
+
+        resolved, errors = resolve_all_secrets(secrets, project)
+        result = runner.invoke(app, ["check", "--infra"])
+
+        assert errors == [], "kinfra resolves this"
+        assert set(resolved) == set(secrets)
+        assert "error" not in result.output, "so --infra must not call it an error"
+        assert result.exit_code == 0
 
 
 class TestCheckCollectsFromEveryInput:
@@ -203,26 +245,3 @@ class TestALiteralIsNeverEchoedWithoutPrint:
         result = runner.invoke(app, ["check", "--env-file", "refs.env"])
         assert "CONN: literal" in result.output
         assert "hunter2" not in result.output
-
-
-class TestTheEnvironmentReferencesResolveIn:
-    """Literal lines are declarations, so they beat whatever the shell exported."""
-
-    def test_a_literal_line_overrides_the_parent_environment(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("OP_ACCOUNT", "stale-from-the-shell")
-        environ = _base_environment({"OP_ACCOUNT": "declared.1password.com"})
-        assert environ["OP_ACCOUNT"] == "declared.1password.com"
-
-    def test_the_parent_environment_still_passes_through(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("UNRELATED", "from-the-shell")
-        assert _base_environment({"K": "literal"})["UNRELATED"] == "from-the-shell"
-
-    def test_references_are_not_placed_before_they_resolve(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.delenv("A", raising=False)
-        assert "A" not in _base_environment({"A": "dotenv://.env#A"})
