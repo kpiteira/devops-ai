@@ -130,8 +130,14 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
       | grep -oE 'Review effort level:\*\* *[A-Za-z]+' | sed -E 's/.*\*\* *//' | tail -1
     ```
 
-    Empty means no Copilot review has landed on this PR yet. `Lite` is GitHub's default
-    and, at the time of writing, what every review on this repo has run at. **It is a
+    Empty output has two causes and they are not the same: **no Copilot review has landed
+    yet**, or **a review landed without the line** (GitHub renamed or moved it). Tell them
+    apart before reporting one — `gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" --jq
+    '[.[] | select(.user.login | test("copilot"; "i"))] | length'` — and report `—` only
+    for the first; the second is a broken parser, and the report says so.
+
+    `Lite` is GitHub's default, and it is what all 25 Copilot reviews across #49 and #51
+    reported on 2026-09-13 (13 and 12, measured). **It is a
     repository/organization setting, not a request-time parameter** — verified against
     [Configuring Copilot code
     review](https://docs.github.com/en/copilot/how-tos/copilot-on-github/set-up-copilot/configure-code-review):
@@ -306,9 +312,11 @@ the trigger **re-enters the loop, it does not bypass it.** Measured on 2026-09-1
 reviews in a phase that never invoked it — 25 reviews in total, 20 of them outside every
 rule on this page.
 
-Rounds are counted per babysit run; a re-invocation on the same PR starts fresh but inherits
-thread history (kreview reads prior replies, so push-backs stay remembered), the same
-review scope, and the budget already spent since the last report.
+Rounds are counted per babysit run. A re-invocation on the same PR inherits thread history
+(kreview reads prior replies, so push-backs stay remembered) and the same review scope —
+and, when it follows a posted report on that PR, it inherits that report's spend too:
+count the rounds since the last report, not since this invocation. Otherwise the budget is
+a thing you reset by re-invoking, which is how three rounds became twenty-three.
 
 ## 5. Report
 

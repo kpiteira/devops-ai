@@ -268,3 +268,6 @@ look thorough is a failure of the pass.
   arguments about what to build.
 - The four sections are ordered by yield. If you only have time for one, do §1 on
   checks and §2 on any claim containing the word "complete", "done" or "verified".
+- **The shape check is never the thing you skip.** It runs over findings you already
+  have, so it costs one pass over a list you just wrote — and it is the only part of this
+  skill that can turn five findings into one.

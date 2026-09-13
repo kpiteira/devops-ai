@@ -97,9 +97,22 @@ gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
 # one row per suppressed finding: review-id · the commit the review judged · path · line
 ````
 
-Measured on devops-ai #49 (2026-09-13): 15 rows, matching the `(N)` in every one of the
-11 headers, with the two review-less rounds — an approval and a round whose single
-finding *did* open a thread — correctly yielding none.
+**Zero rows is an ambiguous negative** — it means "no suppressed comments", "no reviews",
+*or* "the parse broke", and those are not the same thing. Never read it as the first. The
+headers declare their own counts, so make the parse check itself:
+
+```bash
+gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" --jq '.[] | .body // ""' \
+  | grep -oE '^#+ +Suppressed comments \([0-9]+\)' | grep -oE '[0-9]+' \
+  | awk '{n += $1} END {print "declared: " n+0}'
+```
+
+Parsed must equal declared. A mismatch is a defect in the parser (GitHub changed the
+format), never an empty round — say so and triage from the bodies by hand for that round.
+
+Measured on devops-ai #49 (2026-09-13): 15 parsed, 15 declared, across the 11 headers; the
+two Copilot reviews with no header — an approval, and a round whose single finding *did*
+open a thread — correctly yield none.
 
 Each row is a **line-anchored finding** and is triaged like any other. Two differences,
 both mechanical:
@@ -234,11 +247,11 @@ which:
   naming the class** (one issue for the class, never one per site). Per-site patches
   spread across rounds are the failure this column exists to prevent.
 
-Measured: PR #49's rounds 6–11 were five patches to five echo sites of a single root cause
-— unvalidated `akv://` segments echoed back into `az` error text. Every patch was correct;
-none was the fix; round 12 was clean only because the echo sites ran out; the class was
-filed afterwards as #60. One `systemic → unvalidated segments reach the error text` in
-round 6 would have bought that outcome for one round instead of six.
+Measured (#61, from PR #49): rounds 6–11 were five patches to five echo sites of a single
+root cause — unvalidated `akv://` segments echoed back into `az` error text. Every patch
+was correct; none was the fix; round 12 was clean only because the echo sites ran out; the
+class was filed afterwards as #60. One `systemic → unvalidated segments reach the error
+text` in round 6 would have bought that outcome for one round instead of six.
 
 Two findings in the same round that share a mechanism are one `systemic` row with one root
 cause, not two `isolated` rows that happen to rhyme.
