@@ -58,7 +58,7 @@ def _setup_infra_toml(repo_root: Path) -> None:
 
 class TestSessionFlagWithAgentDeck:
     def test_all_three_calls_in_order(
-        self, tmp_path: Path
+        self, tmp_path: Path, docker_running: None
     ) -> None:
         """--session with agent-deck: add, start, send called."""
         _setup_git_repo(tmp_path)
@@ -130,7 +130,7 @@ class TestSessionFlagWithAgentDeck:
 
 class TestSessionFlagWithoutAgentDeck:
     def test_warning_printed_impl_succeeds(
-        self, tmp_path: Path
+        self, tmp_path: Path, docker_running: None
     ) -> None:
         """--session without agent-deck: warning, but impl OK."""
         _setup_git_repo(tmp_path)
@@ -194,7 +194,7 @@ class TestSessionFlagWithoutAgentDeck:
 
 class TestSessionSendDelay:
     def test_delay_parameter_passed(
-        self, tmp_path: Path
+        self, tmp_path: Path, docker_running: None
     ) -> None:
         """send_to_session receives delay=3."""
         _setup_git_repo(tmp_path)
@@ -260,7 +260,7 @@ class TestSessionSendDelay:
 
 class TestSessionSendCorrectCommand:
     def test_kbuild_command_sent(
-        self, tmp_path: Path
+        self, tmp_path: Path, docker_running: None
     ) -> None:
         """/kbuild <feature>/<milestone> sent."""
         _setup_git_repo(tmp_path)
