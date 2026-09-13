@@ -35,6 +35,7 @@ from tests.acceptance.review_loop_runtime.conftest import (
     findings_by_id,
     gh,
     gh_json,
+    git,
     kreview,
     window_args,
 )
@@ -1257,6 +1258,47 @@ def test_status_stops_on_empty_scope(scratch_factory) -> None:
     s = r.json()
     assert s["scope"] == {"status": "empty", "text": ""}
     assert s["verdict"] == "stop: scope-empty"
+
+
+def test_status_is_ready_on_a_fresh_pr(scratch: ScratchPR) -> None:
+    """The verdict the whole loop hangs on — `ready`, exit 0 — with its empty states.
+
+    Every other `status` test asserts a *stop*, so a tool that never returned `ready`
+    passed them all. A freshly opened PR is also the only place three "nothing yet"
+    values occur together: no review, so `boundary` is `none` and `reentry` is `none`;
+    no workflow on the branch, so `ci` is `none` with an empty check list.
+    """
+    r = _kr(scratch, "status", str(scratch.number), "--json")
+    assert r.code == 0, (r.out, r.err)
+    s = r.json()
+    assert s["verdict"] == "ready"
+    assert s["pr"]["state"] == "open"
+    assert s["checkout"]["matches_pr"] is True
+    assert s["scope"]["status"] == "present"
+    assert s["boundary"]["status"] == "none"
+    assert s["ci"] == {"status": "none", "checks": []}
+    assert s["reentry"] == "none"
+    assert s["reviews"]["last_reviewed_sha"] is None
+    assert s["reviews"]["unreviewed_commits"] == []
+    assert s["kselfreview_range"] is None
+    assert s["babysit"]["report_present"] is False
+
+
+def test_status_stops_on_checkout_mismatch(scratch: ScratchPR) -> None:
+    """A checkout on another branch stops the run, and only that rule holds here.
+
+    `checkout-mismatch` was graded only as the verdict `merged` outranks on #49, so a
+    tool that never emitted it on its own still passed: this PR is open, in scope and
+    green, and the checkout is the one thing wrong with it.
+    """
+    # the everyday version of this mistake: babysitting from the base branch
+    git("checkout", "-q", "main", cwd=scratch.clone)  # A2 pins the default branch
+    r = _kr(scratch, "status", str(scratch.number), "--json")
+    assert r.code == 3, (r.out, r.err)
+    s = r.json()
+    assert s["pr"]["state"] == "open"
+    assert s["checkout"]["matches_pr"] is False
+    assert s["verdict"] == "stop: checkout-mismatch"
 
 
 # ------------------------------------------------------------ J9/J8: report, re-entry

@@ -214,6 +214,16 @@ a review. It is graded in M2's scratch repository by
 and with it the rule the state exists for, signed in #34: an `unknown` never fires the
 second-order stop.
 
+**What stays ungraded, after the sweep.** Every other member of every enumeration this
+Surface pins has a test (the verdicts, `requested`, the provenance states, `boundary`,
+`reentry`, the exit codes, the decision table), between this table and M2's. Two do
+not, both because no fixture can hold them still: `ci.status` `pending` — a window
+between a push and a check starting, which a test would have to race — and
+`boundary.status` `missing`, which needs a review commit GitHub no longer serves
+(measured 2026-09-13: it still serves a commit that a force-push orphaned, which is
+what makes `none-reachable` the gradable neighbour). They are named here rather than
+left to be discovered as holes.
+
 ## Advisory
 
 - A `--cache` of fetched reviews per PR head for repeated replays — not required.
