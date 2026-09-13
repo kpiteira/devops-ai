@@ -147,4 +147,3 @@ a clean start rather than an edit of the old.
   flows, then summarize"** for understanding an unfamiliar codebase.
 - **The core lesson:** go evidence → a clear picture of the system → recommendations. Never skip the
   middle step. That middle step (synthesis) is what the May audit was missing.
-</content>

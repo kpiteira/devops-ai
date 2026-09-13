@@ -50,4 +50,3 @@ only; with `context: fork` the same `model:` sets the forked subagent's model in
 the session, determines the right one — `kbabysit` does it to force its loop onto an
 Opus-grade subagent — and otherwise leave it to the harness, because a pinned tier is invisible
 in the status bar and outlives nobody's attention.
-</content>

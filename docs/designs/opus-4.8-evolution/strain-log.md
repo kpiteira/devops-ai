@@ -51,4 +51,3 @@ earning its keep; we look for patterns.
 ## Real entries
 
 _(none yet — add as you build CashFlow Pro on Opus 4.8)_
-</content>

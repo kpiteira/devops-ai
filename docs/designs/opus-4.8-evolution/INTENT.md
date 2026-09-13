@@ -328,5 +328,3 @@ fixed (not project-type-aware).
 - [The Code Agent Orchestra — Addy Osmani](https://addyosmani.com/blog/code-agent-orchestra/)
 - [Context windows — Claude API Docs](https://platform.claude.com/docs/en/build-with-claude/context-windows)
 - [Managing Claude Code's 1M Context Window: A Practical Guide — Medium](https://medium.com/agentic-builders/managing-claude-codes-1m-context-window-a-practical-guide-8480b49c9fd5)
-</content>
-</invoke>
