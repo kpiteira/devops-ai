@@ -300,7 +300,7 @@ Plus the standing gates: `make check` exits 0.
   one paid test triggers a review. `KREVIEW_ACCEPTANCE_PAID=1` enables it.
 - GitHub Actions is enabled in the scratch repository (the default for a new
   repository); the red-CI test pushes a one-job workflow that exits 1 onto its own PR
-  branch, and the check settles in about a minute.
+  branch; the test polls `status` until the check settles, up to 240 s.
 - The tests create branches `kreview-acc/<hex>` and issues titled `kreview-acceptance
   …` in the scratch repository and close them; leftovers from an aborted run are
   harmless and may be deleted by hand.

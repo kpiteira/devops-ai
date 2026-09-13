@@ -48,7 +48,7 @@ JSON form, every key present:
 |-----|-------|
 | `pr` | `{number, state: open\|closed\|merged, draft, head_sha, head_ref, base_ref, mergeable: MERGEABLE\|CONFLICTING\|UNKNOWN, author}` |
 | `checkout` | `{branch, matches_pr}` — `matches_pr` true when the local `HEAD` is `head_sha` or the current branch is `head_ref`; both `null` outside a clone of the repo |
-| `scope` | `{status: present\|missing\|empty, text}` — `text` is the `## Review scope` section body verbatim (up to the next `## ` heading), `""` when absent; `empty` when the heading exists with only blank lines under it |
+| `scope` | `{status: present\|missing\|empty, text}` — `text` is the `## Review scope` section body (up to the next `## ` heading) with leading and trailing blank lines removed, inner lines verbatim; `""` when the heading is absent or when it exists with only blank lines under it (`empty`) |
 | `ci` | `{status: passing\|failing\|pending\|none, checks: [{name, status: passing\|failing\|pending\|skipped}]}` for `head_sha`; `failing` if any check failed, else `pending` if any is running, else `passing`, `none` with no checks |
 | `reviews` | `{copilot_total, copilot_reviewed_head, copilot_requested, effort_levels, effort_parse_failed, last_reviewed_sha, unreviewed_commits}` — `copilot_total` counts submitted (not PENDING) reviews by a login containing `copilot`, which is the PR's paid-round total; `copilot_reviewed_head` is true when one of those reviews carries `commit_id` `head_sha` (what kbabysit step 1 asks before requesting); `copilot_requested` is true when a review request to the Copilot reviewer is pending on the PR — both are booleans, both false when no Copilot review or request exists; `effort_levels` is the sorted distinct set parsed from `**Review effort level:** X` footers; `effort_parse_failed` is true when Copilot reviews exist and none carries the footer; `last_reviewed_sha` is the commit of the latest submitted review (any reviewer), `null` without one; `unreviewed_commits` lists the commits in `last_reviewed_sha..head_sha`, oldest first, and is `[]` when `last_reviewed_sha` is `null` |
 | `boundary` | `{sha, status: ok\|none\|none-reachable\|missing}` — the provenance boundary (definition under `round`) |
@@ -195,13 +195,16 @@ Plus the standing gates: `make check` exits 0.
 **Graded here, and not graded here.** Of the verdict order, `merged`, `closed`,
 `scope-missing`, and two precedences — `merged` over `checkout-mismatch`, `closed` over
 `scope-missing` — are graded above. `draft`, `scope-empty`, and `ci-failing` are **not**
-graded in M1: each needs a PR in that state, and this repository's history has no draft
-PR, no PR with an empty `## Review scope` heading, and no PR whose head had red CI
-(measured 2026-09-13). M1's fixtures are immutable public PRs by design; a PR in an
-arbitrary state is what the scratch repository M2 introduces, and M2's Blocking table
-carries the three tests (`test_status_stops_on_red_ci`, `_on_draft`,
-`_on_empty_scope`). The verdict is M1's Surface; its last three reasons are graded
-one milestone later, which the sign-off accepted.
+graded in M1: each needs a PR in that state. Measured 2026-09-13 in this repository:
+no PR is a draft today (`gh pr list --state all --json isDraft` → 0) and none carries a
+`## Review scope` heading with nothing under it (the same listing with `body`); and
+M1's fixtures are merged PRs at their merge heads, so a head with a failing check is
+not among them. A PR in an arbitrary state is what the scratch repository M2
+introduces, and M2's Blocking table carries the three tests
+(`test_status_stops_on_red_ci`, `_on_draft`, `_on_empty_scope`; draft PRs are
+available in that private repository — probed 2026-09-13). The verdict is M1's
+Surface; its last three reasons are graded one milestone later, which the sign-off
+accepted.
 
 ## Advisory
 
@@ -273,7 +276,7 @@ one milestone later, which the sign-off accepted.
 - **D15** — Red CI is a stop verdict (`ci-failing`), last in the order, exit 3 like
   every stop: the run does not start on a head whose checks failed, and re-running
   `status` after the fix is the way back in. Karl, 2026-09-13 (PR #66 DISCUSS): "CI not
-  passing is a real problem, the kind of tech debt that creeps." *Rejected:* keeping CI
+  passing is a real problem IMO, the kind of tech debt that creeps." *Rejected:* keeping CI
   red as a fact in `ci` plus the skill's "fix CI first" sentence (the planner's
   recommendation) — every other preflight rule became mechanical and this one would have
   stayed prose. `pending` is deliberately not a stop: a run that starts while checks are
