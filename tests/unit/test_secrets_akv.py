@@ -250,6 +250,44 @@ class TestAzureCliFailures:
         with pytest.raises(SecretResolutionError, match="could not be reached"):
             resolve("K", REF, context(tmp_path))
 
+    def test_a_vault_named_forbidden_is_still_diagnosed_as_unreachable(
+        self, tmp_path: Path
+    ) -> None:
+        """Classification anchors on Azure's codes, not on names containing them.
+
+        Vault and secret names are chosen by the caller and reach stderr verbatim
+        — az echoes the host it failed to resolve — so a bare substring scan lets
+        a legal name impersonate an error code and hide the real diagnosis.
+        """
+        fake_az(
+            tmp_path / "bin",
+            code=1,
+            stderr=azure_error("Failed to resolve 'forbidden.vault.azure.net'"),
+        )
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", "akv://forbidden/a-secret", context(tmp_path))
+        message = caught.value.message
+        assert "could not be reached" in message
+        assert "Key Vault Secrets User" not in message, "a name is not a code"
+
+    def test_a_secret_named_secretnotfound_behind_a_denial_says_denied(
+        self, tmp_path: Path
+    ) -> None:
+        """The same confusion the other way: the code outranks the name."""
+        fake_az(
+            tmp_path / "bin",
+            code=1,
+            stderr=azure_error(
+                "(Forbidden) Caller is not authorized to perform action on "
+                "https://a-vault.vault.azure.net/secrets/secretnotfound."
+            ),
+        )
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", "akv://a-vault/secretnotfound", context(tmp_path))
+        message = caught.value.message
+        assert "Key Vault Secrets User" in message
+        assert "not found" not in message.lower(), "a name is not a code"
+
     def test_an_unclassified_failure_quotes_azs_error_line(
         self, tmp_path: Path
     ) -> None:

@@ -127,19 +127,25 @@ def _diagnose(ref: str, vault: str, secret: str, code: int, stderr: str) -> str:
     reaches the message.
     """
     lowered = stderr.lower()
-    if "secretnotfound" in lowered or "was not found in this key vault" in lowered:
+    if _names_code(lowered, "SecretNotFound") or (
+        "was not found in this key vault" in lowered
+    ):
         return f"Secret not found in Azure Key Vault: {ref}."
     # `az login` names itself in az's own guidance; matching the broader "please
     # run" would swallow unrelated advice such as `az account set`.
     if "az login" in lowered:
         return f"Azure CLI is not logged in, so {ref} cannot be read. Run: az login"
-    if "secretdisabled" in lowered or "disabled secret" in lowered:
+    if _names_code(lowered, "SecretDisabled") or "disabled secret" in lowered:
         # Disabling is per version: an older enabled version still reads (verified).
         return (
             f"Secret {secret} is disabled in Key Vault {vault}. Enable it, or pin "
             f"an enabled version: {SCHEME}{vault}/{secret}/<version>."
         )
-    if "forbidden" in lowered or "not authorized" in lowered or "denied" in lowered:
+    if (
+        _names_code(lowered, "Forbidden")
+        or "not authorized" in lowered
+        or "access denied" in lowered
+    ):
         return (
             f"Access denied reading {ref}.{_az_errors(stderr)} If that is a "
             f"permissions problem, your Azure identity needs the Key Vault "
@@ -155,6 +161,25 @@ def _diagnose(ref: str, vault: str, secret: str, code: int, stderr: str) -> str:
         f"--vault-name {vault} --name {secret}"
     )
     return f"Azure CLI failed reading {ref} (exit status {code}).{detail}"
+
+
+def _names_code(lowered: str, code: str) -> bool:
+    """True when az named this Azure error code — not merely printed the word.
+
+    Vault and secret names are the caller's to choose and az echoes them into
+    stderr verbatim (the host it could not resolve, the secret URL it refused),
+    so scanning for a bare `forbidden` lets a vault legitimately named
+    `forbidden` take the RBAC branch and bury the real diagnosis. Only the three
+    shapes az actually prints a code in count, all captured from the vault:
+    `(Forbidden)` in the headline, `Code: Forbidden` on its own line, and
+    `"code": "SecretDisabled"` inside an inner-error blob.
+    """
+    code = code.lower()
+    return (
+        f"({code})" in lowered
+        or f"code: {code}" in lowered
+        or f'"code": "{code}"' in lowered
+    )
 
 
 def _az_errors(stderr: str) -> str:
