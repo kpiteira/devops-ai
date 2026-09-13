@@ -240,3 +240,15 @@ briefs and tests reference them. -->
   accepts (pinned Surface). Acknowledged by Karl 2026-09-13; lands as a small PR after
   #49 (issue #60) — nothing is blocked meanwhile. Item 6 (disclosure residual on disabled-as-absent): keep the
   RBAC diagnosis; residual accepted.
+- [x] 2026-09-13 (#58) outcome refinement: a spawned child receives the exact UTF-8 bytes
+  of every resolved value whatever the parent's locale, and that encoding can neither fail
+  nor leak. One shared `secrets.encode_env()` builds the POSIX bytes environment for all
+  three spawn sites (`ksecret run`, the `op://` and `akv://` providers), encoding with
+  `surrogateescape` so a value inherited from `os.environ` round-trips, and naming only
+  the variable for the one input that still cannot encode. This refines the encoding
+  promise, which was silent on the *parent's* locale: under `LC_ALL=C` CPython encoded the
+  environment with the locale's codec, so `ksecret run` could not pass a non-ASCII secret
+  at all and the resulting `UnicodeEncodeError` quoted a character of it. Refusing to run
+  under a non-UTF-8 locale was rejected — minimal images ship no `C.UTF-8` for PEP 538
+  coercion to find, and containers and CI are what this is for. Confirmed by Karl
+  2026-09-13; delivered by #58.
