@@ -169,6 +169,21 @@ def test_pr_ownership_rule_reaches_the_babysitter() -> None:
     assert "owns" in read("skills/kbabysit/SKILL.md")
 
 
+def test_babysit_loop_is_pinned_to_a_forked_opus_subagent() -> None:
+    """The loop must not run inline on the invoking session's tier (issue #25).
+
+    Twice observed running inline on a top-tier session because the tier lived in
+    prose. It lives in frontmatter now, and this is what keeps it there.
+    """
+    frontmatter = read("skills/kbabysit/SKILL.md").split("---")[1]
+    fields = dict(
+        line.split(":", 1) for line in frontmatter.splitlines() if ": " in line
+    )
+    assert fields.get("context", "").strip() == "fork"
+    assert fields.get("agent", "").strip() == "general-purpose"
+    assert "opus" in fields.get("model", "").strip()
+
+
 def test_observer_skill_exists_with_its_launch_guards() -> None:
     skill = read("skills/kobserve/SKILL.md")
     for phrase in ("--group", "model", "checkout", "For the human", "kinfra done"):
