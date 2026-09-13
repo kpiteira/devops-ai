@@ -315,11 +315,19 @@ Plus the standing gates: `make check` exits 0.
   branch; the test polls `status` until the check settles, up to 240 s.
 - The tests create branches `kreview-acc/<hex>` and issues titled `kreview-acceptance
   …` in the scratch repository and close them; leftovers from an aborted run are
-  harmless and may be deleted by hand. Two of them go further on their own branch: one
-  force-pushes it (the `unknown`-provenance fixture) and one submits a **COMMENT review
-  carrying a body** as the PR's own author — which GitHub allows, only *approving* your
-  own PR being refused (measured against the scratch repository 2026-09-13). That is
-  how a `Suppressed comments` section is produced without buying a Copilot review.
+  harmless and may be deleted by hand. Two of them go further on their own branch, and
+  both rest on behaviour measured against the scratch repository on 2026-09-13 rather
+  than assumed:
+  - A **COMMENT review carrying a body** can be submitted by the PR's own author (only
+    *approving* one's own PR is refused), and a plain review comment by that author is
+    itself a submitted review whose `commit_id` is the head. The first is how a
+    `Suppressed comments` section is produced without buying a Copilot review; the
+    second is how `already-reviewed` is graded free.
+  - After a **force-push**, the review keeps its original `commit_id`, that commit is
+    still served by GitHub (`git fetch origin <sha>` succeeds from a fresh shallow
+    clone) and is no longer an ancestor of the head, and the thread survives with its
+    `originalCommit` — which is why the expected boundary is `none-reachable` and not
+    `missing`.
 
 ## Context
 
