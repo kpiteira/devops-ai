@@ -83,14 +83,26 @@ def _address(ctx: ResolveContext) -> str:
             continue
         try:
             parts = urllib.parse.urlsplit(value)
-            usable = parts.scheme in NETWORK_URL_SCHEMES and bool(parts.netloc)
+            usable = (
+                parts.scheme in NETWORK_URL_SCHEMES
+                and bool(parts.netloc)
+                and _port_is_a_port(parts)
+                # Userinfo survives in `netloc`, and the address it belongs to
+                # is named in the sentences this module raises. A password in
+                # `BAO_ADDR` must not reach stderr on the first failed connect.
+                and "@" not in parts.netloc
+                and not parts.query
+                and not parts.fragment
+            )
         except ValueError:
             # An unbalanced bracket ("Invalid IPv6 URL") — a typo, not a crash.
             usable = False
-        if not usable or parts.query or parts.fragment:
+        if not usable:
+            # The address is not echoed back: it is what may be carrying a
+            # credential, and naming the variable is enough to fix it.
             raise ProviderError(
                 f"{name} is not a server address: it must be an http or https "
-                f"URL naming a host, with no query or fragment."
+                f"URL naming a host, with no credentials, query or fragment."
             )
         # Rebuilt from the parts rather than returned raw, so nothing but the
         # server's own base can survive into the URL the reference builds.
@@ -99,6 +111,20 @@ def _address(ctx: ResolveContext) -> str:
         "No OpenBao server address. Export BAO_ADDR (or VAULT_ADDR) with the "
         "address of your server."
     )
+
+
+def _port_is_a_port(parts: urllib.parse.SplitResult) -> bool:
+    """Whether the authority's port is one, since `.port` parses only on access.
+
+    `:99999` and `:abc` both leave `urlsplit` happy and raise from this property
+    instead. Unvalidated they travel to `getaddrinfo`, which answers that the
+    *name* could not be resolved — a sentence about the wrong half of the
+    address, from the function whose job is saying which half is wrong.
+    """
+    try:
+        return parts.port is None or 0 <= parts.port <= 65535
+    except ValueError:
+        return False
 
 
 def _token(ctx: ResolveContext) -> str:
@@ -110,9 +136,16 @@ def _token(ctx: ResolveContext) -> str:
 
     home = _home(ctx)
     path = home / TOKEN_FILE if home is not None else None
-    if path is not None and path.exists():
+    if path is not None:
         try:
             from_file = path.read_text(encoding="utf-8").strip()
+        except (FileNotFoundError, NotADirectoryError):
+            # The only two ways the file is simply not there. Asking
+            # `path.exists()` first would have been the same question with a
+            # worse answer: it swallows exactly these and propagates the rest,
+            # so a home the user cannot stat into raised `PermissionError` out
+            # of the check itself, ahead of the handler written for it.
+            from_file = ""
         except (OSError, UnicodeDecodeError) as exc:
             # Distinct from "no token": the file is there and unusable, and
             # "log in again" is only the right advice once you know that.

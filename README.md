@@ -305,7 +305,7 @@ standard library, so a container with `ksecret`, an address and a token can reso
 ```bash
 export BAO_ADDR=https://vault.example.com
 bao login                                     # writes ~/.vault-token
-ksecret read 'bao://kv/apps/myapp#api-key'    # confirms it resolves, prints nothing
+ksecret read 'bao://kv/apps/myapp#api-key'    # prints `ok <reference>`, not the value
 ```
 
 Quote a reference that carries a `#` when you type it: a zsh with `extendedglob` set

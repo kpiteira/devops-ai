@@ -218,6 +218,68 @@ class TestOpenBaoReferenceShape:
         with pytest.raises(SecretResolutionError, match="not a server address"):
             resolve("K", "bao://kv/a#key", context)
 
+    @pytest.mark.parametrize(
+        "address",
+        [
+            "https://user:hunter2@vault.example.com",
+            "https://hunter2@vault.example.com",
+        ],
+    )
+    def test_an_address_carrying_credentials_is_refused_without_echoing_it(
+        self, address: str
+    ) -> None:
+        """`netloc` keeps userinfo, and the address is named in every sentence below.
+
+        A password in `BAO_ADDR` would ride into stderr on the first connection
+        failure — the one thing this module promises never to print.
+        """
+        context = ResolveContext(env={"BAO_ADDR": address, "BAO_TOKEN": "t"})
+        with pytest.raises(SecretResolutionError) as exc:
+            resolve("K", "bao://kv/a#key", context)
+        assert "not a server address" in exc.value.message
+        assert "hunter2" not in exc.value.message
+
+    @pytest.mark.parametrize(
+        "address",
+        ["http://127.0.0.1:99999", "http://127.0.0.1:-1", "http://127.0.0.1:abc"],
+    )
+    def test_an_address_whose_port_is_not_a_port_is_refused_as_an_address(
+        self, address: str
+    ) -> None:
+        """Unvalidated, `:99999` reaches `getaddrinfo` and answers as a name failure.
+
+        `_address` is the function whose job is saying what a bad address is;
+        a port outside 0-65535 is one, and `.port` parses only on access.
+        """
+        context = ResolveContext(env={"BAO_ADDR": address, "BAO_TOKEN": "t"})
+        with pytest.raises(SecretResolutionError, match="not a server address"):
+            resolve("K", "bao://kv/a#key", context)
+
+    @pytest.mark.skipif(
+        getattr(os, "geteuid", lambda: 1)() == 0,
+        reason="root reads through mode 000",
+    )
+    def test_a_token_file_under_an_unreadable_home_says_so(
+        self, tmp_path: Path
+    ) -> None:
+        """`Path.exists()` propagates EACCES — the existence check was the traceback.
+
+        Only ENOENT/ENOTDIR/EBADF/ELOOP are swallowed by `exists()`; a home the
+        user cannot stat into raised `PermissionError` straight out of `resolve`.
+        """
+        home = tmp_path / "home"
+        home.mkdir()
+        (home / ".vault-token").write_text("hvs.token\n")
+        home.chmod(0o000)
+        try:
+            context = ResolveContext(
+                env={"BAO_ADDR": self.ADDRESS, "HOME": str(home)}
+            )
+            with pytest.raises(SecretResolutionError, match="Cannot read"):
+                resolve("K", "bao://kv/a#key", context)
+        finally:
+            home.chmod(0o755)
+
     @pytest.mark.parametrize("ref", ["bao://kv/../secret/a#key", "bao://kv/./a#key"])
     def test_a_path_that_climbs_out_of_its_mount_is_refused(self, ref: str) -> None:
         """The server would clean the path and redirect outside the mount."""
