@@ -393,6 +393,63 @@ def test_the_positional_environment_slot_is_where_this_gate_thinks_it_is() -> No
     )
 
 
+def unencodable_docstrings(tree: ast.AST, where: str) -> list[str]:
+    """Docstrings in `tree` that have no UTF-8 encoding, each named by its line.
+
+    Split out from the gate below so the *reporting* can be exercised on
+    synthetic source. Detection was never the fragile half.
+    """
+    offenders: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(
+            node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+        ):
+            continue
+        doc = ast.get_docstring(node, clean=False)
+        if doc is None:
+            continue
+        try:
+            doc.encode("utf-8")
+        except UnicodeEncodeError:
+            # The docstring's own line, never the node's: `ast.Module` has no
+            # `lineno` at all, so reading one turned a caught module-level
+            # offender into an `AttributeError` from inside the gate — a red
+            # that says "the gate is broken" instead of naming the file. The
+            # `getattr` beside it already conceded that a module has no `name`;
+            # the line needed the same concession. `get_docstring` returned a
+            # string, so `body[0]` is that literal.
+            offenders.append(
+                f"{where}:{node.body[0].lineno} "
+                f"{getattr(node, 'name', '<module>')} — double the backslash: "
+                f"a docstring is a literal, so the escape builds the character"
+            )
+    return offenders
+
+
+def test_a_module_docstring_offender_is_named_rather_than_crashing_the_gate() -> None:
+    """The likeliest offender was the one the gate could not report.
+
+    A module docstring is where documentation *about* this rule gets written —
+    this file's own is one — and it is exactly the node with no `lineno`.
+    Caught, then lost building the message.
+    """
+    module_level = ast.parse('"""bad \\ud800 doc"""\n')
+    in_a_function = ast.parse('def f():\n    """bad \\ud800 doc"""\n')
+    # Control: an astral character that *is* encodable, so "always reports an
+    # offender" cannot satisfy the two above.
+    encodable = ast.parse('"""a paired \\U0001F600 doc"""\n')
+
+    assert unencodable_docstrings(module_level, "m.py") == [
+        "m.py:1 <module> — double the backslash: "
+        "a docstring is a literal, so the escape builds the character"
+    ]
+    assert unencodable_docstrings(in_a_function, "m.py") == [
+        "m.py:2 f — double the backslash: "
+        "a docstring is a literal, so the escape builds the character"
+    ]
+    assert unencodable_docstrings(encodable, "m.py") == []
+
+
 def test_no_module_can_be_made_unimportable_by_its_own_docstring() -> None:
     """The rule this package enforces on secrets, enforced on itself.
 
@@ -401,7 +458,10 @@ def test_no_module_can_be_made_unimportable_by_its_own_docstring() -> None:
     written `\\uD800` is not a mention of a surrogate but one. On Python 3.12
     that compiles; on 3.14 the module cannot be compiled at all, and
     `pyproject.toml` says `requires-python = ">=3.11"` while CI runs only 3.12 —
-    so nothing here would have said so.
+    so nothing here would have said so. Measured on both, not reasoned about:
+    `python3.14 -m compileall` exits 1 on a file whose docstring carries one,
+    while the same escape in an assignment, an f-string, a list or a default
+    argument compiles clean — which is why only this node kind is walked.
 
     Checked on every docstring rather than on the one that was wrong, because
     the next one is written by someone documenting the same rule.
@@ -410,24 +470,9 @@ def test_no_module_can_be_made_unimportable_by_its_own_docstring() -> None:
     # `src/` and `tests/` both: a docstring like this one is most likely to be
     # written by whoever is documenting the rule, and that is as often a test.
     # The gate's name says "no module", so it has to mean every module here.
-    for path in sorted(SRC.rglob("*.py")) + sorted((ROOT / "tests").rglob("*.py")):
+    for path in source_files() + sorted((ROOT / "tests").rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
-        for node in ast.walk(tree):
-            if not isinstance(
-                node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
-            ):
-                continue
-            doc = ast.get_docstring(node, clean=False)
-            if doc is None:
-                continue
-            try:
-                doc.encode("utf-8")
-            except UnicodeEncodeError:
-                offenders.append(
-                    f"{path.relative_to(ROOT)}:{node.lineno} "
-                    f"{getattr(node, 'name', '<module>')} — double the backslash: "
-                    f"a docstring is a literal, so the escape builds the character"
-                )
+        offenders += unencodable_docstrings(tree, str(path.relative_to(ROOT)))
     assert not offenders, (
         "a docstring that cannot be encoded as UTF-8 makes its module "
         "uncompilable on Python 3.14:\n  " + "\n  ".join(offenders)
