@@ -80,35 +80,57 @@ reviews, while only **4** of those 13 reviews opened a thread at all — and fro
 existed only in the bodies. Parse them out:
 
 ````bash
+set -o pipefail   # a failed fetch must not read as "no findings" — see below
 # --paginate runs the --jq filter per page, so emit a marker line per review and let awk
-# carry that review's commit_id down its body. The fence toggle stops a `**path:line**`
-# line *inside* a quoted snippet from being counted as a finding of its own.
+# carry that review's commit_id AND submitted_at down its body. The fence toggle stops a
+# `**path:line**` line *inside* a quoted snippet from being counted as a finding of its own.
 gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
-  --jq '.[] | select(.state != "PENDING") | "@@REVIEW\t\(.id)\t\(.commit_id)", (.body // "")' \
+  --jq '.[] | select(.state != "PENDING")
+        | "@@REVIEW\t\(.id)\t\(.commit_id)\t\(.submitted_at)", (.body // "")' \
 | awk -F'\t' '
-    $1=="@@REVIEW" { rid=$2; sha=$3; sup=0; fence=0; next }
+    $1=="@@REVIEW" { rid=$2; sha=$3; ts=$4; sup=0; fence=0; next }
     /^```/         { fence=!fence; next }
     fence          { next }
     /^#+ +Suppressed comments/     { sup=1; next }
     sup && /^- \*\*Files reviewed/ { sup=0 }
     sup && /^\*\*[^*]+:[0-9]+\*\*$/ {
       s=substr($0,3,length($0)-4); p=s; sub(/:[0-9]+$/,"",p); l=s; sub(/^.*:/,"",l)
-      print rid"\t"sha"\t"p"\t"l }'
-# one row per suppressed finding: review-id · the commit the review judged · path · line
+      print ts"\t"rid"\t"sha"\t"p"\t"l }'
+# one row per suppressed finding: submitted_at · review-id · the commit the review judged
+# · path · line
 ````
 
-**Zero rows is an ambiguous negative** — it means "no suppressed comments", "no reviews",
-*or* "the parse broke", and those are not the same thing. Never read it as the first. The
-headers declare their own counts, so make the parse check itself:
+**Scope the rows to this round.** The parser walks every review the PR has, so on round N
+it re-emits rounds 1..N-1 as well. `submitted_at` is carried for exactly that reason: apply
+the same cutoff the threads get — keep only rows newer than the round you last handled.
+Skipping it re-triages old findings every round *and* poisons the provenance totals and the
+second-order stop with findings that were already answered, which is the opposite of what
+counting suppressed findings is for.
+
+**Zero rows is an ambiguous negative** — "no suppressed comments", "no reviews", "nothing
+new this round", *or* "the parse broke". Never read it as the first. The headers declare
+their own counts, so make the parse check itself, over **the same review set the parser
+used** — the same `state != "PENDING"` filter, or a pending body's header inflates
+`declared` and reports a parser defect that isn't one:
 
 ```bash
-gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" --jq '.[] | .body // ""' \
+set -o pipefail
+gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
+  --jq '.[] | select(.state != "PENDING") | .body // ""' \
   | grep -oE '^#+ +Suppressed comments \([0-9]+\)' | grep -oE '[0-9]+' \
   | awk '{n += $1} END {print "declared: " n+0}'
 ```
 
-Parsed must equal declared. A mismatch is a defect in the parser (GitHub changed the
-format), never an empty round — say so and triage from the bodies by hand for that round.
+Parsed must equal declared **over the whole PR** (compare before the per-round cutoff, or
+you are comparing two different questions). A mismatch is a defect in the parser — GitHub
+changed the format — never an empty round: say so and triage that round from the bodies by
+hand.
+
+**Both pipelines must fail closed.** Without `pipefail`, a `gh api` that dies on an expired
+token or a network blip still lets `awk` exit 0 with no input, so parsed and declared are
+both `0`, the equality guard is *satisfied*, and the loop records a clean empty round over
+data it never saw. A guard that passes hardest when the fetch failed is worse than no
+guard. Confirm a non-zero review count before believing either number.
 
 Measured on devops-ai #49 (2026-09-13): 15 parsed, 15 declared, across the 11 headers; the
 two Copilot reviews with no header — an approval, and a round whose single finding *did*
@@ -215,9 +237,15 @@ round, process only comments newer than the round you last handled (compare `cre
 
 ## 2. Assess Each Comment
 
+**Ask "isolated or systemic?" first — before this table, on every finding including the
+ones the first row sends straight to OUT OF SCOPE.** The scope short-circuit below ends the
+*disposition* question, not the shape question: an out-of-scope finding still gets its
+label, because the issue it becomes should name the class, not one site of it. The column
+is never blank, so nothing may skip past it.
+
 | Question | If yes... |
 |----------|-----------|
-| Does fixing it serve an outcome in the PR's Review scope? | If **no**: OUT OF SCOPE, whatever its truth — stop assessing here |
+| Does fixing it serve an outcome in the PR's Review scope? | If **no**: OUT OF SCOPE, whatever its truth — stop assessing here (the isolated/systemic label is already taken, above) |
 | Does this fix a real bug? | High value — likely implement |
 | Does this improve readability or maintainability significantly? | Medium value — consider |
 | Is this a style nitpick with no functional benefit? | Low value — likely push back |
@@ -246,6 +274,11 @@ which:
 - **Off the pinned Surface** — either the class fix **in one commit**, or **one issue
   naming the class** (one issue for the class, never one per site). Per-site patches
   spread across rounds are the failure this column exists to prevent.
+
+**A PR with no brief has no pinned Surface**, so on a fix, a chore, or a framework change
+every `systemic` finding takes the second path by construction. The first path exists for
+milestone PRs, where a brief pins Surface the executor is not free to change; "nothing is
+pinned here" is a fact about the PR, not a licence to treat a class fix as optional.
 
 Measured (#61, from PR #49): rounds 6–11 were five patches to five echo sites of a single
 root cause — unvalidated `akv://` segments echoed back into `az` error text. Every patch
@@ -397,8 +430,11 @@ consumes):
 | # | Reviewer | File:Line | Source | Provenance | Comment (gist) | Isolated/systemic | Verdict | Action taken |
 |---|----------|-----------|--------|------------|----------------|-------------------|---------|--------------|
 
-`Source` is `thread` or `suppressed` — both are line-anchored, and the difference only
-decides where the reply goes. `Isolated/systemic` is never blank: `isolated`, or
+`Source` is `thread`, `suppressed`, or `unanchored` — the first two are line-anchored and
+differ only in where the reply goes; `unanchored` is a review-level remark or an issue
+comment, which has no `File:Line` and no provenance but is still a finding and still counts
+in Findings. Every row carries one of the three, so the table represents the whole round
+and the provenance totals reconcile. `Isolated/systemic` is never blank: `isolated`, or
 `systemic → <root cause>`.
 
 **Boundary:** <sha> | none (no reviews) | none reachable (N reviews, all pre-rebase) | missing <sha>

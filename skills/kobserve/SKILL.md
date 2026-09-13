@@ -121,8 +121,13 @@ Three things that phase got wrong, each one a rule now:
   is defined.
 
 Findings this seat genuinely notices — from the independent re-run, the guard, the spec
-diff — go to the executor as *what is wrong*, never as *what to do about it*, or to the
-human as a question. If they warrant a review round, the message is `/kbabysit <n>`.
+diff — do **not** open a third path to the executor. They go in the PR thread as the
+observation itself (where they are public, and where the executor's next `/kbabysit <n>`
+picks them up as review surface like any other comment), or to the human as a question.
+The message sent to an executor is still only ever `/kbabysit <n>`. "What is wrong, without
+what to do about it" sounds safer than a disposition and is not: it arrives out of band,
+carries no scope judgement, provenance or budget, and the executor acts on it anyway —
+which is the relay failure under a politer name.
 
 1. **Independent re-run.** From a seat that is not the executor's — your own checkout
    of the PR head, or a sandbox you provision — run the brief's `blocking:` command

@@ -122,19 +122,29 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
     updates need an explicit re-request unless the ruleset enables "review new pushes". If a
     Copilot review already exists for the current head, don't request another.
   - **Copilot's review effort level** — record it, you cannot request it. Every Copilot
-    review body ends with a `Review effort level:` line, so the level is read, not guessed:
+    review body ends with a `Review effort level:` line. Preflight asks only **what level
+    this PR has been reviewed at so far** — the per-round level is read in step 2, off that
+    round's own review, because at preflight the round's review does not exist yet and a
+    level read here could only ever describe somebody else's round:
 
     ```bash
+    # --paginate runs the --jq filter per page, so `length` yields one count per page: sum
+    # them. Reporting from page 1 alone goes wrong at 30+ reviews, exactly where it matters.
+    gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
+      --jq '[.[] | select(.user.login | test("copilot"; "i"))] | length' \
+      | awk '{n += $1} END {print "copilot reviews so far: " n+0}'
+
     gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
       --jq '.[] | select(.user.login | test("copilot"; "i")) | .body // ""' \
-      | grep -oE 'Review effort level:\*\* *[A-Za-z]+' | sed -E 's/.*\*\* *//' | tail -1
+      | grep -oE 'Review effort level:\*\* *[A-Za-z]+' | sed -E 's/.*\*\* *//' \
+      | sort -u | tr '\n' ' '      # the distinct levels seen, not the last one found
     ```
 
-    Empty output has two causes and they are not the same: **no Copilot review has landed
-    yet**, or **a review landed without the line** (GitHub renamed or moved it). Tell them
-    apart before reporting one — `gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" --jq
-    '[.[] | select(.user.login | test("copilot"; "i"))] | length'` — and report `—` only
-    for the first; the second is a broken parser, and the report says so.
+    No level with **zero** reviews is simply "none yet". No level with reviews **present**
+    is a broken parser — GitHub renamed or moved the line — and the report says so rather
+    than printing `—`. Take the distinct set, never `tail -1`: the last *matching* line is
+    not the newest *review*, so a newest review that dropped the footer would be masked by
+    an older one and the broken-parser path would never be reached.
 
     `Lite` is GitHub's default, and it is what all 25 Copilot reviews across #49 and #51
     reported on 2026-09-13 (13 and 12, measured). **It is a
@@ -180,6 +190,19 @@ Human reviewers need no requesting — any comments they've left get triaged in 
 Poll with `sleep`-and-check: a new review by `copilot-pull-request-reviewer[bot]` in
 `repos/$REPO/pulls/$PR_NUMBER/reviews` with `submitted_at` after the request means done.
 Usually lands within a minute or two — poll every 30–60s, give up after ~5 min.
+
+**Record this round's effort level here**, from the review you just waited for — you have
+its id, so read that review and nothing else:
+
+```bash
+gh api "repos/$REPO/pulls/$PR_NUMBER/reviews/$REVIEW_ID" --jq '.body // ""' \
+  | grep -oE 'Review effort level:\*\* *[A-Za-z]+' | sed -E 's/.*\*\* *//'
+```
+
+Empty here is unambiguous — this review exists and carried no footer — so it is a broken
+parser, not a missing round, and the report's `Effort` column says `?` rather than `—`.
+Reading the level off the round's own review is the whole point: a grep across the PR's
+review history answers a different question and cannot attribute a level to a round.
 
 While waiting, also watch CI for the same head SHA — a red check that local gates missed is
 round feedback exactly like a review comment, and it gets fixed in the same round.
@@ -272,6 +295,9 @@ auto-review repos the push already triggered it).
   not stop the loop — `kreview` closes it as one class fix in one commit, or files one
   issue for the class — but **per-site patches across rounds are never the answer**; if a
   round's findings are the same mechanism it already patched last round, that is this stop.
+  A PR with no brief pins no Surface, so on one of those this stop can only fire the second
+  way: not on the first systemic finding, but on the round that repeats the last one's
+  mechanism.
 - **Round budget reached** (default 3 full rounds, `max-rounds:` raises it). Non-convergence
   within the budget means the disagreement is real; grinding won't fix it. The budget is the
   human's money; raising it changes **only** the budget — scope, provenance, and the
@@ -293,9 +319,16 @@ it is listed in the report as unread, for the human — otherwise the chain neve
 further review round on this PR — **from any seat and for any reason**: new commits, a
 relayed finding, a human decision, a fresh reviewer — is started by invoking
 `/kbabysit <n>`, never by requesting a review directly. The re-invocation is what decides
-between a paid round and a `kselfreview` pass, and it re-applies the budget and every stop
-rule in this step counting **from the last posted report onward**, so the second entry
-cannot spend what the first already spent. Concretely:
+between a paid round and a `kselfreview` pass, and it re-applies **every stop rule in this
+step** — scope, provenance, second-order, systemic, DISCUSS — to the rounds it runs.
+
+**One exception, the one that already existed:** the single unrequested auto-review that
+fires on the `kselfreview` fix push is triaged in place and appended to the posted report,
+as the paragraph above says. It is not a re-entry, because nobody requested it and nothing
+follows it — the rule there is *do not re-request*, and that rule still ends the chain.
+Anything beyond that one review is a re-entry and goes through `/kbabysit <n>`.
+
+Concretely:
 
 - An executor that is handed findings **with dispositions already attached** does not act
   on the relay. It runs `/kbabysit <n>` and lets the triage happen where the stop rules
@@ -312,11 +345,24 @@ the trigger **re-enters the loop, it does not bypass it.** Measured on 2026-09-1
 reviews in a phase that never invoked it — 25 reviews in total, 20 of them outside every
 rule on this page.
 
-Rounds are counted per babysit run. A re-invocation on the same PR inherits thread history
-(kreview reads prior replies, so push-backs stay remembered) and the same review scope —
-and, when it follows a posted report on that PR, it inherits that report's spend too:
-count the rounds since the last report, not since this invocation. Otherwise the budget is
-a thing you reset by re-invoking, which is how three rounds became twenty-three.
+Rounds are counted per babysit run, and a re-invocation on the same PR inherits thread
+history (kreview reads prior replies, so push-backs stay remembered) and the same review
+scope. **Be honest about what the budget does and does not bound:** each re-entry gets its
+own budget, so re-entering repeatedly can spend more than `max-rounds` in total. Three
+things bound the sequence instead, and none of them is a cumulative cap:
+
+- **Re-entry needs an explicit trigger** — the human's words, or new commits someone
+  pushed. It is never the loop's own idea.
+- **Every stop rule fires inside each re-entry**, second-order and systemic included. That
+  is precisely what the 20-round phase lacked: not a cap, but any rule at all.
+- **The count is visible.** Every report states the paid rounds in *this* run and the
+  running total on the PR, so a sequence that is growing is growing where the human can
+  see it rather than inside a loop that reset its own counter.
+
+A cumulative hard cap was considered and dropped by Karl as item 7 of the #61 list —
+"not needed once 3 holds", 3 being the observer's loss of its re-request verb. If
+re-entries start stacking up in practice, that decision is the thing to revisit, and it is
+his to revisit; this skill does not quietly impose the cap he declined.
 
 ## 5. Report
 
@@ -366,8 +412,10 @@ repeats / systemic on pinned Surface / budget / DISCUSS blocks / CI — one line
 **Reviewer effort level:** <Lite/Balanced — and if Lite, that raising it is a repository
 setting the human owns: Settings → Copilot → Code review → "Review effort level">
 **Fix commits since last review:** <shas> · **kselfreview on them:** done / n/a
+**Paid rounds:** N this run · N total on this PR (all runs) — the second number is the one
+that grows across re-entries, and there is no cumulative cap on it by design (#61 item 7).
 **Re-entry:** further rounds on this PR go through `/kbabysit <n>` — from any seat, for any
-reason. This report is where the next run's budget and stop rules start counting.
+reason — which re-applies every stop rule in step 4.
 ```
 
 The "what changed" section is the honest measure of the loop: if it's empty after round 1,
