@@ -146,10 +146,14 @@ def _representable(value: str, ref: str, provider: Provider) -> str:
     byte it silently hands the child a *different secret* than the vault holds.
 
     Parsing a text format is what manufactures one — `json.loads` turns a
-    `\uD800` escape into a lone surrogate, and nothing says the next provider
+    `\\uD800` escape into a lone surrogate, and nothing says the next provider
     will use JSON to do it. So the rule is on what a provider *returns*, not on
     how it got there: every value goes through here, whatever the provider
     parsed and however it spelled the call.
+
+    (That escape is doubled deliberately. Written singly it is not a mention of
+    a surrogate but one — a docstring is a string literal, so Python builds the
+    character, and on 3.14 the module then cannot be compiled at all.)
     """
     if getattr(provider, INHERITS_OS_BYTES, False):
         return value
