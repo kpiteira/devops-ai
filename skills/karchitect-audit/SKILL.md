@@ -108,7 +108,7 @@ The synthesizer:
 
 All must pass before L2.
 
-1. **Karl-readable** — present the description artifact to the user. They read it cold; in ~5 minutes they can state what the system does, point at the conceptual structure diagram and name its parts, and identify what the system touches in its environment.
+1. **Human-readable** — present the description artifact to the user. They read it cold; in ~5 minutes they can state what the system does, point at the conceptual structure diagram and name its parts, and identify what the system touches in its environment.
 2. **Altitude discipline** — environment diagram has zero implementation specifics; conceptual structure diagram has zero package names. If either fails, iterate the modeler prompt.
 3. **Reproducibility** — run L1 twice on the same git SHA. Conceptual components and structure overlap >80%.
 4. **Honest uncertainty** — Modeler Disagreements section in the description is non-empty. Three modelers agreeing perfectly is anchoring.

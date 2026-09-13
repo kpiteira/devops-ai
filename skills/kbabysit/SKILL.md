@@ -37,7 +37,7 @@ intent/acceptance decisions this loop feeds, not to a re-review poll; and **cont
 hygiene** — a run generates a lot of low-value output (poll results, review bodies, CI
 logs) that stays in the subagent instead of silting up a long-lived design or
 orchestration session. On 2026-09-03/04 the loop ran inline on a top-tier session because
-the skill named no execution tier (agent-memory #246, recorded in devops-ai #25); Karl
+the skill named no execution tier (agent-memory #246, recorded in devops-ai #25); the human
 observed the same thing again on 2026-09-12 and re-signed the rule, which is why the tier
 is now in the frontmatter rather than in prose anyone can skip.
 
