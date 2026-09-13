@@ -123,7 +123,10 @@ def test_the_materialised_secrets_file_is_written_as_utf8(
     argv element is encoded with the filesystem encoding too, so an accented
     literal in the `python -c` source never reaches the child under an ASCII
     one — it dies decoding its own command line, before importing anything
-    (#58). Tests 1, 4 and 5 already move it as bytes; this one did not.
+    (#58). Its neighbours here already move it as bytes, through a file or an
+    ASCII-safe repr; this one did not. Deliberately unnumbered: the issue
+    numbered these and got it wrong, because the count drifts as tests are
+    added.
     """
     result = run_child(
         "from pathlib import Path\n"

@@ -16,9 +16,9 @@ rejected: containers, cron and CI are exactly where `LC_ALL=C` is ordinary,
 and a minimal image ships no `C.UTF-8` for PEP 538 coercion to find — so
 refusing loudly would strand the environments this tool is written for.
 
-POSIX only, which the rest of the package already is (`fcntl` in the slot
-registry): `subprocess` accepts a bytes environment where
-`os.supports_bytes_environ` is true, and that is false on Windows.
+POSIX only, as devops-ai already is (`fcntl` in `registry.py`): `subprocess`
+accepts a bytes environment where `os.supports_bytes_environ` is true, and the
+CPython docs give that as false on Windows.
 """
 
 from __future__ import annotations

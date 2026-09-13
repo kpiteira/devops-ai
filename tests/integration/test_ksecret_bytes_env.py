@@ -13,6 +13,7 @@ half of the promise lives in `test_secret_locale.py`.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -29,20 +30,64 @@ def project(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _ksecret(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+def _ksecret(
+    *args: str, cwd: Path, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["uv", "run", "--project", str(ROOT), "ksecret", *args],
-        cwd=cwd, capture_output=True, text=True, timeout=300,
+        cwd=cwd, env=env, capture_output=True, text=True, timeout=300,
     )
+
+
+def _probe(project: Path) -> Path:
+    """A program reachable *only* through PATH, never through `os.defpath`.
+
+    `env` or `echo` would not do. `os.get_exec_path` falls back to `os.defpath`
+    (`:/bin:/usr/bin`) when it finds no PATH at all, so a command living there
+    is found whether or not the bytes key was ever read — the test would pass
+    identically in the broken and the healthy case.
+    """
+    bin_dir = project / "bin"
+    bin_dir.mkdir()
+    program = bin_dir / "ksecret-path-probe"
+    program.write_text('#!/bin/sh\nprintf %s "$A"\n')
+    program.chmod(0o755)
+    return program
+
+
+def _env_reaching(bin_dir: Path | None) -> dict[str, str]:
+    """The caller's environment, optionally with `bin_dir` ahead of it.
+
+    PATH is otherwise left whole: emptying it would strand the outer `uv`
+    rather than the child, which is not the lookup under test.
+    """
+    env = os.environ.copy()
+    if bin_dir is not None:
+        env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    return env
 
 
 def test_a_bare_command_name_is_still_found_on_path(project: Path) -> None:
-    """`env` by name, not by path — the lookup a bytes environment changes."""
+    """The child is found by name, and the resolved value reaches it."""
+    program = _probe(project)
     result = _ksecret(
-        "run", "--env-file", "refs.env", "--", "env", cwd=project
+        "run", "--env-file", "refs.env", "--", program.name,
+        cwd=project, env=_env_reaching(program.parent),
     )
     assert result.returncode == 0, result.stderr
-    assert f"A={VALUE}" in result.stdout.splitlines()
+    assert result.stdout == VALUE
+
+
+def test_the_probe_is_unreachable_when_path_does_not_name_it(
+    project: Path,
+) -> None:
+    """The control: the test above passes because of PATH, nothing else."""
+    program = _probe(project)
+    result = _ksecret(
+        "run", "--env-file", "refs.env", "--", program.name,
+        cwd=project, env=_env_reaching(None),
+    )
+    assert result.returncode == 127, result.stdout
 
 
 def test_a_bare_command_that_does_not_exist_still_reports_itself(
