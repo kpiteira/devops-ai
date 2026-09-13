@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 
@@ -159,8 +160,8 @@ def _diagnose(
     ):
         return (
             f"{version} is not a version id in {ref}. Omit it to read the "
-            f"current version, or take an id from: az keyvault secret "
-            f"list-versions --vault-name {vault} --name {secret}"
+            f"current version, or take an id from: "
+            + _az_command("list-versions", "--vault-name", vault, "--name", secret)
         )
     # `az login` names itself in az's own guidance; matching the broader "please
     # run" would swallow unrelated advice such as `az account set`.
@@ -205,11 +206,25 @@ def _retry(vault: str, secret: str, version: str | None) -> str:
     operator's screen, into shell history and into CI logs is the leak this
     module refuses everywhere else.
     """
-    pinned = f" --version {version}" if version is not None else ""
-    return (
-        f"az keyvault secret show --vault-name {vault} "
-        f"--name {secret}{pinned} --output none"
+    pinned = ["--version", version] if version is not None else []
+    return _az_command(
+        "show", "--vault-name", vault, "--name", secret, *pinned,
+        # The retry is for the error, never the value.
+        "--output", "none",
     )
+
+
+def _az_command(*args: str) -> str:
+    """An `az` command line that is safe for an operator to paste into a shell.
+
+    `_parse` accepts any non-empty segment, and a reference does not only come
+    from the operator's own keyboard — a committed `[sandbox.secrets]` entry is
+    one too. Interpolating those segments raw put `$(…)` into text this module
+    explicitly tells a human to run, which is a command substitution waiting for
+    a copy-paste. Quoting makes it an argument instead. Ordinary vault and secret
+    names need no quotes, so the message a real failure produces is unchanged.
+    """
+    return shlex.join(["az", "keyvault", "secret", *args])
 
 
 def _names_code(lowered: str, code: str) -> bool:

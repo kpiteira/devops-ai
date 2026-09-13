@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import sys
 from pathlib import Path
 
@@ -465,6 +466,71 @@ class TestAzureCliFailures:
             tmp_path / "bin", code=3, stderr=azure_error("(SecretNotFound) gone")
         )
         assert check("K", REF, context(tmp_path)).status == ERROR
+
+
+class TestSuggestedCommandsAreSafeToPaste:
+    """Guidance this module tells a human to run is built, not interpolated.
+
+    A reference is not always the operator's own typing — a committed
+    `[sandbox.secrets]` entry is one too — and `_parse` accepts any non-empty
+    segment. The property under test is what a *shell* would make of the
+    suggested command, so the assertions parse it with `shlex.split` rather
+    than looking for quote characters.
+    """
+
+    # Slash-free on purpose: `_parse` splits on "/", so a payload containing one
+    # is rejected as malformed long before it reaches any guidance. That is not a
+    # defence — `$(id)` and `;whoami` need no slash at all.
+    #
+    # The spaces are load-bearing for the *test*, not the attack: `shlex.split`
+    # tokenizes, it does not evaluate, so a payload with no space comes back as
+    # one token whether or not it was ever quoted, and the assertion below could
+    # not fail. With spaces, unquoted guidance tokenizes into several arguments
+    # and the test goes red — which is the only reason it is worth running.
+    HOSTILE = "$(id) ; whoami"
+
+    def test_a_hostile_segment_stays_one_literal_argument_in_the_retry(
+        self, tmp_path: Path
+    ) -> None:
+        fake_az(tmp_path / "bin", code=1, stderr="")
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", f"akv://a-vault/{self.HOSTILE}", context(tmp_path))
+        command = caught.value.message.split("run: ", 1)[1]
+        assert shlex.split(command) == [
+            "az", "keyvault", "secret", "show",
+            "--vault-name", "a-vault", "--name", self.HOSTILE,
+            "--output", "none",
+        ], "a shell would run the segment instead of passing it"
+
+    def test_a_hostile_segment_stays_one_literal_argument_in_list_versions(
+        self, tmp_path: Path
+    ) -> None:
+        fake_az(
+            tmp_path / "bin",
+            code=1,
+            stderr=azure_error(
+                "(BadParameter) Method GET does not allow operation 'latest'"
+            ),
+        )
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", f"akv://a-vault/{self.HOSTILE}/latest", context(tmp_path))
+        command = caught.value.message.split("take an id from: ", 1)[1]
+        assert shlex.split(command) == [
+            "az", "keyvault", "secret", "list-versions",
+            "--vault-name", "a-vault", "--name", self.HOSTILE,
+        ]
+
+    def test_an_ordinary_name_is_not_dressed_up_in_quotes(
+        self, tmp_path: Path
+    ) -> None:
+        """Quoting must not make the message a real failure prints any uglier."""
+        fake_az(tmp_path / "bin", code=1, stderr="")
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", f"{REF}/abc123", context(tmp_path))
+        assert (
+            "az keyvault secret show --vault-name a-vault --name a-secret "
+            "--version abc123 --output none"
+        ) in caught.value.message
 
 
 # --- The tool is found on the PATH the child will use ---
