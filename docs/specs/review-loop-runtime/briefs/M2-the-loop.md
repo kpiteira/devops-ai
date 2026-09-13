@@ -262,7 +262,8 @@ Plus the standing gates: `make check` exits 0.
 
 ## Working environment
 
-- As M1. Additionally: `KREVIEW_ACCEPTANCE_REPO` names the scratch repository (A2) —
+- As M1. Additionally: `KREVIEW_ACCEPTANCE_REPO` names the scratch repository (A2:
+  `kpiteira/kreview-scratch`, private, default branch `main`, created 2026-09-13) —
   the authenticated `gh` user must be able to push branches, open and close PRs, and
   create and close issues there; Copilot automatic review is off there, so only the
   one paid test triggers a review. `KREVIEW_ACCEPTANCE_PAID=1` enables it.

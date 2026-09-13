@@ -1,7 +1,7 @@
 # Review loop runtime
 
 **Status:** planning
-**Signed off:** <!-- empty until Karl signs the walkthrough item by item -->
+**Signed off:** 2026-09-13 — Karl (A1–A9 confirmed one by one in the walkthrough; A9 confirmed as a restatement of the per-run budget, not a new cap; scratch repository created the same day)
 
 ## Intent
 
@@ -146,35 +146,39 @@ two skills shrink to the judgement and the guardrails they exist for.
   (`shape`, `root_cause`, `on_pinned_surface`, `repeat_of`, verdicts); the model can
   add a stop reason (`--stop`) but cannot remove one.
 
-## Assumptions
+<!-- A1–A9 were drafted as Assumptions and confirmed by Karl one by one on
+2026-09-13. IDs kept — the briefs and tests reference them. -->
 
-<!-- Inferred, not heard. Each becomes a decision only by Karl's word at sign-off. -->
 
 - **A1** — The name collision is accepted as D2 describes: skill `kreview` (judgement),
   command `kreview` (mechanics), subcommand form everywhere in skill text.
 - **A2** — The write-side acceptance tests run against a scratch repository Karl
-  creates, named by `KREVIEW_ACCEPTANCE_REPO` (proposed `kpiteira/kreview-scratch`,
-  private, Copilot automatic review **off**, Issues enabled). The tests open and close
+  creates, named by `KREVIEW_ACCEPTANCE_REPO` — `kpiteira/kreview-scratch`,
+  private, Copilot automatic review **off**, Issues enabled, created 2026-09-13. The tests open and close
   their own PRs and issues there. They skip when the variable is unset; M2 is not
-  delivered on skips.
+  delivered on skips. **Prerequisite for M2 — met 2026-09-13.**
 - **A3** — Exactly one test buys a Copilot review (the request-and-wait path). It is
   gated by `KREVIEW_ACCEPTANCE_PAID=1`, run once by the executor at PR time and once by
   the observer at verify, at Lite cost ($0.05–1 per GitHub's estimate). Every other
   test posts human review comments through the API and costs nothing.
 - **A4** — The loop stays model-driven and the tool never calls a model (Karl's answer
-  2 on 2026-09-13, recorded here to be signed as a decision).
+  2 on 2026-09-13).
 - **A5** — The cut is two milestones: M1 read side, M2 the loop. M2 is the larger
   brief; it can be split at sign-off if Karl wants smaller executor bites.
-- **A6** — Every DISCUSS disposition stops the loop (escalate). Today's text says
+- **A6** — Every DISCUSS disposition stops the loop (escalate). kbabysit 0.4.0 says
   "DISCUSS items that block merge-readiness"; the tool cannot judge "block", and a
   DISCUSS is by definition the human's.
 - **A7** — `apply` refuses to post on a merged or closed PR; `--dry-run` is the replay
   path on history.
 - **A8** — The babysit report comment is created at the first `apply` (status *in
   progress*, rounds so far) and rewritten each round, so the observer sees rounds as
-  they happen; `report` finalizes it. Today the comment appears only at the end.
+  they happen; `report` finalizes it. Before this feature the comment appeared only at the end.
 - **A9** — Budget default 3 rounds per run, `--max-rounds` raises it; a re-entry is a
   new run with a fresh budget and the inherited ledger (no cumulative cap — #61 item 7).
+
+## Assumptions
+
+<!-- Empty: all nine promoted above on 2026-09-13. -->
 
 ## Amendments
 
