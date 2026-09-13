@@ -7,6 +7,12 @@ which is why these live here rather than in `tests/unit/`.
 
 The environment is the point: `kinfra impl` and `ksecret run` are meant to run in
 containers, cron and CI, where `LC_ALL=C` is ordinary.
+
+A real child is necessary but not sufficient: macOS hardcodes the filesystem
+encoding to UTF-8 whatever `LC_ALL` says, so the fixture below changed nothing
+on any developer machine and every test here was vacuously green until CI first
+ran them on Linux (#58). They now skip where the C locale is inert, so a green
+means the fixture bit.
 """
 
 from __future__ import annotations
@@ -21,20 +27,67 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 ACCENTED = "café-über"
+# What a C locale gives a child anywhere but macOS, and so the one condition
+# every test in this file actually depends on.
+ASCII_FSENCODING = "ascii"
+
+# Prepended to every child: the same promise the fixture skips on, restated
+# where it has to hold — inside the child, ahead of the code under test.
+PRECONDITION = (
+    "import sys\n"
+    "assert sys.getfilesystemencoding() == 'ascii', (\n"
+    "    'the C-locale fixture is inert: ' + sys.getfilesystemencoding())\n"
+)
 
 
-@pytest.fixture()
-def c_locale() -> dict[str, str]:
+@pytest.fixture(scope="session")
+def c_locale_env() -> dict[str, str]:
     env = os.environ.copy()
     env.update(LC_ALL="C", LANG="C", PYTHONUTF8="0", PYTHONCOERCECLOCALE="0")
     return env
+
+
+@pytest.fixture(scope="session")
+def child_fsencoding(c_locale_env: dict[str, str]) -> str:
+    """What the fixture really produces here, asked once of a real child.
+
+    The parent cannot answer: its own filesystem encoding is fixed at
+    interpreter start and is not the one the fixture would give a child.
+    """
+    result = subprocess.run(
+        ["uv", "run", "--project", str(ROOT), "python", "-c",
+         "import sys; print(sys.getfilesystemencoding())"],
+        cwd=ROOT, env=c_locale_env, capture_output=True, text=True, timeout=300,
+    )
+    if result.returncode != 0:
+        pytest.fail(f"could not probe the child's encoding: {result.stderr}")
+    return result.stdout.strip()
+
+
+@pytest.fixture()
+def c_locale(
+    c_locale_env: dict[str, str], child_fsencoding: str
+) -> dict[str, str]:
+    """A C locale, or a skip where the platform declines to give one.
+
+    Skipping, never xfail: there is nothing here to expect a failure from. The
+    tests are right and the platform simply cannot run them.
+    """
+    if child_fsencoding != ASCII_FSENCODING:
+        pytest.skip(
+            f"the C locale is inert on this platform: a child under LC_ALL=C "
+            f"reports filesystem encoding {child_fsencoding!r}, not "
+            f"{ASCII_FSENCODING!r}, so nothing here would be exercised"
+        )
+    return dict(c_locale_env)
 
 
 def run_child(
     code: str, env: dict[str, str], cwd: Path
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["uv", "run", "--project", str(ROOT), "python", "-c", code],
+        ["uv", "run", "--project", str(ROOT), "python", "-c",
+         PRECONDITION + code],
         cwd=cwd, env=env, capture_output=True, text=True, timeout=300,
     )
 
@@ -64,11 +117,19 @@ def test_a_non_ascii_repo_path_is_decoded_not_crashed_on(
 def test_the_materialised_secrets_file_is_written_as_utf8(
     tmp_path: Path, c_locale: dict[str, str]
 ) -> None:
-    """kinfra provisioning must not die on a non-ASCII secret."""
+    """kinfra provisioning must not die on a non-ASCII secret.
+
+    The value crosses as the repr of its UTF-8 bytes rather than as itself: an
+    argv element is encoded with the filesystem encoding too, so an accented
+    literal in the `python -c` source never reaches the child under an ASCII
+    one — it dies decoding its own command line, before importing anything
+    (#58). Tests 1, 4 and 5 already move it as bytes; this one did not.
+    """
     result = run_child(
         "from pathlib import Path\n"
         "from devops_ai.provision import generate_secrets_file\n"
-        f"generate_secrets_file({{'K': {ACCENTED!r}}}, Path({str(tmp_path)!r}))\n"
+        f"value = {ACCENTED.encode()!r}.decode('utf-8')\n"
+        f"generate_secrets_file({{'K': value}}, Path({str(tmp_path)!r}))\n"
         "print('wrote')",
         c_locale, tmp_path,
     )
