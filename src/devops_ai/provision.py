@@ -191,5 +191,5 @@ def generate_secrets_file(
     path = slot_dir / SECRETS_FILE_NAME
     path.touch(mode=SECRETS_FILE_MODE, exist_ok=True)
     path.chmod(SECRETS_FILE_MODE)
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path

@@ -6,6 +6,7 @@ every case here runs the real code against a real directory.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -216,10 +217,26 @@ class TestTheToolIsFoundOnThePathTheChildWillUse:
             resolve("K", "op://v/i/f", context) == "value-from-the-context-path"
         ), "the provider searched a different PATH than the child would use"
 
-    def test_a_context_without_a_path_reports_missing_rather_than_crashing(
-        self, tmp_path: Path
+    def test_a_context_without_a_path_falls_back_to_the_system_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """os.defpath is what exec falls back to; discovery must use it too."""
+        bin_dir = tmp_path / "defbin"
+        bin_dir.mkdir()
+        self._fake_op(bin_dir, "value-from-the-default-path")
+        monkeypatch.setattr(os, "defpath", str(bin_dir))
+
+        context = ResolveContext(base_dir=tmp_path, env={})
+        assert resolve("K", "op://v/i/f", context) == "value-from-the-default-path"
+
+    def test_a_tool_on_no_searched_path_reports_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Isolated: whether /bin holds `op` is not this test's business."""
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        monkeypatch.setattr(os, "defpath", str(empty))
+
         context = ResolveContext(base_dir=tmp_path, env={})
         with pytest.raises(SecretResolutionError, match="not found"):
             resolve("K", "op://v/i/f", context)

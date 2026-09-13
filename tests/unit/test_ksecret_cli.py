@@ -51,6 +51,18 @@ class TestCheckInfra:
         assert lines["MISSING"].strip().startswith("error")
         assert "hunter2" not in result.output
 
+    def test_a_project_with_no_declared_secrets_is_a_usage_error_not_a_green(
+        self, project: Path
+    ) -> None:
+        """--infra reached the same "checked nothing" green the guard rejects."""
+        infra = project / ".devops-ai" / "infra.toml"
+        infra.write_text(infra.read_text().split("[sandbox.secrets]")[0])
+
+        result = runner.invoke(app, ["check", "--infra"])
+        assert result.exit_code == 2
+        assert "nothing to check" in result.output
+        assert "no sandbox secrets" in result.output
+
     def test_all_resolving_exits_zero(self, project: Path) -> None:
         infra = project / ".devops-ai" / "infra.toml"
         infra.write_text(

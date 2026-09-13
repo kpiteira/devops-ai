@@ -126,15 +126,6 @@ def check(
         typer.echo(f"ksecret check: {exc.strerror}: {exc.filename}", err=True)
         raise typer.Exit(1) from None
 
-    if not refs and not entries and not infra:
-        # A green that means "nothing was checked" is worse than no answer —
-        # and an --env-file holding only comments collects nothing at all.
-        typer.echo(
-            "ksecret check: nothing to check \u2014 name a reference, or pass "
-            "--env-file / --infra.",
-            err=True,
-        )
-        raise typer.Exit(2)
 
     context = ResolveContext(env=_base_environment(entries))
 
@@ -142,6 +133,18 @@ def check(
     results += [check_ref(_label(ref), ref, context) for ref in refs or []]
     if infra:
         results += _check_infra()
+
+    if not results:
+        # A green that means "nothing was checked" is worse than no answer. It
+        # is reachable three ways: no arguments, an --env-file holding only
+        # comments, and a project whose [sandbox.secrets] is absent or empty.
+        detail = (
+            "the project declares no sandbox secrets"
+            if infra
+            else "name a reference, or pass --env-file / --infra"
+        )
+        typer.echo(f"ksecret check: nothing to check \u2014 {detail}.", err=True)
+        raise typer.Exit(2)
 
     for result in results:
         _emit(f"{result.format()}\n")

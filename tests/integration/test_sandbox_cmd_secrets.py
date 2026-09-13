@@ -88,6 +88,34 @@ def test_a_reused_secrets_file_is_tightened_before_the_sandbox_starts(
     assert legacy.read_text() == f"DB_PASSWORD={SECRET}\n", "reuse, not re-resolve"
 
 
+def test_a_legacy_file_is_tightened_even_when_resolution_fails(
+    tmp_path: Path,
+) -> None:
+    """The RESOLVE path returns before rewriting the file — it must still be 0600."""
+    main_repo, worktree = _main_repo_with_worktree(tmp_path)
+    registry_path, slot_dir = _registry_with_slot(tmp_path, worktree)
+    # No .env in the main repo, so the configured reference cannot resolve.
+    legacy = slot_dir / ".env.secrets"
+    legacy.write_text("DB_PASSWORD=from-an-older-slot\n")
+    legacy.chmod(0o644)
+    # A name the config does not declare forces RESOLVE rather than REUSE.
+    legacy.write_text("STALE_NAME=old\n")
+    legacy.chmod(0o644)
+
+    with (
+        patch("devops_ai.cli.sandbox_cmd.REGISTRY_PATH", registry_path),
+        patch("devops_ai.cli.sandbox_cmd.start_sandbox") as docker,
+        patch("devops_ai.cli.sandbox_cmd.run_health_gate", return_value=True),
+    ):
+        code, msg = sandbox_start_command(worktree_path=worktree)
+
+    assert code == 1, msg
+    docker.assert_not_called()
+    assert stat.S_IMODE(legacy.stat().st_mode) == 0o600, (
+        "a failed resolution left the old secrets file world-readable"
+    )
+
+
 def _main_repo_with_worktree(tmp_path: Path) -> tuple[Path, Path]:
     main_repo = tmp_path / "main"
     main_repo.mkdir()

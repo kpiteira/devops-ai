@@ -41,6 +41,10 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
             [executable, "read", "--no-newline", ref],
             capture_output=True,
             text=True,
+            # The operator's locale is not the secret's encoding: under C, a
+            # non-ASCII value would raise UnicodeDecodeError before it could be
+            # returned. Matches the CLI's UTF-8 output path.
+            encoding="utf-8",
             timeout=TIMEOUT,
             env=dict(ctx.env),
         )

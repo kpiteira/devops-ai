@@ -48,7 +48,7 @@ def _materialised_names(secrets_file: Path) -> set[str] | None:
     Names only — never values.
     """
     try:
-        text = secrets_file.read_text()
+        text = secrets_file.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
     names: set[str] = set()
@@ -153,15 +153,14 @@ def _sandbox_up(
     secrets_plan = plan_secrets(
         config.secrets, slot_dir, refresh=refresh_secrets
     )
+    # Before anything that can fail or read it: a file written before the mode
+    # was enforced must not stay world-readable through startup, nor be left
+    # that way by a resolution error returning below, nor by a failed start.
+    secure_secrets_file(slot_dir)
     if secrets_plan is SecretsPlan.RESOLVE:
         resolved_secrets, secret_errors = resolve_all_secrets(
             config.secrets, main_repo
         )
-    elif secrets_plan is SecretsPlan.REUSE:
-        # Before compose reads it, not after the sandbox is up: a file written
-        # before the mode was enforced would otherwise stay world-readable for
-        # the whole of startup — and for good, if startup fails.
-        secure_secrets_file(slot_dir)
 
     all_errors: list[SecretResolutionError | FileProvisionError] = (
         file_errors + secret_errors  # type: ignore[operator]
