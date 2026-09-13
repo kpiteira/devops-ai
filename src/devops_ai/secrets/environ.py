@@ -37,9 +37,9 @@ ENCODING = "utf-8"
 # is not: `env://NAME` resolves to an inherited value, so its surrogates stand
 # for real bytes too, and encoding those strictly would refuse a reference that
 # works today. The values where a surrogate stands for nothing are the ones a
-# provider can manufacture by decoding a text format — only `akv://`, via
-# `json.loads` — and that is where they are refused, at the boundary that knows
-# which kind it has. Here, provenance is already gone.
+# provider manufactures with `json.loads` — `akv://` and `bao://` — and that is
+# where they are refused, at the boundary that still knows which kind it has
+# (`providers._text.utf8_text`). By here a `str` carries no provenance at all.
 ERRORS = "surrogateescape"
 
 

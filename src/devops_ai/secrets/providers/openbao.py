@@ -26,6 +26,7 @@ from typing import NamedTuple
 
 from ..context import ResolveContext
 from ..errors import ProviderError
+from ._text import utf8_text
 
 SCHEME = "bao://"
 KEY_SEPARATOR = "#"
@@ -73,7 +74,13 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
     # The `bao` CLI writes strings, but the API stores arbitrary JSON, so a
     # number or a boolean is possible. Render it as it was stored rather than
     # refuse a secret the user can plainly see in their vault.
-    return value if isinstance(value, str) else json.dumps(value)
+    #
+    # Only the `str` branch needs checking: `json.dumps` defaults to
+    # `ensure_ascii`, so a surrogate nested in a rendered structure comes back
+    # as the seven ASCII characters of its escape, which encode fine.
+    if not isinstance(value, str):
+        return json.dumps(value)
+    return utf8_text(value, ref, "The server")
 
 
 def _parse(ref: str) -> tuple[str, str, str]:

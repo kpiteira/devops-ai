@@ -608,16 +608,19 @@ class TestAzureCliFailures:
     def test_a_json_escape_for_a_lone_surrogate_is_refused_not_returned(
         self, tmp_path: Path
     ) -> None:
-        """The one way a *resolved* value can carry a surrogate — and it must not.
+        """`json.loads` is the one way a *resolved* value can carry a surrogate.
 
-        az's output is decoded UTF-8 strict, so no surrogate survives that. But
-        `json.loads` manufactures one from a `\\uD800` escape, and nothing
-        downstream can represent it: `encode_env` encodes with
-        `surrogateescape`, which would hand the child a raw byte instead of the
-        value's UTF-8 — a different secret than the vault holds, with nothing
-        raised. That handler is right for an inherited value (`env://` resolves
-        to one), so the refusal belongs here, where a surrogate stands for no
-        byte at all.
+        az's output is decoded UTF-8 strict, so no surrogate survives that — but
+        a JSON escape is not a decode, and nothing downstream can represent what
+        it produces: `encode_env` encodes with `surrogateescape`, which would
+        hand the child a raw byte instead of the value's UTF-8 — a different
+        secret than the vault holds, with nothing raised. That handler is right
+        for an inherited value (`env://` resolves to one), so the refusal
+        belongs at a provider boundary, which still knows which kind it has.
+
+        Shared with `bao://`, the other JSON-speaking provider, in
+        `providers._text`; `tests/architecture/test_child_env_encoding.py`
+        keeps a third one from forgetting.
         """
         body = "recognisable-secret-body"
         fake_az(tmp_path / "bin", stdout=f'"\\ud800{body}"')
