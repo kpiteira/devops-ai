@@ -255,6 +255,16 @@ class TestOpenBaoReferenceShape:
         with pytest.raises(SecretResolutionError, match="not a server address"):
             resolve("K", "bao://kv/a#key", context)
 
+    @pytest.mark.parametrize("address", ["http://:8200", "https://:443"])
+    def test_an_address_that_names_no_host_is_refused(self, address: str) -> None:
+        """A `netloc` of `:8200` is non-empty and its port parses — but `hostname`
+        is None, and urllib reads the empty host as localhost. A typo'd address
+        would present the token to a server the address never named.
+        """
+        context = ResolveContext(env={"BAO_ADDR": address, "BAO_TOKEN": "t"})
+        with pytest.raises(SecretResolutionError, match="not a server address"):
+            resolve("K", "bao://kv/a#key", context)
+
     @pytest.mark.skipif(
         getattr(os, "geteuid", lambda: 1)() == 0,
         reason="root reads through mode 000",

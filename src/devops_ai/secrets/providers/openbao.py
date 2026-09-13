@@ -85,7 +85,11 @@ def _address(ctx: ResolveContext) -> str:
             parts = urllib.parse.urlsplit(value)
             usable = (
                 parts.scheme in NETWORK_URL_SCHEMES
-                and bool(parts.netloc)
+                # `hostname`, not `netloc`: `http://:8200` has a netloc and a
+                # good port but names no host, and urllib reads an empty host
+                # as localhost — presenting the token to a server the address
+                # never named, which is the one thing this module decides.
+                and bool(parts.hostname)
                 and _port_is_a_port(parts)
                 # Userinfo survives in `netloc`, and the address it belongs to
                 # is named in the sentences this module raises. A password in
