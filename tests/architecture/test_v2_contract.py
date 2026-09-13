@@ -182,6 +182,9 @@ def test_babysit_loop_is_pinned_to_a_forked_opus_subagent() -> None:
     assert fields.get("context", "").strip() == "fork"
     assert fields.get("agent", "").strip() == "general-purpose"
     assert "opus" in fields.get("model", "").strip()
+    # Not cosmetic: background:true would deliver the report as a task notification
+    # long after the invoking turn, which is the unread round the skill forbids.
+    assert fields.get("background", "").strip() == "false"
 
 
 def test_observer_skill_exists_with_its_launch_guards() -> None:

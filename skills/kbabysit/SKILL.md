@@ -45,9 +45,11 @@ What that costs you, and how this skill pays it:
 
 - **The fork sees no conversation history** — only this file with `$ARGUMENTS` substituted.
   So the PR number must either be passed explicitly (`/kbabysit 42`) or be resolvable from
-  the checkout, which step 0 does with `gh pr view`. The fork starts in the invoking
-  session's working directory (verified 2026-09-12), so a branch-derived PR resolves
-  correctly; if `gh pr view` finds no PR, say so and stop rather than guessing.
+  the checkout. Step 0 reads the explicit number **first** and only falls back to
+  `gh pr view` — the other order silently babysits the branch's PR when you asked for a
+  different one. The fork starts in the invoking session's working directory (verified
+  2026-09-12), so that fallback resolves correctly; when neither source yields a number,
+  say so and stop rather than guessing.
 - **`background: false`** makes the invoking turn wait for the report instead of collecting
   it from a background task later. The ownership rule below — an unread review round is not
   done — is the reason: a report that lands as a background notification after the session
@@ -75,7 +77,9 @@ Copilot round sat overnight on a side PR nobody owned. For a milestone PR the ex
 ## 0. Preflight
 
 ```bash
-PR_NUMBER=$(gh pr view --json number -q '.number')   # or the <pr-number> from the arguments line above
+PR_NUMBER=$(printf '%s' "$ARGUMENTS" | sed 's/^#//' | grep -oE '^[0-9]+')   # explicit <pr-number>, if given
+[ -n "$PR_NUMBER" ] || PR_NUMBER=$(gh pr view --json number -q '.number')   # else this branch's PR
+[ -n "$PR_NUMBER" ] || echo "NO PR: no number in the arguments and none open for this branch"
 REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner')
 gh pr view "$PR_NUMBER" --json state,isDraft,mergeable,headRefName,baseRefName,statusCheckRollup
 ```
