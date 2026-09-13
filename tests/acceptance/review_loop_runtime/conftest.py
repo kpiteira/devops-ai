@@ -24,7 +24,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
 REPO = "kpiteira/devops-ai"
-COPILOT = "copilot-pull-request-reviewer"
+COPILOT = "copilot-pull-request-reviewer[bot]"  # REST spelling, with the suffix
 
 # --- measured on 2026-09-13 (spec: Discovered context) --------------------------
 PR49 = 49

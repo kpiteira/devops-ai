@@ -38,8 +38,9 @@ Everything in M1 holds. Additions:
 - `--request` requests a review from `--reviewer` (default `copilot`, meaning the
   Copilot reviewer as `gh pr edit --add-reviewer @copilot` addresses it) unless a
   submitted review by that reviewer exists for `head_sha` or a request to it is already
-  pending. The packet gains `requested: requested | already-reviewed | pending |
-  not-requested`.
+  pending; `--reviewer none` requests nobody and only waits (what the free acceptance
+  tests use, and `apply --next` honours it). The packet gains `requested: requested |
+  already-reviewed | pending | not-requested`.
 - `--wait SECONDS` returns as soon as a review is submitted, or a review thread or
   issue comment is created, later than the request time (or than `since` without
   `--request`), else at the deadline. The packet gains `no_show` (true when the deadline

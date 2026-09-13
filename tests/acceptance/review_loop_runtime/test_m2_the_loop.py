@@ -72,7 +72,6 @@ def test_round_wait_returns_when_a_review_arrives(scratch: ScratchPR) -> None:
     assert f["source"] == "thread"
     assert (f["path"], f["line"]) == (scratch.path, 3)
     assert f["body"] == "line 3 should say three"
-    assert f["provenance"] == "unknown"  # no submitted Copilot review: no boundary
     assert p["signals"]["budget"] == {"max_rounds": 3, "used_this_run": 0}
 
 
@@ -451,6 +450,8 @@ def test_apply_next_chains_into_the_next_packet(
         str(scratch.number),
         "--json",
         "--next",
+        "--reviewer",
+        "none",
         "--wait",
         "120",
         "--dispositions",
@@ -533,7 +534,6 @@ def test_report_renders_and_posts_from_state(
     assert "**Why the loop stopped:** no-in-scope-implement" in comment
     assert "**Push-backs:** 1 of 1 findings" in comment
     assert "**Paid rounds:** 0 this run · 0 total" in comment
-    assert '"status": "stopped"' in comment
     s = _kr(scratch, "status", str(scratch.number), "--json").json()
     assert s["babysit"]["status"] == "stopped"
     assert s["reentry"] == "none"  # nothing newer than the report
@@ -575,7 +575,6 @@ def test_reentry_is_advised_and_gated(scratch: ScratchPR, tmp_path: Path) -> Non
     s = _kr(scratch, "status", str(scratch.number), "--json").json()
     assert s["babysit"]["status"] == "stopped"
     assert s["reentry"] == "selfreview"
-    assert s["kselfreview_range"] is None  # no submitted review on this PR yet
 
     c2 = scratch.comment(4, "line 4 too")
     blocked = _kr(

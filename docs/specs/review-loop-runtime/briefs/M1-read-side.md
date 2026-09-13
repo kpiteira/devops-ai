@@ -35,6 +35,8 @@ fetches the PR head and any review commit the clone lacks into that clone's obje
 store; it never modifies `HEAD`, the index, the working tree, or any local branch.
 Every command accepts `--repo OWNER/NAME` (default: the checkout's GitHub repository as
 `gh repo view` resolves it) and `--json` (machine form; without it, the text form).
+Logins are spelled as the REST API spells them — an app carries its `[bot]` suffix
+(`copilot-pull-request-reviewer[bot]`), whichever API a value was fetched from.
 Timestamps are ISO-8601 UTC as GitHub reports them; `--since`/`--until` accept
 ISO-8601 with `Z` or an offset (a naive value is UTC).
 
@@ -48,11 +50,11 @@ JSON form, every key present:
 | `checkout` | `{branch, matches_pr}` — `matches_pr` true when the local `HEAD` is `head_sha` or the current branch is `head_ref`; both `null` outside a clone of the repo |
 | `scope` | `{status: present\|missing\|empty, text}` — `text` is the `## Review scope` section body verbatim (up to the next `## ` heading), `""` when absent; `empty` when the heading exists with only blank lines under it |
 | `ci` | `{status: passing\|failing\|pending\|none, checks: [{name, status: passing\|failing\|pending\|skipped}]}` for `head_sha`; `failing` if any check failed, else `pending` if any is running, else `passing`, `none` with no checks |
-| `reviews` | `{copilot_total, copilot_reviewed_head, copilot_requested, effort_levels, effort_parse_failed, last_reviewed_sha, unreviewed_commits}` — `copilot_total` counts submitted (not PENDING) reviews by a login containing `copilot`, which is the PR's paid-round total; `effort_levels` is the sorted distinct set parsed from `**Review effort level:** X` footers; `effort_parse_failed` is true when Copilot reviews exist and none carries the footer; `last_reviewed_sha` is the commit of the latest submitted review (any reviewer), `null` without one; `unreviewed_commits` lists the commits in `last_reviewed_sha..head_sha`, oldest first |
+| `reviews` | `{copilot_total, copilot_reviewed_head, copilot_requested, effort_levels, effort_parse_failed, last_reviewed_sha, unreviewed_commits}` — `copilot_total` counts submitted (not PENDING) reviews by a login containing `copilot`, which is the PR's paid-round total; `effort_levels` is the sorted distinct set parsed from `**Review effort level:** X` footers; `effort_parse_failed` is true when Copilot reviews exist and none carries the footer; `last_reviewed_sha` is the commit of the latest submitted review (any reviewer), `null` without one; `unreviewed_commits` lists the commits in `last_reviewed_sha..head_sha`, oldest first, and is `[]` when `last_reviewed_sha` is `null` |
 | `boundary` | `{sha, status: ok\|none\|none-reachable\|missing}` — the provenance boundary (definition under `round`) |
 | `automation` | `{claude_review}` — true when a check run or workflow on `head_sha` is named like `Claude Code Review` / `claude-code-action` |
 | `babysit` | `{report_present, comment_id, status: none\|running\|stopped, run, rounds, paid_rounds_this_run}` — from the issue comment whose body starts with `## Babysit report`; `status`/`run`/`rounds`/`paid_rounds_this_run` come from the state block M2 introduces and are `none`/`0`/`0`/`null` when the comment carries none |
-| `reentry` | `none` (no report), `selfreview` (report present and nothing new since the latest review except commits nobody reviewed), `paid` (report present and a review, thread, or issue comment newer than the report) |
+| `reentry` | `none` (no report, or a report with nothing newer than it), `paid` (a review, thread, or issue comment is newer than the report), `selfreview` (a report, commits newer than it, and nothing else newer than it) |
 | `kselfreview_range` | `"<last_reviewed_sha>..<head_sha>"`, `null` without a reviewed sha |
 | `verdict` | `"ready"`, or `"stop: <reason>"` with the first reason that holds in this order: `merged`, `closed`, `draft`, `scope-missing`, `scope-empty`, `checkout-mismatch` |
 
@@ -122,7 +124,8 @@ Text form, in this order: a header with the PR, head, window, and boundary; the 
 text; each review as `author · effort · state · submitted_at` followed by its summary;
 each finding as one line `[<id>] <source> <path>:<line> <provenance>` followed by its
 body verbatim and its replies (`author: body`); the comments; the `signals` block as one
-`key: value` line per signal. Every finding id and every `path:line` appears verbatim.
+`key: value` line per signal, booleans spelled `true`/`false`. Every finding id and
+every `path:line` appears verbatim.
 
 ### `kreview --help`
 
