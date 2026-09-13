@@ -247,17 +247,25 @@ briefs and tests reference them. -->
   on as different bytes, and never quoted in the refusal. One shared `secrets.encode_env()`
   builds the POSIX bytes environment for all
   three spawn sites (`ksecret run`, the `op://` and `akv://` providers), encoding with
-  `surrogateescape` so a byte the parent's locale could *not* decode — the one
-  `os.environ` therefore holds as a surrogate — reaches the child unchanged, and naming
-  only the variable for the one input that still cannot encode. That round-trip is
-  narrower than "an inherited value passes through byte for byte", and the difference is
-  measured rather than reasoned: under a *decodable* non-UTF-8 locale (ISO-8859-1, where
-  byte `0xE9` is held as `é` and not as a surrogate) the child now receives UTF-8
-  `C3 A9` where before #58 it received `E9`. That is the promise above being kept — `C3
-  A9` is the UTF-8 of the character `os.environ` holds — but it is a behaviour change for
-  inherited variables under such a locale. Whether `env://` should instead preserve the
-  original bytes, or refuse them by name, is a one-line decision left open for Karl on
-  PR #62 and does not change anything above. Parsing a text format is what
+  `surrogateescape`, so a byte the parent's locale could *not* decode — the one
+  `os.environ` therefore holds as a surrogate — reaches the child unchanged.
+  The promise is about values devops-ai *resolves into* a child's environment, and
+  deliberately not about the ones it merely inherits. An inherited variable is handed on
+  exactly as the parent holds it, through `os.fsencode` — the inverse of the decode that
+  produced it — because it is not ours to re-spell. `PATH` is why: a directory whose
+  on-disk name is the byte `E9` is not found by a child told to look in `C3 A9`, and
+  under a *decodable* non-UTF-8 locale (`iso8859-15`, where `E9` is held as `é` rather
+  than as a surrogate) those two differ. Encoding the whole environment alike turned
+  `ksecret run -- <bare command>` into exit 127; measured on Linux, not reasoned. So
+  `encode_env` takes the names its caller declared: `ksecret run` names every entry of
+  its env files (the resolved references plus the declared literals), and the two
+  provider spawns name nothing, because they inject nothing — `op` and `az` receive the
+  operator's own environment. Inherit is the default, so a caller that forgets fails to
+  apply the promise to its own values rather than silently re-spelling a child's whole
+  environment. What remains open for Karl on PR #62 is narrower than it was: a `$VAR` or
+  `env://` entry is *declared*, so it is encoded UTF-8 like any other, and whether that
+  one case should instead preserve the inherited bytes is a one-line decision that
+  changes nothing above. Parsing a text format is what
   manufactures such a value — `json.loads` turns a `\uD800` escape into a lone surrogate
   standing for no byte, and JSON is only today's way of doing it — so the rule is on what
   a provider *returns*, not on how it got there: `resolver` refuses any resolved value
