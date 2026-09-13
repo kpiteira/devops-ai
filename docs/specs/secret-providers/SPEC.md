@@ -233,8 +233,8 @@ briefs and tests reference them. -->
   bare traceback — pre-existing, made reachable by KV-stored PEMs. Issue #50; out of
   M2's outcome. Karl 2026-09-13.
 - [x] 2026-09-13 (M3) decision, follow-up (issue #60): `akv://` vault and secret segments are to be
-  validated against Azure's own name rules (`^[a-zA-Z0-9-]{3,24}$` vault,
-  `^[0-9a-zA-Z-]+$` secret) before anything is spawned, refusing malformed references
+  validated against Azure's own name rules (`^[a-zA-Z0-9-]{3,24}\Z` — strict end of string, never `$`, which also matches before a trailing newline vault,
+  `^[0-9a-zA-Z-]+\Z` secret) before anything is spawned, refusing malformed references
   with a plain message. Root cause of PR #49 review rounds 6–11 (every one an echo of an
   unvalidated segment in `az`'s error text). Changes which references the provider
   accepts (pinned Surface). Acknowledged by Karl 2026-09-13; lands as a small PR after
@@ -245,7 +245,7 @@ briefs and tests reference them. -->
   own refusal used to earn a round trip later. The downstream anchoring from rounds 6–11
   stays; the one branch the source check made unreachable (Key Vault answering a non-id
   version segment as a refused operation) is removed rather than left writing the same
-  sentence in a second place.
+  sentence in a second place. Landed by [#67](https://github.com/kpiteira/devops-ai/pull/67) (`347a22d`); Karl 2026-09-13: rules stay looser than Key Vault's own (character set and length only — matching Azure exactly would be a spec change), and the 32-hex version rule is accepted as shipped (observer's live M3 acceptance run 6/6 at the PR head).
 - [x] 2026-09-13 (#58) outcome refinement: a spawned child receives the exact UTF-8 bytes
   of every resolved value whatever the parent's locale, and that encoding never leaks a
   value character. Under `LC_ALL=C` CPython encoded the child environment with the locale's
