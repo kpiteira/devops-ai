@@ -9,9 +9,8 @@ them — the `BAO_*` spelling first, then `VAULT_*`, then the token file
 Two rules hold everywhere below. Nothing that answers back carries a value: a
 missing key is named, its siblings are not, and a server error is reported by
 status rather than by echoing a response body. And the token goes only to the
-server the user named — a redirect off that server is refused rather than
-followed, and an ambient `HTTP_PROXY` is not used, because urllib would carry
-the token header to both.
+address that was configured — no redirect is ever followed, and an ambient
+`HTTP_PROXY` is not used, because urllib would carry the token header to both.
 """
 
 from __future__ import annotations
@@ -39,15 +38,11 @@ HEADER_ENCODING = "latin-1"
 # urlopen speaks more than the web: an address typo'd into a `file:` URL would
 # otherwise read a local path and hand it back as a secret.
 NETWORK_URL_SCHEMES = frozenset({"http", "https"})
-# What a scheme means when the authority leaves the port out, so that
-# `https://vault:443` and `https://vault` are the one endpoint they are.
-DEFAULT_PORTS = {"http": 80, "https": 443}
 TRAVERSAL = frozenset({".", ".."})
-# Which kind of hop was refused; a bare 30x also means "no location" and "a
-# loop", and neither of those is a hop at all.
-REFUSED_HOST = "host"
-REFUSED_SCHEME = "scheme"
 TIMEOUT = 30
+# Every 3xx, not an enumerated few: which ones urllib would have followed is
+# exactly the judgement this provider declines to make.
+REDIRECT_MIN, REDIRECT_MAX = 300, 400
 
 
 class Server(NamedTuple):
@@ -260,70 +255,22 @@ def _tls(ctx: ResolveContext) -> ssl.SSLContext | None:
     return None
 
 
-class _SameServerRedirects(urllib.request.HTTPRedirectHandler):
-    """Follow a redirect only while it stays on the server the user named.
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect rather than deciding which ones are safe.
 
-    urllib copies the request's headers onto the redirected request, so the
-    default handler would present `X-Vault-Token` to whatever host a `Location`
-    names. A server's own path cleanup still resolves; a hop to another host
-    does not, and surfaces as the redirect status instead.
+    Following a 3xx means judging, per hop, whether the location it names may
+    be handed a vault token — the scheme, the host, the port, and whatever the
+    next hop says after that. That is attack surface out of proportion to what
+    this provider is for (Karl's call, 2026-09-13), and urllib copies the
+    request's headers onto the redirected request, so a wrong judgement hands
+    the token over silently. Returning None here means every 3xx surfaces as
+    its own status instead.
     """
-
-    def __init__(self) -> None:
-        self.refused: str | None = None
 
     def redirect_request(  # type: ignore[no-untyped-def]
         self, req, fp, code, msg, headers, newurl
     ):
-        here, there = _origin(req.full_url), _origin(newurl)
-        # Host before scheme: an `http` -> `https` upgrade moves the port with
-        # the scheme, and calling that a different endpoint would report the
-        # wrong one of the two.
-        if here.host != there.host:
-            self.refused = REFUSED_HOST
-            return None
-        if here.scheme != there.scheme:
-            # Same host, so this is the canonical http-to-https upgrade. It is
-            # still not followed: the token went out over the scheme that was
-            # configured *before* this answer arrived, and quietly completing
-            # the request would hide that it did.
-            self.refused = REFUSED_SCHEME
-            return None
-        if here.endpoint != there.endpoint:
-            # Same host and scheme, another port: a different service on the
-            # same machine, which the token was never pointed at.
-            self.refused = REFUSED_HOST
-            return None
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-class Origin(NamedTuple):
-    """What decides whether the token may travel, and how it may not."""
-
-    scheme: str
-    host: str
-    port: int
-
-    @property
-    def endpoint(self) -> tuple[str, int]:
-        """The machine and service, with the scheme's default port filled in."""
-        return (self.host, self.port)
-
-
-def _origin(url: str) -> Origin:
-    try:
-        parts = urllib.parse.urlsplit(url)
-        scheme = parts.scheme.lower()
-        # `is not None`, not `or`: an explicit `:0` is a port, and a bogus one.
-        # `_address` already refuses it in the configured address, so letting a
-        # redirect normalise it to the default would refuse and allow the same
-        # thing in the two halves of one policy.
-        port = (
-            parts.port if parts.port is not None else DEFAULT_PORTS.get(scheme, 0)
-        )
-    except ValueError:
-        return Origin("", url.lower(), 0)
-    return Origin(scheme, (parts.hostname or "").lower(), port)
+        return None
 
 
 def _read_secret(
@@ -341,7 +288,6 @@ def _read_secret(
         headers={"X-Vault-Token": token},
         method="GET",
     )
-    redirects = _SameServerRedirects()
     opener = urllib.request.build_opener(
         # An empty ProxyHandler, not the default one: `build_opener` would
         # otherwise install a handler that reads `HTTP_PROXY` from the process
@@ -349,7 +295,7 @@ def _read_secret(
         # comes from — and send the token header to that proxy instead of to
         # the server the reference named.
         urllib.request.ProxyHandler({}),
-        redirects,
+        _NoRedirects(),
         *([urllib.request.HTTPSHandler(context=tls)] if tls is not None else []),
     )
     try:
@@ -360,9 +306,7 @@ def _read_secret(
         # socket open for as long as the error is held, and `resolve_all` holds
         # every one of them.
         exc.close()
-        raise _status_error(
-            exc.code, ref, mount, path, server, redirects.refused
-        ) from None
+        raise _status_error(exc.code, ref, mount, path, server) from None
     except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
         # HTTPException is not an OSError: a truncated body raises
         # `IncompleteRead` out of `.read()`, which would otherwise leave the
@@ -408,7 +352,6 @@ def _status_error(
     mount: str,
     path: str,
     server: Server,
-    refused: str | None = None,
 ) -> ProviderError:
     """What an HTTP status means, without reading the body back to the user.
 
@@ -432,27 +375,12 @@ def _status_error(
             f"The server is sealed or standing by (HTTP {code}); it cannot "
             f"answer for {ref} yet."
         )
-    if code in (301, 302, 303, 307, 308):
-        if refused == REFUSED_HOST:
-            return ProviderError(
-                f"The server redirected {ref} to another server (HTTP "
-                f"{code}), which a token must not follow. Point "
-                f"{server.variable} at the server that holds the secret."
-            )
-        if refused == REFUSED_SCHEME:
-            return ProviderError(
-                f"The server redirected {ref} to the same host on another "
-                f"scheme (HTTP {code}). The token has already gone to "
-                f"{server.base} as {server.variable} spells it, and following "
-                f"the redirect would not undo that — set {server.variable} to "
-                f"the address the server actually serves."
-            )
-        # Nothing was refused, so the token was never at stake: urllib stopped
-        # for its own reasons — no `Location` to follow, or a loop of them.
+    if REDIRECT_MIN <= code < REDIRECT_MAX:
         return ProviderError(
-            f"The server answered {ref} with a redirect (HTTP {code}) that "
-            f"could not be followed: it carried no location, or looped. The "
-            f"server is misconfigured."
+            f"The server answered {ref} with a redirect (HTTP {code}), and a "
+            f"redirect is never followed — the token goes only to the address "
+            f"that was configured. Point {server.variable} at the server that "
+            f"holds the secret."
         )
     return ProviderError(f"The server returned HTTP {code} for {ref}.")
 

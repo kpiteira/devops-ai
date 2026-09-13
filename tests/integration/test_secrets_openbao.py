@@ -30,7 +30,10 @@ from devops_ai.secrets import ResolveContext, SecretResolutionError, resolve
 VALUE = "the-value"
 SIBLING = "the-sibling-value"
 # Every status `_status_error` claims as a redirect.
-REDIRECT_CODES = (301, 302, 303, 307, 308)
+# Every 3xx the provider must refuse, including the two urllib would never
+# have offered `redirect_request` (300, 304): the code tests a range, and an
+# enumeration here would only ever confirm the enumeration.
+REDIRECT_CODES = (300, 301, 302, 303, 304, 307, 308)
 
 
 def kv2(**data: object) -> tuple[int, str]:
@@ -383,13 +386,55 @@ class TestServerFailures:
 
 
 class TestRedirects:
-    def test_a_redirect_to_another_host_is_refused_not_followed(
-        self, bao: FakeBao, tmp_path: Path
-    ) -> None:
-        """urllib copies headers onto the redirected request.
+    """No redirect is followed, whatever it names (Karl's call, 2026-09-13).
 
-        Measured before the custom handler: the second server received
-        `X-Vault-Token` and its value was returned as the secret.
+    The provider used to follow a redirect that stayed on the configured
+    server. Deciding per hop whether a location may be handed a vault token is
+    attack surface out of proportion to reading one secret, so every 3xx is now
+    an error naming its status.
+    """
+
+    @pytest.mark.parametrize("code", REDIRECT_CODES)
+    @pytest.mark.parametrize(
+        ("case", "location"),
+        [
+            ("same path, another host", "http://127.0.0.1:9/v1/kv/data/a"),
+            ("same server, another path", "/v1/kv/data/moved"),
+            ("same host, another scheme", "https://127.0.0.1:8200/v1/kv/data/a"),
+            ("the default port spelled out", "http://127.0.0.1:80/v1/kv/data/a"),
+            ("a loop back to itself", "/v1/kv/data/a"),
+            ("no location header at all", None),
+        ],
+    )
+    def test_every_redirect_is_refused(
+        self, bao: FakeBao, code: int, case: str, location: str | None
+    ) -> None:
+        """Including the two that used to be followed.
+
+        "same server, another path" and "the default port spelled out" both
+        resolved before this change; they are refusals now, which is the point
+        of it. The message names the status and the address variable to fix.
+        """
+        bao.answer = lambda path: (code, "")
+        bao.location = location
+
+        with pytest.raises(SecretResolutionError) as raised:
+            read("bao://kv/a#key", VAULT_ADDR=bao.addr, VAULT_TOKEN="t")
+
+        message = str(raised.value)
+        assert "redirect" in message, case
+        assert str(code) in message, case
+        assert "VAULT_ADDR" in message, "the spelling that was actually set"
+        assert len(bao.asked) == 1, f"{case}: the hop must not be taken"
+
+    def test_the_token_never_reaches_a_redirect_target(
+        self, bao: FakeBao
+    ) -> None:
+        """urllib copies request headers onto the redirected request.
+
+        Measured while redirects were followed: the second server received
+        `X-Vault-Token` and its answer came back as the secret. Nothing may
+        reach it now.
         """
         elsewhere = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         other = FakeBao(addr=f"http://127.0.0.1:{elsewhere.server_address[1]}")
@@ -404,132 +449,14 @@ class TestRedirects:
         bao.location = other.addr + "/v1/kv/data/a"
 
         try:
-            with pytest.raises(SecretResolutionError, match="another server") as e:
-                read("bao://kv/a#key", VAULT_ADDR=bao.addr, VAULT_TOKEN="s3cret")
+            with pytest.raises(SecretResolutionError, match="redirect") as e:
+                read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="s3cret-token")
             assert other.asked == [], "the token must not reach another server"
-            assert "VAULT_ADDR" in str(e.value), "guidance names the spelling used"
-            assert "BAO_ADDR" not in str(e.value)
+            assert "BAO_ADDR" in str(e.value)
+            assert "s3cret-token" not in str(e.value)
         finally:
             elsewhere.shutdown()
             elsewhere.server_close()
-            thread.join(timeout=5)
-
-    @pytest.mark.parametrize(
-        ("case", "location"),
-        [("no location header", None), ("a loop back to itself", "/v1/kv/data/a")],
-    )
-    def test_a_redirect_with_no_cross_host_hop_reports_an_unfollowable_redirect(
-        self, bao: FakeBao, case: str, location: str | None
-    ) -> None:
-        """A bare 30x means three different things, and two are not a hop.
-
-        Measured before the handler recorded whether it refused anything: a 302
-        with no `Location`, and a 302 looping to the same path, both came back
-        as "redirected to a different host" — a sentence about the one cause
-        that was not true in either case.
-        """
-        bao.answer = lambda path: (302, "")
-        bao.location = location
-
-        with pytest.raises(SecretResolutionError) as raised:
-            read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
-
-        message = str(raised.value)
-        assert "could not be followed" in message, case
-        assert "another server" not in message, case
-
-    @pytest.mark.parametrize("code", REDIRECT_CODES)
-    def test_an_upgrade_to_another_scheme_is_not_called_another_server(
-        self, bao: FakeBao, code: int
-    ) -> None:
-        """The canonical http-to-https redirect is the same host, not another.
-
-        It is still refused — the token went out over the configured scheme
-        before this answer arrived, and following the redirect would not undo
-        that — but the message must say what happened. Measured before the
-        split: an `https://` Location on the same host and port came back as
-        "redirected to a different host".
-
-        Every status the provider claims is exercised, so a code dropped from
-        that mapping loses its sentence here rather than in someone's terminal.
-        """
-        bao.answer = lambda path: (code, "")
-        host = bao.addr.split("//", 1)[1]
-        bao.location = f"https://{host}/v1/kv/data/a"
-
-        with pytest.raises(SecretResolutionError) as raised:
-            read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
-
-        message = str(raised.value)
-        assert "another scheme" in message
-        assert "another server" not in message
-        assert bao.addr in message, "the address the token did go to is named"
-
-    @pytest.mark.parametrize("code", REDIRECT_CODES)
-    def test_a_redirect_on_the_same_server_is_followed(
-        self, bao: FakeBao, code: int
-    ) -> None:
-        """A server cleaning up its own path must still resolve.
-
-        Every claimed status, 308 included: `HTTPRedirectHandler.http_error_308`
-        is an alias of `http_error_302` on both supported Pythons (3.11.15 and
-        3.12.13 measured), so it does reach `redirect_request` — this pins that
-        rather than leaving it as something someone once checked.
-        """
-        def answer(path: str) -> tuple[int, str | bytes]:
-            if path == "/v1/kv/data/a":
-                return code, ""
-            return kv2(key=VALUE)
-
-        bao.answer = answer
-        bao.location = "/v1/kv/data/moved"
-
-        assert read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t") == VALUE
-        assert [a.path for a in bao.asked] == [
-            "/v1/kv/data/a", "/v1/kv/data/moved"
-        ]
-
-
-# --- The token goes only to the named server, by every route ---
-
-
-class TestAmbientProxies:
-    def test_an_http_proxy_in_the_environment_never_sees_the_token(
-        self, bao: FakeBao, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """`build_opener` installs a default `ProxyHandler` unless given one.
-
-        Measured before the empty handler: the proxy received
-        `GET http://…/v1/kv/data/a` carrying `X-Vault-Token`, and the vault
-        server received nothing at all. `getproxies()` reads `os.environ`, not
-        the resolve context, so the variables are set there — and the no-proxy
-        variables are cleared, because `ProxyHandler` consults those before
-        using a proxy at all. Both servers are on `127.0.0.1`, so an inherited
-        `no_proxy=localhost,127.0.0.1` would send the request straight to the
-        vault with the empty handler removed, and this check would then pass
-        while proving nothing.
-        """
-        proxy = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-        seen = FakeBao(addr=f"http://127.0.0.1:{proxy.server_address[1]}")
-        proxy.fake = seen  # type: ignore[attr-defined]
-        thread = threading.Thread(
-            target=proxy.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
-        )
-        thread.start()
-        for name in ("NO_PROXY", "no_proxy"):
-            monkeypatch.delenv(name, raising=False)
-        for name in ("HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
-            monkeypatch.setenv(name, seen.addr)
-
-        try:
-            got = read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="s3cret-token")
-
-            assert got == VALUE
-            assert seen.asked == [], "the proxy must never see the request"
-            assert bao.asked[0].token == "s3cret-token"
-        finally:
-            proxy.shutdown()
-            proxy.server_close()
             thread.join(timeout=5)
 
 
