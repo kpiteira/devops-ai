@@ -217,28 +217,88 @@ class TestAzureCliFailures:
             resolve("K", REF, context(tmp_path))
         assert "Client address is not authorized" in caught.value.message
 
-    def test_a_disabled_secret_is_not_reported_as_a_permissions_problem(
+    DISABLED_STDERR = (
+        "ERROR: (Forbidden) Operation get is not allowed on a disabled secret.\n"
+        'Code: Forbidden\nInner error: {\n "code": "SecretDisabled"\n}\n'
+    )
+    ABSENT_STDERR = (
+        "ERROR: (SecretNotFound) A secret with (name/id) a-secret was not found "
+        "in this key vault.\nCode: SecretNotFound\n"
+    )
+
+    def _read(self, tmp_path: Path, stderr: str, ref: str = REF) -> tuple[int, str]:
+        fake_az(tmp_path / "bin", code=1, stderr=stderr)
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", ref, context(tmp_path))
+        return 1, caught.value.message
+
+    def test_a_disabled_secret_is_indistinguishable_from_an_absent_one(
+        self, tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        """Karl, 2026-09-13: a disabled secret answers exactly as a missing one.
+
+        Whether a name exists in the vault is not something a caller who cannot
+        read it gets to learn, so the assertion is equality of the whole
+        message, not the absence of a few words — anything that differs at all
+        is a way to tell the two states apart.
+        """
+        other = tmp_path_factory.mktemp("absent")
+        _, disabled = self._read(tmp_path, self.DISABLED_STDERR)
+        _, absent = self._read(other, self.ABSENT_STDERR)
+        assert disabled == absent
+        # Equality on its own would also hold if both had degraded to the same
+        # generic failure, so pin what they are equal *to*.
+        assert disabled == f"K: Secret not found in Azure Key Vault: {REF}."
+
+    def test_nothing_about_a_disabled_secret_survives_into_the_message(
         self, tmp_path: Path
     ) -> None:
-        """az's real answer for a disabled secret, captured from the vault.
-
-        It arrives as `(Forbidden)`; sending the operator to chase an RBAC role
-        for a secret they disabled themselves is a confident wrong answer.
-        """
-        fake_az(
-            tmp_path / "bin",
-            code=1,
-            stderr=azure_error(
-                "(Forbidden) Operation get is not allowed on a disabled secret."
-            )
-            + 'Code: Forbidden\nInner error: {\n "code": "SecretDisabled"\n}\n',
-        )
-        with pytest.raises(SecretResolutionError) as caught:
-            resolve("K", REF, context(tmp_path))
-        message = caught.value.message
-        assert "disabled" in message
+        """The words that would give it away, including az's own relayed line."""
+        _, message = self._read(tmp_path, self.DISABLED_STDERR)
+        lowered = message.lower()
+        for giveaway in ("disabled", "enable", "pin ", "<version>", "forbidden"):
+            assert giveaway not in lowered, f"{giveaway!r} discloses the state"
         assert "Key Vault Secrets User" not in message
-        assert "a-secret/<version>" in message, "the workaround must be offered"
+
+    def test_a_disabled_pinned_version_answers_the_same_way(
+        self, tmp_path: Path
+    ) -> None:
+        """Disabling is per version, so the pinned read is the other half."""
+        _, message = self._read(
+            tmp_path, self.DISABLED_STDERR, ref=f"{REF}/abc123"
+        )
+        assert message == (
+            f"K: Secret not found in Azure Key Vault: {REF}/abc123."
+        )
+
+    def test_an_unrecognised_denial_never_relays_the_word_disabled(
+        self, tmp_path: Path
+    ) -> None:
+        """The choke point: a shape we could not classify must still not leak.
+
+        If Azure ever reports a disabled secret in a form these anchors miss,
+        the Forbidden branch would hand back az's sentence verbatim. `_az_errors`
+        drops such a line instead, so the disclosure cannot escape that way.
+        """
+        _, message = self._read(
+            tmp_path,
+            "ERROR: (Forbidden) Some new wording about a disabled secret here.\n",
+        )
+        assert "disabled" not in message.lower()
+
+    def test_a_genuine_permission_denial_still_names_the_role(
+        self, tmp_path: Path
+    ) -> None:
+        """Karl kept this one separate: RBAC still says what to ask for."""
+        _, message = self._read(
+            tmp_path,
+            azure_error(
+                "(Forbidden) Caller is not authorized to perform action on "
+                "resource."
+            ),
+        )
+        assert "Key Vault Secrets User" in message
+        assert "not found" not in message.lower()
 
     def test_an_unreachable_vault_points_at_the_vault_name(
         self, tmp_path: Path

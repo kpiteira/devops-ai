@@ -129,9 +129,10 @@ def _diagnose(
 
     Azure answers several unrelated states with `(Forbidden)` — a missing role, a
     vault firewall, and a *disabled* secret all land there (verified against the
-    acceptance vault). Sending someone to chase RBAC for a secret they disabled
-    themselves is a confident wrong answer, so the states that can be told apart
-    are, and the rest carry az's own words rather than a guess.
+    acceptance vault). Telling a missing role from a firewall matters, so the
+    states that can be told apart are, and the rest carry az's own words rather
+    than a guess. A disabled secret is the exception: it is answered as absent,
+    on purpose, and never reaches the Forbidden branch.
 
     None of that may be read out of the raw response. `_parse` accepts any
     non-empty segment, so a secret named `(Forbidden)` reaches az — which answers
@@ -150,7 +151,17 @@ def _diagnose(
     def message_starts(prefix: str) -> bool:
         return any(m.lower().startswith(prefix) for m in messages)
 
-    if coded("SecretNotFound"):
+    # A disabled secret answers exactly as an absent one — same exit code, same
+    # sentence, same reference (Karl, 2026-09-13). Whether a name exists in the
+    # vault is not something a caller who cannot read it gets to learn, so the
+    # two states are deliberately indistinguishable from outside. Both shapes
+    # Azure reports it in are captured here, from the same verified response:
+    # the inner-error code, and the Forbidden headline naming the state.
+    disabled = coded("SecretDisabled") or (
+        coded("Forbidden")
+        and message_starts("operation get is not allowed on a disabled secret")
+    )
+    if coded("SecretNotFound") or disabled:
         return f"Secret not found in Azure Key Vault: {ref}."
     # az appends a pinned version to the request path, so Key Vault reads a
     # segment that is not a version id as an *operation* name and refuses it —
@@ -172,18 +183,18 @@ def _diagnose(
         not codes and any("az login" in m.lower() for m in messages)
     ):
         return f"Azure CLI is not logged in, so {ref} cannot be read. Run: az login"
-    if coded("SecretDisabled") or (
-        coded("Forbidden")
-        and message_starts("operation get is not allowed on a disabled secret")
-    ):
-        # Disabling is per version: an older enabled version still reads (verified).
-        return (
-            f"Secret {secret} is disabled in Key Vault {vault}. Enable it, or pin "
-            f"an enabled version: {SCHEME}{vault}/{secret}/<version>."
-        )
     if coded("Forbidden"):
+        # Second layer under `_az_errors`' phrase filter: this is the branch a
+        # disabled secret would fall into if Azure ever reworded the response
+        # past both anchors above, so any mention of the word at all suppresses
+        # the relay here. It costs detail on a genuine denial for a secret
+        # actually named `disabled` — cheap, next to disclosing the state — and
+        # it cannot misroute, because the branch is still chosen by code.
+        relayed = _az_errors(stderr)
+        if "disabled" in relayed.lower():
+            relayed = ""
         return (
-            f"Access denied reading {ref}.{_az_errors(stderr)} If that is a "
+            f"Access denied reading {ref}.{relayed} If that is a "
             f"permissions problem, your Azure identity needs the Key Vault "
             f"Secrets User role on {vault}."
         )
@@ -285,10 +296,19 @@ def _refused_operation(messages: tuple[str, ...], version: str) -> bool:
 
 
 def _az_errors(stderr: str) -> str:
-    """az's own ERROR: lines, joined — empty when it printed none."""
+    """az's own ERROR: lines, joined — empty when it printed none.
+
+    A line naming a *disabled* secret is dropped rather than relayed. A disabled
+    secret is reported as an absent one, and a path that could not classify the
+    response would otherwise hand back az's words and disclose the very
+    difference that decision exists to hide. Filtering here rather than at each
+    caller means no present or future relay can leak it. The phrase carries a
+    space, which no legal Key Vault name does, so an echoed name cannot forge
+    it — and cannot suppress an unrelated diagnosis either.
+    """
     lines = [
         line.partition("ERROR:")[2].strip()
         for line in stderr.splitlines()
-        if line.startswith("ERROR:")
+        if line.startswith("ERROR:") and "disabled secret" not in line.lower()
     ]
     return (" " + " ".join(lines)) if lines else ""
