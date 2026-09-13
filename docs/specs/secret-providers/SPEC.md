@@ -121,7 +121,7 @@ create` calls.
 |-----------|-------|------|------------|--------|----------|
 | M1 — ksecret with env, dotenv, 1Password | briefs/M1-ksecret-core.md | J1, J2, J3, J4, J5 | — | delivered | [c40452a](https://github.com/kpiteira/devops-ai/commit/c40452a) · [#32](https://github.com/kpiteira/devops-ai/pull/32) · [divergence](divergences/M1-2026-09-12.md) (resolved by #30) |
 | M2 — OpenBao provider | briefs/M2-openbao.md | J6 | M1 | delivered | [04fea7f](https://github.com/kpiteira/devops-ai/commit/04fea7f) · [#51](https://github.com/kpiteira/devops-ai/pull/51) |
-| M3 — Azure Key Vault provider | briefs/M3-azure-key-vault.md | J7 | M1 | PR | [#49](https://github.com/kpiteira/devops-ai/pull/49) |
+| M3 — Azure Key Vault provider | briefs/M3-azure-key-vault.md | J7 | M1 | delivered | [dc0bf28](https://github.com/kpiteira/devops-ai/commit/dc0bf28) · [#49](https://github.com/kpiteira/devops-ai/pull/49) |
 | M4 — write (optional) | briefs/M4-write.md | J8 | M2, M3 | pending | — |
 
 M2 and M3 are independent and may run in parallel. M4 is optional: it may be dropped
@@ -232,3 +232,11 @@ briefs and tests reference them. -->
 - Deferred (M2): multi-line secret values abort kinfra's `.env.secrets` writer with a
   bare traceback — pre-existing, made reachable by KV-stored PEMs. Issue #50; out of
   M2's outcome. Karl 2026-09-13.
+- [ ] 2026-09-13 (M3) decision, follow-up: `akv://` vault and secret segments are to be
+  validated against Azure's own name rules (`^[a-zA-Z0-9-]{3,24}$` vault,
+  `^[0-9a-zA-Z-]+$` secret) before anything is spawned, refusing malformed references
+  with a plain message. Root cause of PR #49 review rounds 6–11 (every one an echo of an
+  unvalidated segment in `az`'s error text). Changes which references the provider
+  accepts (pinned Surface). Decided by Karl 2026-09-13; lands as a small PR after #49
+  with this box checked. Item 6 (disclosure residual on disabled-as-absent): keep the
+  RBAC diagnosis; residual accepted.
