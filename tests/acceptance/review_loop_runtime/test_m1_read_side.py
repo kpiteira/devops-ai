@@ -2,13 +2,16 @@
 
 Every test runs the real console script against the real GitHub API on merged PRs of
 this repository. The numbers asserted were measured on 2026-09-13 with the shell in
-kreview 0.4.0 §1 (spec: Discovered context); they are immutable history.
+kreview 0.4.0 §1 (spec: Discovered context). A merged PR's commits are immutable; its
+reviews and comments are not, so every `round` call here passes `--until MEASURED_UNTIL`
+and reads a frozen window rather than "everything up to now".
 """
 
 from __future__ import annotations
 
 from tests.acceptance.review_loop_runtime.conftest import (
     COPILOT,
+    MEASURED_UNTIL,
     PR10,
     PR27,
     PR27_BOUNDARY,
@@ -89,7 +92,9 @@ def test_status_reentry_advice_on_49() -> None:
 
 
 def test_round_full_history_49_parses_every_suppressed_finding() -> None:
-    default = kreview("round", str(PR49), "--repo", REPO, "--json")
+    default = kreview(
+        "round", str(PR49), "--repo", REPO, "--json", "--until", MEASURED_UNTIL
+    )
     assert default.code == 0, (default.out, default.err)
     p = default.json()
     assert p["suppressed_check"] == {
@@ -103,7 +108,14 @@ def test_round_full_history_49_parses_every_suppressed_finding() -> None:
     assert sources.count("thread") == 0  # every thread on a merged PR is resolved
 
     with_resolved = kreview(
-        "round", str(PR49), "--repo", REPO, "--json", "--include-resolved"
+        "round",
+        str(PR49),
+        "--repo",
+        REPO,
+        "--json",
+        "--include-resolved",
+        "--until",
+        MEASURED_UNTIL,
     ).json()
     assert [f["source"] for f in with_resolved["findings"]].count(
         "thread"
@@ -229,7 +241,14 @@ def test_round_sixth_review_on_27_is_not_second_order() -> None:
 
 def test_round_thread_finding_carries_anchor_and_replies() -> None:
     p = kreview(
-        "round", str(PR49), "--repo", REPO, "--json", "--include-resolved"
+        "round",
+        str(PR49),
+        "--repo",
+        REPO,
+        "--json",
+        "--include-resolved",
+        "--until",
+        MEASURED_UNTIL,
     ).json()
     f = findings_by_id(p)[PR49_THREAD_FINDING]
     assert f["source"] == "thread"
@@ -264,7 +283,9 @@ def test_round_repeat_candidates_by_path_and_line() -> None:
 
 
 def test_round_comments_exclude_the_babysit_report() -> None:
-    p = kreview("round", str(PR49), "--repo", REPO, "--json").json()
+    p = kreview(
+        "round", str(PR49), "--repo", REPO, "--json", "--until", MEASURED_UNTIL
+    ).json()
     assert len(p["comments"]) == PR49_ISSUE_COMMENTS - 1
     assert all(c["id"].startswith("c") and c["id"][1:].isdigit() for c in p["comments"])
     assert not any(c["body"].startswith("## Babysit report") for c in p["comments"])

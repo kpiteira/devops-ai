@@ -14,8 +14,10 @@ blocking: uv run pytest tests/acceptance/review_loop_runtime/test_m2_the_loop.py
   for it, and returns the packet, so that the model never polls.
 - **J6** — When the model has decided every finding of a round, it can hand the
   decisions to `kreview apply <pr> --dispositions <file>` and the tool replies in each
-  thread, resolves what is handled, files one issue per out-of-scope finding, and
-  records the round in the PR, so that the model's only writes are its fix commits.
+  thread, resolves what is handled, files one issue per out-of-scope **class** (findings
+  sharing a `root_cause` share one issue — kreview 0.4.0: one issue for the class, never
+  one per site), and records the round in the PR, so that the model's only writes are
+  its fix commits.
 - **J7** — When a round is applied, the tool decides continue or stop from the round's
   data and the model's tags, naming the rule that fired, so that no stop rule depends on
   a model remembering it.
@@ -73,6 +75,9 @@ Validation happens before anything is posted; any violation is exit 2 with every
 violation on stderr and nothing written: an id not in the round, a round finding with
 no disposition, a `systemic` without `root_cause`, an `IMPLEMENT` whose `commit` is not
 on the PR head (fetched first), a missing required field, a `verdict` outside the four.
+Each violation line names the disposition's `id`, and a commit violation also names the
+offending commit — at least its abbreviated sha — so the model can see which one it is
+without re-reading its own file.
 
 **Actions**, in this order, per disposition:
 
@@ -219,27 +224,39 @@ The write-side tests run against the scratch repository named by
 `KREVIEW_ACCEPTANCE_REPO` (A2): each test clones it, opens its own PR with a
 `## Review scope`, posts review comments through the API as the authenticated user (a
 human reviewer, free), and closes what it opened. They skip when the variable is unset;
-the milestone is not delivered on skips. One test buys a Copilot review and is gated
-by `KREVIEW_ACCEPTANCE_PAID=1` (A3). Replay tests run `--dry-run` on #49 history.
+the milestone is not delivered on skips — and `::test_write_side_coverage_is_not_optional`
+**fails** rather than skipping in that case, so this milestone's `blocking:` command
+cannot exit 0 with J5–J9 unexercised. Without that guard "not delivered on skips" is a
+sentence that depends on a human reading the skip count. One test buys a Copilot review
+and is gated by `KREVIEW_ACCEPTANCE_PAID=1` (A3). Replay tests run `--dry-run` on #49
+history at the cutoff of M1's Blocking note; they use no scratch repository and so
+never skip.
 
 | Job | Planner-authored test | Observable proof | Measured on main |
 |-----|-----------------------|------------------|------------------|
-| J5 | `test_m2_the_loop.py::test_help_lists_apply_and_report` | `--help` names all four commands | uv: `Failed to spawn: kreview` — every M2 test fails on main the same way; the scratch-repo tests additionally skip without `KREVIEW_ACCEPTANCE_REPO` |
+| J5 | `test_m2_the_loop.py::test_help_lists_apply_and_report` | `--help` names all four commands | uv: `Failed to spawn: kreview` (exit 2) — every M2 test fails on main the same way; no scratch repository, so it never skips |
+| J5–J9 | `::test_write_side_coverage_is_not_optional` | fails, not skips, when `KREVIEW_ACCEPTANCE_REPO` is unset, so the `blocking:` command is red when the write side was not exercised (A2) | fails on main for the same reason it fails anywhere the variable is unset; with the variable set it passes on main while every other test still fails on the missing script |
 | J5 | `::test_round_wait_returns_when_a_review_arrives` | a review comment posted 8 s after `round --wait 120` starts is in the packet; `no_show` false; returned before the deadline | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J5 | `::test_round_wait_reports_no_show` | `--wait 5` with nothing new: `no_show` true, 0 findings, exit 0 | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J5 | `::test_round_wait_reports_no_show` | `--wait 5` with nothing new: `no_show` true, 0 findings, exit 0, and `elapsed_s` reaches the deadline (≥ 4.5 s) — an implementation that returns at once does not pass | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J5 | `::test_round_request_buys_a_copilot_review` (paid, `KREVIEW_ACCEPTANCE_PAID=1`) | `--request --wait 300`: `requested` is `requested` and a review by the Copilot login is in the packet | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6 | `::test_apply_replies_resolves_files_an_issue_and_records_state` | IMPLEMENT thread: reply starts ``Fixed in `<sha>` —``, resolved; OUT_OF_SCOPE thread: reply names the issue, resolved; the issue's body carries the finding verbatim and the thread URL; the babysit comment exists with `<!-- kreview-state`; `status` shows `running`, 1 round; decision `continue` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J6 | `::test_apply_files_one_issue_per_class` | two OUT_OF_SCOPE findings sharing a `root_cause`: **one** issue, its body naming both sites, both threads resolved | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J6 | `::test_apply_records_an_issue_comment_disposition` | an issue comment dispositioned: no reply anywhere, no thread opened, its id and verdict in the state block, `no-new-findings` (an issue comment is not line-anchored) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J6 | `::test_apply_is_idempotent_on_a_rerun` | the same round applied twice: the second run posts 0 replies, resolves 0, files no second issue, and the thread's comment count is unchanged | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6 | `::test_apply_refuses_incomplete_dispositions` | a round finding without a disposition: exit 2, no reply on any thread | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J6 | `::test_apply_refuses_a_commit_not_on_the_pr` | IMPLEMENT with a foreign sha: exit 2, nothing posted | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J6 | `::test_apply_fails_closed_when_github_is_unreachable` | nonexistent repository: exit 1, nothing on stdout | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J6 | `::test_apply_refuses_a_commit_not_on_the_pr` | IMPLEMENT with a foreign sha: exit 2, stderr names the offending commit, nothing posted | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J6 | `::test_apply_fails_closed_when_github_is_unreachable` | nonexistent repository: exit 1, nothing on stdout | spawn fails (exit 2); no scratch repository, so it never skips |
+| J6, J7 | `::test_apply_dry_run_posts_nothing_on_a_live_thread` | `--dry-run` with an IMPLEMENT on a real open thread: exit 0, `posted` all zero, no reply, thread still unresolved, no babysit comment | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J7 | `::test_apply_discuss_stops_and_leaves_the_thread_open` | one DISCUSS: reply posted, thread unresolved, `stop` / `escalate` / `discuss` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J7 | `::test_apply_dry_run_second_order_on_49_history` | window 14:27–14:30 with two IMPLEMENT (`c121936`): `stop` / `converged` / `second-order`; #49's comment count unchanged | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J7 | `::test_apply_dry_run_precedence_on_49_history` | same window: two PUSH_BACK → `no-in-scope-implement`; one systemic `on_pinned_surface` DISCUSS → `systemic-on-pinned-surface` beats second-order | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J7 | `::test_apply_dry_run_second_order_on_49_history` | window 14:27–14:30 with two IMPLEMENT (`c121936`): `stop` / `converged` / `second-order`; #49's comment count unchanged across the run | spawn fails (exit 2); no scratch repository, so it never skips |
+| J7 | `::test_apply_dry_run_precedence_on_49_history` | same window: two PUSH_BACK → `second-order`, which outranks `no-in-scope-implement`; one systemic `on_pinned_surface` DISCUSS → `systemic-on-pinned-surface` beats second-order; an empty window → `no-new-findings` | spawn fails (exit 2); no scratch repository, so it never skips |
+| J7 | `::test_apply_stop_reason_from_the_model` | `--stop ci` with two IMPLEMENT in the second-order window: `stop` / `escalate` / `stopped: ci` — the model's reason outranks convergence | spawn fails (exit 2); no scratch repository, so it never skips |
+| J7 | `::test_apply_repeats_only_stops_the_loop` | round 2 whose every disposition carries `repeat_of` into round 1's ledger: `stop` / `converged` / `repeats-only` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J7 | `::test_apply_budget_stops_after_max_rounds` | `--max-rounds 1` with one IMPLEMENT: `stop` / `escalate` / `budget` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J5, J7 | `::test_apply_next_chains_into_the_next_packet` | `apply --next --wait 120` while a new comment lands: `next` holds round 2 with the new finding; state has 2 rounds | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J5, J7 | `::test_apply_next_chains_into_the_next_packet` | `apply --next --wait 120` with round 1's window pinned by `--until` and a comment landing after it: `next` holds the following packet with the new finding and the round-1 ledger; the state has 1 recorded round (round 2 is open, not yet applied) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J9 | `::test_report_renders_and_posts_from_state` | after a stop: the comment carries the Verdict, Rounds row, *Why the loop stopped*, paid rounds, and `status: stopped` in the block; TL;DR verbatim | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J8 | `::test_reentry_is_advised_and_gated` | after the report: `status` → `stopped`, `reentry` is `selfreview` after an unreviewed push; `apply` → exit 5; `apply --reenter` → run 2, `running` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J10 | `::test_skills_contain_no_gh_or_git_commands` | neither skill contains `gh `, `git `, `awk`, `jq`, or `curl` as a command; `kbabysit` names all four subcommands; frontmatter pin intact | fails on main: both skills are full of `gh` |
+| J10 | `::test_skills_contain_no_gh_or_git_commands` | in neither skill does any fenced line or inline code span begin with `gh`, `git`, `awk`, `jq`, or `curl` — the generic form the Surface pins, not a list of spellings; `kbabysit` names all four subcommands; frontmatter pin intact | fails on main: both skills are full of `gh` |
 
 Plus the standing gates: `make check` exits 0.
 

@@ -50,7 +50,7 @@ JSON form, every key present:
 | `checkout` | `{branch, matches_pr}` — `matches_pr` true when the local `HEAD` is `head_sha` or the current branch is `head_ref`; both `null` outside a clone of the repo |
 | `scope` | `{status: present\|missing\|empty, text}` — `text` is the `## Review scope` section body verbatim (up to the next `## ` heading), `""` when absent; `empty` when the heading exists with only blank lines under it |
 | `ci` | `{status: passing\|failing\|pending\|none, checks: [{name, status: passing\|failing\|pending\|skipped}]}` for `head_sha`; `failing` if any check failed, else `pending` if any is running, else `passing`, `none` with no checks |
-| `reviews` | `{copilot_total, copilot_reviewed_head, copilot_requested, effort_levels, effort_parse_failed, last_reviewed_sha, unreviewed_commits}` — `copilot_total` counts submitted (not PENDING) reviews by a login containing `copilot`, which is the PR's paid-round total; `effort_levels` is the sorted distinct set parsed from `**Review effort level:** X` footers; `effort_parse_failed` is true when Copilot reviews exist and none carries the footer; `last_reviewed_sha` is the commit of the latest submitted review (any reviewer), `null` without one; `unreviewed_commits` lists the commits in `last_reviewed_sha..head_sha`, oldest first, and is `[]` when `last_reviewed_sha` is `null` |
+| `reviews` | `{copilot_total, copilot_reviewed_head, copilot_requested, effort_levels, effort_parse_failed, last_reviewed_sha, unreviewed_commits}` — `copilot_total` counts submitted (not PENDING) reviews by a login containing `copilot`, which is the PR's paid-round total; `copilot_reviewed_head` is true when one of those reviews carries `commit_id` `head_sha` (what kbabysit step 1 asks before requesting); `copilot_requested` is true when a review request to the Copilot reviewer is pending on the PR — both are booleans, both false when no Copilot review or request exists; `effort_levels` is the sorted distinct set parsed from `**Review effort level:** X` footers; `effort_parse_failed` is true when Copilot reviews exist and none carries the footer; `last_reviewed_sha` is the commit of the latest submitted review (any reviewer), `null` without one; `unreviewed_commits` lists the commits in `last_reviewed_sha..head_sha`, oldest first, and is `[]` when `last_reviewed_sha` is `null` |
 | `boundary` | `{sha, status: ok\|none\|none-reachable\|missing}` — the provenance boundary (definition under `round`) |
 | `automation` | `{claude_review}` — true when a check run or workflow on `head_sha` is named like `Claude Code Review` / `claude-code-action` |
 | `babysit` | `{report_present, comment_id, status: none\|running\|stopped, run, rounds, paid_rounds_this_run}` — from the issue comment whose body starts with `## Babysit report`; `status`/`run`/`rounds`/`paid_rounds_this_run` come from the state block M2 introduces and are `none`/`0`/`0`/`null` when the comment carries none |
@@ -109,6 +109,13 @@ provenance, provenance_detail, blame_sha, thread, repeat_candidates}`:
 - `repeat_candidates` — ids of findings on this PR earlier than the window on the
   same `path` within 5 lines of `line`.
 
+A **review-level remark** — prose in a review body carrying no `path:line` — is not a
+finding and gets no id: it reaches the model as that review's `summary`, which the model
+reads as the reviewer's framing of findings that already have ids. Only issue comments
+(`c<id>`) are dispositionable without a line, which is what `Unanchored` counts in the
+M2 report. A round whose reviews carry only such prose therefore has `line_anchored: 0`
+and `no_new_findings: true`, which is the reading kbabysit 0.4.0 §4 already signs.
+
 `signals`: `findings` = `line_anchored` = number of entries in `findings`;
 `suppressed` = those with `source: suppressed`; `on_original` + `on_review_fix` +
 `unknown` = `line_anchored`; `second_order` = `line_anchored ≥ 1 and on_review_fix ==
@@ -149,7 +156,15 @@ are until M2. The judgement text of both skills is unchanged.
 
 All tests run the real console script (`uv run --project <root> kreview …`) against
 the real GitHub API from inside the repository clone; nothing is mocked. Fixtures are
-merged PRs of this repository, whose review history is immutable.
+merged PRs of this repository. A merged PR's **commits** are immutable, but its reviews
+and issue comments are not — anyone can still comment on #49 — so every assertion on a
+count, a set of findings, or a comment list passes an explicit `--until` at the
+post-merge cutoff (`2026-09-13T17:00:00Z`; #49 merged 16:12:15Z, last activity
+16:12:13Z). Without the cutoff a later comment turns the suite red with the
+implementation unchanged, which is the corrupted signal the `test-quality` rule forbids.
+`status` has no window, so its two live counts (`copilot_total`, `effort_levels`) would
+only move if someone submitted a *review* on a merged PR; that is recorded here as the
+residual, not papered over with a `>=`.
 
 | Job | Planner-authored test | Observable proof | Measured on main |
 |-----|-----------------------|------------------|------------------|
@@ -157,14 +172,14 @@ merged PRs of this repository, whose review history is immutable.
 | J1 | `::test_status_on_merged_pr_49` | exit 3, `verdict` `stop: merged`, scope present naming J7, 13 Copilot reviews all `Lite`, boundary `5a9b106`, report present | same — every M1 test fails on main because the script does not exist; the table records the first assertion each would fail on once it runs |
 | J1 | `::test_status_reports_missing_scope_on_10` | `scope.status == missing`, `text == ""`, exit 3 | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J1 | `::test_status_reentry_advice_on_49` | `reentry == paid` (reviews after the report), `last_reviewed_sha` `7b2b313`, `kselfreview_range` ends at the head | spawn fails: `Failed to spawn: kreview` (exit 2) |
-| J2 | `::test_round_full_history_49_parses_every_suppressed_finding` | `suppressed_check` 15/15; default excludes the 4 resolved threads, `--include-resolved` includes them; `s5191010581-1` (`:245`) blames to `23ee88a2` and `-2` (`:160`) to `63465ed7`, both `review-fix` | spawn fails: `Failed to spawn: kreview` (exit 2) |
+| J2 | `::test_round_full_history_49_parses_every_suppressed_finding` | at the cutoff: `suppressed_check` 15/15; default excludes the 4 resolved threads, `--include-resolved` includes them; `s5191010581-1` (`:245`) blames to `23ee88a2` and `-2` (`:160`) to `63465ed7`, both `review-fix` | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2, J3 | `::test_round_window_second_order_on_49` | the 14:27:15Z review alone: 2 suppressed findings, both review-fix, `second_order` true, `effort` Lite, `summary` free of the suppressed section and the footer | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2, J3 | `::test_round_window_approval_only_on_49` | the 14:34:49Z review alone: 0 findings, `no_new_findings` true, `approved` false (Copilot approves in a COMMENTED review), summary says *Approval recommended* | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2, J3 | `::test_round_first_review_on_27_is_all_original` | window to 15:09Z: boundary `84197e4`, 11 findings (8 suppressed + 3 threads), all `original` | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2, J3 | `::test_round_sixth_review_on_27_is_not_second_order` | window of the 16:13:32Z review: 5 findings (4 suppressed + 1 thread), 4 review-fix, 1 original (`skills/kworktree/SKILL.md:136` → `ed2338dd`), `second_order` false — the thread-only reading called this round second-order | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2 | `::test_round_thread_finding_carries_anchor_and_replies` | `t3998793921`: `azurekeyvault.py`, line 162, anchor `23ee88a`, resolved, outdated, a reply by the author | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2 | `::test_round_repeat_candidates_by_path_and_line` | `s5191010581-2` (line 160) lists `t3998793921` (line 162, earlier) as a repeat candidate | spawn fails: `Failed to spawn: kreview` (exit 2) |
-| J2 | `::test_round_comments_exclude_the_babysit_report` | 12 comments on #49, ids `c<id>`, none starting `## Babysit report` | spawn fails: `Failed to spawn: kreview` (exit 2) |
+| J2 | `::test_round_comments_exclude_the_babysit_report` | at the cutoff: 12 comments on #49 (13 minus the babysit report), ids `c<id>`, none starting `## Babysit report` | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2 | `::test_round_text_form_carries_ids_bodies_and_signals` | the text form of the 14:27 window contains `s5191010581-1`, `azurekeyvault.py:245`, the finding's first sentence, and `second_order: true` | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2 | `::test_round_fails_closed_on_api_error` | a nonexistent repository: exit 1, empty stdout, stderr names it | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2 | `::test_round_leaves_the_clone_untouched` | `HEAD`, branch list, and `git status --porcelain` identical before and after `round 49` | spawn fails: `Failed to spawn: kreview` (exit 2) |

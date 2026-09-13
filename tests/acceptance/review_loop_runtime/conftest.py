@@ -4,9 +4,16 @@ Planner-authored (spec/review-loop-runtime). The surface under test is the `krev
 console script, exercised for real against the GitHub API from inside a clone of the
 repository. Nothing here is mocked.
 
-Read-side fixtures are merged PRs of this repository (immutable history). Write-side
-fixtures are throwaway PRs in the scratch repository named by KREVIEW_ACCEPTANCE_REPO
-(spec assumption A2); they skip when it is unset.
+Read-side fixtures are merged PRs of this repository. Their *commits* are immutable,
+but their reviews and issue comments are not — anyone can still comment on a merged PR
+— so every assertion on a count or a set of findings passes `--until MEASURED_UNTIL`, a
+cutoff after the last measured activity. Without it a stranger's comment on #49 turns
+this suite red with the implementation unchanged.
+
+Write-side fixtures are throwaway PRs in the scratch repository named by
+KREVIEW_ACCEPTANCE_REPO (spec assumption A2); they skip when it is unset, and
+`test_write_side_coverage_is_not_optional` fails rather than skipping so the M2
+blocking command cannot go green on skips.
 """
 
 from __future__ import annotations
@@ -27,6 +34,12 @@ REPO = "kpiteira/devops-ai"
 COPILOT = "copilot-pull-request-reviewer[bot]"  # REST spelling, with the suffix
 
 # --- measured on 2026-09-13 (spec: Discovered context) --------------------------
+# Cutoff for every read-side window: #49 merged at 16:12:15Z with its last activity at
+# 16:12:13Z, #27 earlier still. Anything posted to either PR after this falls outside
+# every window these tests read, so the counts below stay true however the PRs are
+# commented on later.
+MEASURED_UNTIL = "2026-09-13T17:00:00Z"
+
 PR49 = 49
 PR49_HEAD = "06af8a4"
 PR49_BOUNDARY = "5a9b106"
@@ -201,6 +214,14 @@ class ScratchPR:
             if c["body"].startswith("## Babysit report"):
                 return str(c["body"])
         return None
+
+    def state(self) -> dict[str, Any]:
+        """The `kreview-state` JSON block at the end of the babysit comment."""
+        body = self.babysit_comment()
+        assert body is not None, "no babysit report comment on this PR"
+        _, _, tail = body.partition("<!-- kreview-state")
+        assert tail, "the babysit comment carries no state block"
+        return dict(json.loads(tail.rsplit("-->", 1)[0]))
 
     def push_fix(self, text: str) -> str:
         """Append a line to the PR's file, commit, push; return the new head sha."""
