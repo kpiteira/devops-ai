@@ -520,6 +520,26 @@ class TestSuggestedCommandsAreSafeToPaste:
             "--vault-name", "a-vault", "--name", self.HOSTILE,
         ]
 
+    def test_a_segment_carrying_a_single_quote_still_survives_whole(
+        self, tmp_path: Path
+    ) -> None:
+        """The case that separates real quoting from a wrapper in quotes.
+
+        `shlex.join` encloses in single quotes, so an embedded `'` has to be
+        broken out and re-escaped. A hand-rolled `f"'{segment}'"` renders this
+        payload as three shell words and passes every other test in this class.
+        """
+        payload = "it's $(id); rm -rf ~"
+        fake_az(tmp_path / "bin", code=1, stderr="")
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", f"akv://a-vault/{payload}", context(tmp_path))
+        command = caught.value.message.split("run: ", 1)[1]
+        assert shlex.split(command) == [
+            "az", "keyvault", "secret", "show",
+            "--vault-name", "a-vault", "--name", payload,
+            "--output", "none",
+        ]
+
     def test_an_ordinary_name_is_not_dressed_up_in_quotes(
         self, tmp_path: Path
     ) -> None:
