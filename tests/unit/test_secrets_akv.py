@@ -40,9 +40,13 @@ def fake_az(
         f"#!{sys.executable}\n"
         "import json, pathlib, sys\n"
         f"pathlib.Path({str(log)!r}).write_text(json.dumps(sys.argv[1:]))\n"
-        f"sys.stdout.write({stdout!r})\n"
-        f"sys.stderr.write({stderr!r})\n"
-        f"sys.exit({code})\n"
+        # Bytes, not text: what a vault returns is UTF-8 whatever the child's
+        # locale would have encoded it as, and a test about encodings must not
+        # route its own fixture through one.
+        f"sys.stdout.buffer.write({stdout!r}.encode('utf-8'))\n"
+        f"sys.stderr.buffer.write({stderr!r}.encode('utf-8'))\n"
+        f"sys.exit({code})\n",
+        encoding="utf-8",
     )
     program.chmod(0o755)
     return log
@@ -100,9 +104,18 @@ class TestReadingASecret:
         fake_az(tmp_path / "bin", stdout=json.dumps(value))
         assert resolve("K", REF, context(tmp_path)) == value
 
-    def test_a_non_ascii_value_survives_a_c_locale(self, tmp_path: Path) -> None:
-        fake_az(tmp_path / "bin", stdout=json.dumps("café-über"))
-        assert resolve("K", REF, context(tmp_path)) == "café-über"
+    def test_a_non_ascii_value_is_returned_intact(self, tmp_path: Path) -> None:
+        """The UTF-8 bytes a vault returns decode to the value, not to mojibake.
+
+        `ensure_ascii=False` is load-bearing: with `json.dumps`'s default the fake
+        `az` would emit `\\u` escapes, pure ASCII, and this would pass under any
+        codec at all. It still cannot claim the *locale* boundary — the process
+        locale is fixed at interpreter start, so only a child process can cross it.
+        `tests/integration/test_secret_locale.py` is where that lives.
+        """
+        value = "café-über"
+        fake_az(tmp_path / "bin", stdout=json.dumps(value, ensure_ascii=False))
+        assert resolve("K", REF, context(tmp_path)) == value
 
     def test_a_bare_reference_pins_no_version(self, tmp_path: Path) -> None:
         log = fake_az(tmp_path / "bin", stdout=json.dumps("v"))

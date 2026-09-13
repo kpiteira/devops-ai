@@ -11,6 +11,7 @@ containers, cron and CI, where `LC_ALL=C` is ordinary.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -106,6 +107,34 @@ def test_a_non_ascii_secret_from_op_survives(
         "from devops_ai.secrets import ResolveContext, resolve\n"
         f"ctx = ResolveContext(env={{'PATH': {str(bin_dir)!r}}})\n"
         "v = resolve('K', 'op://v/i/f', ctx)\n"
+        "sys.stdout.buffer.write(v.encode('utf-8'))",
+        c_locale, tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ACCENTED
+
+
+def test_a_non_ascii_secret_from_akv_survives(
+    tmp_path: Path, c_locale: dict[str, str]
+) -> None:
+    """`az` returns bytes too — JSON output does not make the operator's codec safe.
+
+    The escape hatch that hides this: `json.dumps` defaults to `ensure_ascii=True`,
+    so a fake `az` built from it emits pure ASCII and would pass under any codec.
+    This one writes the raw UTF-8 bytes a real vault returns.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "az"
+    encoded = json.dumps(ACCENTED, ensure_ascii=False)
+    fake.write_bytes(f"#!/bin/sh\nprintf %s {encoded!r}\n".encode())
+    fake.chmod(0o755)
+
+    result = run_child(
+        "import sys\n"
+        "from devops_ai.secrets import ResolveContext, resolve\n"
+        f"ctx = ResolveContext(env={{'PATH': {str(bin_dir)!r}}})\n"
+        "v = resolve('K', 'akv://a-vault/a-secret', ctx)\n"
         "sys.stdout.buffer.write(v.encode('utf-8'))",
         c_locale, tmp_path,
     )

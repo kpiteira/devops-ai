@@ -7,7 +7,9 @@ of its own, exactly as the 1Password provider adds nothing to an `op` grant.
 
 Azure CLI failures are classified from stderr, not from exit status: `az keyvault
 secret show` exits 3 for a missing secret and 1 for an unreachable vault, and neither
-code is documented API. Its `ERROR:` lines are.
+code is documented API. The Azure error codes that az prints on its `ERROR:` lines —
+`SecretNotFound`, `Forbidden`, `SecretDisabled` — are, so those are the anchors, and
+az's surrounding prose is only the fallback for states no code tells apart.
 """
 
 from __future__ import annotations
