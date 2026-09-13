@@ -239,7 +239,13 @@ briefs and tests reference them. -->
   unvalidated segment in `az`'s error text). Changes which references the provider
   accepts (pinned Surface). Acknowledged by Karl 2026-09-13; lands as a small PR after
   #49 (issue #60) — nothing is blocked meanwhile. Item 6 (disclosure residual on disabled-as-absent): keep the
-  RBAC diagnosis; residual accepted.
+  RBAC diagnosis; residual accepted. Delivered on branch `fix/issue-60-akv-validation`:
+  a pinned version is checked too — 32 hexadecimal characters, measured against twelve
+  real ids in the acceptance vault — and carries the `list-versions` guidance that az's
+  own refusal used to earn a round trip later. The downstream anchoring from rounds 6–11
+  stays; the one branch the source check made unreachable (Key Vault answering a non-id
+  version segment as a refused operation) is removed rather than left writing the same
+  sentence in a second place.
 - [x] 2026-09-13 (#58) outcome refinement: a spawned child receives the exact UTF-8 bytes
   of every resolved value whatever the parent's locale, and that encoding never leaks a
   value character. Under `LC_ALL=C` CPython encoded the child environment with the locale's
