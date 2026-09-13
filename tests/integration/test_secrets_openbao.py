@@ -12,6 +12,7 @@ Integration, not unit: a loopback socket is real I/O, which `tests/unit` forbids
 
 from __future__ import annotations
 
+import _socket
 import json
 import socket
 import threading
@@ -43,25 +44,53 @@ class Asked:
 class FakeBao:
     addr: str
     asked: list[Asked] = field(default_factory=list)
-    answer: Callable[[str], tuple[int, str]] = staticmethod(
+    answer: Callable[[str], tuple[int, str | bytes]] = staticmethod(
         lambda path: kv2(key=VALUE)
     )
+    # Declare a longer body than is sent, so the client hits the end of the
+    # connection mid-read — the shape a proxy or a killed server produces.
+    overstate_length_by: int = 0
+    # When set, every answer carries this `Location` header.
+    location: str | None = None
+    # The raw request lines, before `http.server` normalises `//` to `/`
+    # (gh-87389) — the only place a doubled slash is still observable.
+    lines: list[str] = field(default_factory=list)
 
 
 class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 — BaseHTTPRequestHandler's spelling
         fake: FakeBao = self.server.fake  # type: ignore[attr-defined]
         fake.asked.append(Asked(self.path, self.headers.get("X-Vault-Token")))
+        fake.lines.append(self.requestline)
         status, body = fake.answer(self.path)
-        payload = body.encode()
+        payload = body if isinstance(body, bytes) else body.encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(payload)))
+        if fake.location is not None:
+            self.send_header("Location", fake.location)
+        self.send_header(
+            "Content-Length", str(len(payload) + fake.overstate_length_by)
+        )
         self.end_headers()
         self.wfile.write(payload)
+        if fake.overstate_length_by:
+            self.close_connection = True
 
     def log_message(self, *args: object) -> None:
         """Silence the stderr access log."""
+
+
+@pytest.fixture(autouse=True)
+def _connections_allowed_here(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Undo, for this file only, the unit suite's process-wide connect guard.
+
+    `tests/unit/conftest.py` replaces `socket.socket.connect` at import time, so
+    it governs whatever else is collected in the same pytest session — these
+    tests fail under `pytest tests/unit tests/integration` for a reason that has
+    nothing to do with them. Put the inherited C method back per test;
+    monkeypatch restores the guard afterwards, so the unit suite keeps it.
+    """
+    monkeypatch.setattr(socket.socket, "connect", _socket.socket.connect)
 
 
 @pytest.fixture()
@@ -108,12 +137,20 @@ class TestTheRequest:
     def test_a_trailing_slash_on_the_address_does_not_double_up(
         self, bao: FakeBao
     ) -> None:
+        """Asserted on the raw request line: `self.path` has already been
+        normalised by `http.server`, so it stays green with the trim removed —
+        a real OpenBao would instead answer the doubled path with a redirect.
+        """
         read("bao://kv/app#key", BAO_ADDR=bao.addr + "/", BAO_TOKEN="t-1")
 
-        assert bao.asked[0].path == "/v1/kv/data/app"
+        assert bao.lines[0] == "GET /v1/kv/data/app HTTP/1.1"
 
     def test_path_segments_are_escaped_not_interpolated(self, bao: FakeBao) -> None:
-        """A path is a path: it cannot smuggle a query string onto the URL."""
+        """A path is a path: it cannot smuggle a query string onto the URL.
+
+        Without `quote()` the server sees `/v1/kv/data/a b?list=true`, so the
+        `?list=true` becomes a query the reference never asked for.
+        """
         read("bao://kv/a b?list=true#key", BAO_ADDR=bao.addr, BAO_TOKEN="t-1")
 
         assert bao.asked[0].path == "/v1/kv/data/a%20b%3Flist%3Dtrue"
@@ -238,6 +275,32 @@ class TestServerFailures:
         with pytest.raises(SecretResolutionError, match="KV v2 mount"):
             read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
 
+    def test_a_body_that_is_not_utf8_is_a_sentence_not_a_decode_crash(
+        self, bao: FakeBao
+    ) -> None:
+        """A secret is bytes; the answer carrying it need not decode.
+
+        Observed escaping as `UnicodeDecodeError` while the handler below
+        caught only `json.JSONDecodeError`.
+        """
+        bao.answer = lambda path: (200, b'{"data": {"data": {"key": "\xff\xfe"}}}')
+
+        with pytest.raises(SecretResolutionError, match="did not answer with JSON"):
+            read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
+
+    def test_a_body_cut_short_is_a_connection_failure_not_a_crash(
+        self, bao: FakeBao
+    ) -> None:
+        """IncompleteRead is an HTTPException, not an OSError — easy to miss.
+
+        Observed escaping as `http.client.IncompleteRead` while the handler
+        below caught only `(URLError, OSError)`.
+        """
+        bao.overstate_length_by = 5000
+
+        with pytest.raises(SecretResolutionError, match="Cannot reach"):
+            read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
+
     def test_a_deleted_current_version_is_not_an_empty_secret(
         self, bao: FakeBao
     ) -> None:
@@ -248,6 +311,55 @@ class TestServerFailures:
 
         with pytest.raises(SecretResolutionError, match="current version"):
             read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
+
+
+# --- The token goes only where the user pointed it ---
+
+
+class TestRedirects:
+    def test_a_redirect_to_another_host_is_refused_not_followed(
+        self, bao: FakeBao, tmp_path: Path
+    ) -> None:
+        """urllib copies headers onto the redirected request.
+
+        Measured before the custom handler: the second server received
+        `X-Vault-Token` and its value was returned as the secret.
+        """
+        elsewhere = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        other = FakeBao(addr=f"http://127.0.0.1:{elsewhere.server_address[1]}")
+        other.answer = lambda path: kv2(key="value-from-the-other-host")
+        elsewhere.fake = other  # type: ignore[attr-defined]
+        thread = threading.Thread(
+            target=elsewhere.serve_forever, kwargs={"poll_interval": 0.01},
+            daemon=True,
+        )
+        thread.start()
+        bao.answer = lambda path: (301, "")
+        bao.location = other.addr + "/v1/kv/data/a"
+
+        try:
+            with pytest.raises(SecretResolutionError, match="different host"):
+                read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="s3cret-token")
+            assert other.asked == [], "the token must not reach another server"
+        finally:
+            elsewhere.shutdown()
+            elsewhere.server_close()
+            thread.join(timeout=5)
+
+    def test_a_redirect_on_the_same_server_is_followed(self, bao: FakeBao) -> None:
+        """A server cleaning up its own path must still resolve."""
+        def answer(path: str) -> tuple[int, str | bytes]:
+            if path == "/v1/kv/data/a":
+                return 301, ""
+            return kv2(key=VALUE)
+
+        bao.answer = answer
+        bao.location = "/v1/kv/data/moved"
+
+        assert read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t") == VALUE
+        assert [a.path for a in bao.asked] == [
+            "/v1/kv/data/a", "/v1/kv/data/moved"
+        ]
 
 
 # --- The no-leak invariant ---
@@ -267,9 +379,28 @@ class TestNothingLeaks:
         assert VALUE not in message and SIBLING not in message
 
     def test_the_token_never_appears_in_a_failure(self, bao: FakeBao) -> None:
-        bao.answer = lambda path: (403, "{}")
+        """The one path where the token really does enter an exception.
+
+        `http.client.putheader` refuses a header value with a line break and
+        puts the value in its `ValueError` — verified: the text reads
+        ``Invalid header value b's3cret\ntoken'``. The provider rejects such a
+        token before the request is built, so that exception never happens; if
+        anyone lets it through and reports `{exc}`, this goes red.
+        """
+        with pytest.raises(SecretResolutionError) as raised:
+            read(
+                "bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="s3cret\ntoken"
+            )
+
+        message = str(raised.value)
+        assert "s3cret" not in message and "line break" in message
+        assert bao.asked == [], "a token that cannot be sent must not be sent"
+
+    def test_a_403_says_nothing_it_was_not_told(self, bao: FakeBao) -> None:
+        """The refusal message is a constant template — characterisation only."""
+        bao.answer = lambda path: (403, json.dumps({"errors": [SIBLING]}))
 
         with pytest.raises(SecretResolutionError) as raised:
-            read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="s3cret-token")
+            read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
 
-        assert "s3cret-token" not in str(raised.value)
+        assert SIBLING not in str(raised.value)

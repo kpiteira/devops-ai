@@ -292,6 +292,7 @@ talk to the same server:
 |----------|---------|
 | `BAO_ADDR`, else `VAULT_ADDR` | the server's base URL, e.g. `https://vault.example.com` |
 | `BAO_TOKEN`, else `VAULT_TOKEN`, else `~/.vault-token` | the token to present |
+| `BAO_CACERT`, else `VAULT_CACERT` | a CA bundle to verify the server with, for a private CA |
 
 `~/.vault-token` is the file `bao login` (or `vault login`) writes, so once you have
 logged in there is nothing to export but the address. An AppRole- or OIDC-issued
@@ -303,12 +304,20 @@ standard library, so a container with `ksecret`, an address and a token can reso
 
 ```bash
 export BAO_ADDR=https://vault.example.com
-bao login                                   # writes ~/.vault-token
-ksecret read bao://kv/apps/myapp#api-key    # confirms it resolves, prints nothing
+bao login                                     # writes ~/.vault-token
+ksecret read 'bao://kv/apps/myapp#api-key'    # confirms it resolves, prints nothing
 ```
+
+Quote a reference that carries a `#` when you type it: a zsh with `extendedglob` set
+reads the `#` as a glob operator and refuses the word before `ksecret` ever sees it.
 
 Only KV v2 mounts are supported; `mount` is the mount point, not the API's internal
 `data/` segment, which `ksecret` adds for you.
+
+The certificate is verified against your system trust store unless `BAO_CACERT` names
+a bundle; there is no way to turn verification off. The token is presented only to the
+host `BAO_ADDR` names — a redirect to a different host is refused rather than followed,
+so point `BAO_ADDR` at the active node or the load balancer in front of it.
 
 ### Which reference to use
 

@@ -201,10 +201,81 @@ class TestOpenBaoReferenceShape:
                 ResolveContext(env={"BAO_ADDR": planted.as_uri(), "BAO_TOKEN": "t"}),
             )
 
+    @pytest.mark.parametrize(
+        "address",
+        [
+            "http://[::1",  # urlsplit raises "Invalid IPv6 URL" on this
+            "https://vault.example.com?wrapped=1",
+            "https://vault.example.com#fragment",
+            "vault.example.com:8200",  # no scheme at all
+        ],
+    )
+    def test_an_address_that_is_not_a_plain_base_url_is_refused(
+        self, address: str
+    ) -> None:
+        """A fragment silently eats the whole path: the request would GET `/`."""
+        context = ResolveContext(env={"BAO_ADDR": address, "BAO_TOKEN": "t"})
+        with pytest.raises(SecretResolutionError, match="not a server address"):
+            resolve("K", "bao://kv/a#key", context)
+
+    @pytest.mark.parametrize("ref", ["bao://kv/../secret/a#key", "bao://kv/./a#key"])
+    def test_a_path_that_climbs_out_of_its_mount_is_refused(self, ref: str) -> None:
+        """The server would clean the path and redirect outside the mount."""
+        context = ResolveContext(env={"BAO_ADDR": self.ADDRESS, "BAO_TOKEN": "t"})
+        with pytest.raises(SecretResolutionError, match="<mount>/<path>"):
+            resolve("K", ref, context)
+
+    def test_a_token_with_a_line_break_is_refused_by_name_not_by_value(self) -> None:
+        """`http.client` would refuse it too — with the token in its message."""
+        context = ResolveContext(
+            env={"BAO_ADDR": self.ADDRESS, "BAO_TOKEN": "s3cret\ntoken"}
+        )
+        with pytest.raises(SecretResolutionError) as exc:
+            resolve("K", "bao://kv/a#key", context)
+        assert "BAO_TOKEN" in exc.value.message
+        assert "s3cret" not in exc.value.message
+
+    def test_an_unreadable_token_file_is_not_reported_as_no_token(
+        self, tmp_path: Path
+    ) -> None:
+        """Two causes, two messages: `bao login` only helps once you know which."""
+        (tmp_path / ".vault-token").write_bytes(b"hvs.\xff\xfe\n")
+
+        context = ResolveContext(
+            env={"BAO_ADDR": self.ADDRESS, "HOME": str(tmp_path)}
+        )
+        with pytest.raises(SecretResolutionError, match="Cannot read"):
+            resolve("K", "bao://kv/a#key", context)
+
+    def test_a_ca_bundle_that_is_not_there_is_named(self, tmp_path: Path) -> None:
+        context = ResolveContext(
+            env={
+                "BAO_ADDR": self.ADDRESS,
+                "BAO_TOKEN": "t",
+                "BAO_CACERT": str(tmp_path / "absent.pem"),
+            }
+        )
+        with pytest.raises(SecretResolutionError, match="BAO_CACERT"):
+            resolve("K", "bao://kv/a#key", context)
+
     def test_no_token_anywhere_says_how_to_get_one(self, tmp_path: Path) -> None:
         context = ResolveContext(
             env={"BAO_ADDR": self.ADDRESS, "HOME": str(tmp_path / "nowhere")}
         )
+        with pytest.raises(SecretResolutionError, match="bao login"):
+            resolve("K", "bao://kv/a#key", context)
+
+    def test_a_machine_with_no_home_at_all_still_gets_the_guidance(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`Path.home()` raises with no HOME and no passwd entry — a container."""
+
+        def no_home() -> Path:
+            raise RuntimeError("Could not determine home directory.")
+
+        monkeypatch.setattr(Path, "home", staticmethod(no_home))
+
+        context = ResolveContext(env={"BAO_ADDR": self.ADDRESS})
         with pytest.raises(SecretResolutionError, match="bao login"):
             resolve("K", "bao://kv/a#key", context)
 
