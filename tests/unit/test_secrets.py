@@ -153,6 +153,71 @@ class TestDotenvReference:
             resolve("K", "dotenv://.env", ctx(project))
 
 
+# --- OpenBao / Vault references, before any socket is opened ---
+
+
+class TestOpenBaoReferenceShape:
+    """Everything the provider settles without asking a server.
+
+    Reaching a server is `tests/integration/test_secrets_openbao.py`; what a
+    malformed reference or an unusable environment means is decided here, where
+    it is decided in the code.
+    """
+
+    # A syntactically valid address that is never reached: every case here
+    # fails before a socket is opened, which `tests/unit/conftest.py` enforces.
+    ADDRESS = "http://127.0.0.1:1"
+
+    @pytest.mark.parametrize(
+        "ref",
+        [
+            "bao://kv/app",  # no #key
+            "bao://kv/app#",  # empty key
+            "bao://kv#key",  # no path under the mount
+            "bao://#key",  # no mount
+            "bao://",
+        ],
+    )
+    def test_a_reference_that_is_not_mount_path_key_says_so(self, ref: str) -> None:
+        with pytest.raises(SecretResolutionError, match="<mount>/<path>"):
+            resolve("K", ref, ResolveContext(env={"BAO_ADDR": self.ADDRESS,
+                                                  "BAO_TOKEN": "t"}))
+
+    def test_no_address_anywhere_names_both_variables(self) -> None:
+        with pytest.raises(SecretResolutionError, match="BAO_ADDR.*VAULT_ADDR"):
+            resolve("K", "bao://kv/a#key", ResolveContext(env={"BAO_TOKEN": "t"}))
+
+    def test_an_address_that_is_not_a_web_url_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """urlopen speaks `file:` too: a typo must not read a path back as a secret."""
+        planted = tmp_path / "passwd"
+        planted.write_text("root:x:0:0")
+
+        with pytest.raises(SecretResolutionError, match="http or https"):
+            resolve(
+                "K",
+                "bao://kv/a#key",
+                ResolveContext(env={"BAO_ADDR": planted.as_uri(), "BAO_TOKEN": "t"}),
+            )
+
+    def test_no_token_anywhere_says_how_to_get_one(self, tmp_path: Path) -> None:
+        context = ResolveContext(
+            env={"BAO_ADDR": self.ADDRESS, "HOME": str(tmp_path / "nowhere")}
+        )
+        with pytest.raises(SecretResolutionError, match="bao login"):
+            resolve("K", "bao://kv/a#key", context)
+
+    def test_an_empty_token_file_is_no_token_at_all(self, tmp_path: Path) -> None:
+        (tmp_path / ".vault-token").write_text("\n")
+
+        context = ResolveContext(
+            env={"BAO_ADDR": self.ADDRESS, "HOME": str(tmp_path)}
+        )
+        with pytest.raises(SecretResolutionError, match="bao login"):
+            resolve("K", "bao://kv/a#key", context)
+
+
 # --- Literals and unregistered schemes ---
 
 
@@ -248,10 +313,10 @@ class TestTheToolIsFoundOnThePathTheChildWillUse:
 
 class TestDiscovery:
     def test_every_milestone_scheme_has_a_provider(self) -> None:
-        assert {"env://", "dotenv://", "op://"} <= set(schemes())
+        assert {"env://", "dotenv://", "op://", "bao://"} <= set(schemes())
 
     def test_each_reference_is_claimed_by_exactly_one_provider(self) -> None:
-        for ref in ("env://A", "$A", "dotenv://f#A", "op://v/i/f"):
+        for ref in ("env://A", "$A", "dotenv://f#A", "op://v/i/f", "bao://m/p#k"):
             assert provider_for(ref) is not None
 
 
