@@ -98,7 +98,7 @@ def detect_quality_config(project_root: Path) -> QualityPlan | None:
     # The integration command — configured if project.md carries one, derived
     # otherwise; either way only for projects that have the tests
     test_integration_cmd = _resolve_test_integration_cmd(
-        integration_tests, unit_tests, project_root,
+        integration_tests, unit_tests, project_root, lang,
     )
 
     return QualityPlan(
@@ -173,18 +173,22 @@ def _derive_test_arch_cmd(test_unit_cmd: str) -> str | None:
 
 
 def _resolve_test_integration_cmd(
-    configured: str | None, test_unit_cmd: str, project_root: Path,
+    configured: str | None,
+    test_unit_cmd: str,
+    project_root: Path,
+    language: str,
 ) -> str | None:
     """The integration-test command (tests/integration/) for this project.
 
     The directory decides *whether* to emit; project.md decides *what* runs.
 
-    Whether: tests/integration/ must hold at least one test file. pytest exits
-    non-zero on a missing path (usage error, 4) and on an empty collection (5),
-    so a target or a CI job emitted for a project without integration tests
-    would be red for a reason that has nothing to do with the code. Checking
-    for a file rather than just the directory covers the dir-exists-but-empty
-    case.
+    Whether: tests/integration/ must hold at least one test file (see
+    `_has_test_files` for how much that claim is worth per language). pytest
+    exits non-zero on a missing path (usage error, 4) and on an empty
+    collection (5), so a target or a CI job emitted for a project without
+    integration tests would be red for a reason that has nothing to do with the
+    code. Checking for a file rather than just the directory covers the
+    dir-exists-but-empty case.
 
     What: project.md's `Integration tests` field is the source of truth when it
     carries a real command — a project with its own selectors, markers or
@@ -197,7 +201,7 @@ def _resolve_test_integration_cmd(
     integration_dir = project_root / "tests" / "integration"
     if not integration_dir.is_dir():
         return None
-    if not _has_test_files(integration_dir):
+    if not _has_test_files(integration_dir, language):
         return None
     explicit = _configured_cmd(configured)
     if explicit:
@@ -227,17 +231,44 @@ def _configured_cmd(value: str | None) -> str | None:
     return text
 
 
-def _has_test_files(directory: Path) -> bool:
-    """Whether pytest would collect anything under `directory` — its two default
-    `python_files` patterns, searched recursively.
+# Filename conventions we have actually checked against a runner's empty-suite
+# behaviour. Python only, deliberately: pytest's exit 4/5 is the trap this gate
+# exists to dodge, and it was measured. A language absent from this map gets the
+# weaker check in `_has_test_files` rather than a guessed pattern.
+_TEST_FILE_PATTERNS: dict[str, tuple[str, ...]] = {
+    "python": ("test_*.py", "*_test.py"),
+}
 
-    `rglob` yields directories as well as files, and a directory named
-    `test_fixtures.py/` collects nothing; `is_file()` is what keeps it from
-    arming a job for an empty collection.
+
+def _has_test_files(directory: Path, language: str) -> bool:
+    """Whether `directory` holds anything that looks like a test.
+
+    A filename check, not a collection check — and it is worth saying what that
+    buys and what it does not.
+
+    For Python it is pytest's own two default `python_files` patterns, so a
+    directory of fixtures and conftest alone is correctly rejected. It is still
+    only a *name*: a `test_fixtures.py` holding nothing but fixtures collects
+    zero items and pytest exits 5. Proving otherwise means running
+    `pytest --collect-only` from `kinfra init`, i.e. executing the project's
+    test runner inside a module whose contract is pure detection — a cost and a
+    blast radius out of proportion to a directory that a project set up wrong.
+    The policy is filename-only, on purpose.
+
+    For any other language there is no verified empty-suite behaviour to encode,
+    so guessing `*.test.ts` or `*_test.go` would claim a precision we do not
+    have. Those projects are held to the weakest defensible bar instead: the
+    directory contains at least one regular file.
+
+    `rglob` yields directories as well as files, so every branch filters
+    `is_file()` — a directory named `test_fixtures.py/` collects nothing.
     """
+    patterns = _TEST_FILE_PATTERNS.get(language)
+    if patterns is None:
+        return any(p.is_file() for p in directory.rglob("*"))
     return any(
         any(p.is_file() for p in directory.rglob(pattern))
-        for pattern in ("test_*.py", "*_test.py")
+        for pattern in patterns
     )
 
 
@@ -781,7 +812,7 @@ def _integration_job(plan: QualityPlan, setup_steps: str) -> str:
     is a real failure, and it never spends the `check` job's two minutes.
 
     Emitted only for projects that have tests/integration/ (see
-    `_derive_test_integration_cmd`).
+    `_resolve_test_integration_cmd`).
     """
     if not plan.test_integration_cmd:
         return ""

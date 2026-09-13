@@ -48,6 +48,27 @@ def _write_project_md(
     (config_dir / "project.md").write_text("".join(lines))
 
 
+def _write_ts_project_md(
+    project_root: Path, integration: str | None = None,
+) -> None:
+    """The same, for a TypeScript project — no `tests/unit` convention to
+    derive from, so the configured field is the only way it gets a command."""
+    config_dir = project_root / ".devops-ai"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "## Project\n\n",
+        "- **Name:** myapp\n",
+        "- **Language:** TypeScript\n",
+        "- **Runner:** npm\n\n",
+        "## Testing\n\n",
+        "- **Unit tests:** npm test\n",
+        "- **Quality checks:** npm run lint\n",
+    ]
+    if integration is not None:
+        lines.append(f"- **Integration tests:** {integration}\n")
+    (config_dir / "project.md").write_text("".join(lines))
+
+
 def _python_plan(project_root: Path, **overrides: Any) -> QualityPlan:
     fields: dict[str, Any] = {
         "project_root": project_root,
@@ -318,27 +339,49 @@ class TestDetectQualityConfig:
         self, tmp_path: Path,
     ) -> None:
         """Derivation needs a `tests/unit` path to map onto; a configured
-        command needs nothing to map onto at all."""
-        config_dir = tmp_path / ".devops-ai"
-        config_dir.mkdir()
-        (config_dir / "project.md").write_text(
-            "## Project\n\n"
-            "- **Name:** myapp\n"
-            "- **Language:** TypeScript\n"
-            "- **Runner:** npm\n\n"
-            "## Testing\n\n"
-            "- **Unit tests:** npm test\n"
-            "- **Quality checks:** npm run lint\n"
-            "- **Integration tests:** npm run test:integration\n"
-        )
+        command needs nothing to map onto at all — and a TypeScript suite is
+        named the TypeScript way, not pytest's."""
+        _write_ts_project_md(tmp_path, integration="npm run test:integration")
         integration = tmp_path / "tests" / "integration"
         integration.mkdir(parents=True)
-        (integration / "test_thing.py").write_text("def test_thing(): pass\n")
+        (integration / "checkout.test.ts").write_text("it('works', () => {});\n")
 
         plan = detect_quality_config(tmp_path)
 
         assert plan is not None
         assert plan.test_integration_cmd == "npm run test:integration"
+
+    def test_non_python_empty_integration_dir_emits_nothing(
+        self, tmp_path: Path,
+    ) -> None:
+        """The weaker bar is still a bar: a directory holding no regular file
+        at all gets no target and no job, whatever the language."""
+        _write_ts_project_md(tmp_path, integration="npm run test:integration")
+        integration = tmp_path / "tests" / "integration"
+        integration.mkdir(parents=True)
+        (integration / "helpers").mkdir()
+
+        plan = detect_quality_config(tmp_path)
+
+        assert plan is not None
+        assert plan.test_integration_cmd is None
+
+    def test_python_suite_still_held_to_pytest_filenames(
+        self, tmp_path: Path,
+    ) -> None:
+        """The non-Python fallback must not leak into Python: a tests/integration/
+        of helpers only is exactly the empty collection pytest exits 5 on."""
+        _write_project_md(
+            tmp_path, integration="uv run pytest tests/integration",
+        )
+        integration = tmp_path / "tests" / "integration"
+        integration.mkdir(parents=True)
+        (integration / "helpers.py").write_text("VALUE = 1\n")
+
+        plan = detect_quality_config(tmp_path)
+
+        assert plan is not None
+        assert plan.test_integration_cmd is None
 
     def test_configured_integration_cmd_still_needs_the_tests(
         self, tmp_path: Path,
