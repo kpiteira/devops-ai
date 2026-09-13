@@ -345,15 +345,37 @@ class TestOpenBaoReferenceShape:
         with pytest.raises(SecretResolutionError, match="<mount>/<path>"):
             resolve("K", ref, context)
 
-    def test_a_token_with_a_line_break_is_refused_by_name_not_by_value(self) -> None:
-        """`http.client` would refuse it too — with the token in its message."""
-        context = ResolveContext(
-            env={"BAO_ADDR": self.ADDRESS, "BAO_TOKEN": "s3cret\ntoken"}
-        )
+    @pytest.mark.parametrize(
+        ("token", "why"),
+        [("s3cret\ntoken", "a line break"), ("s3cret-\u4e2d", "outside latin-1")],
+    )
+    def test_a_token_an_http_header_cannot_carry_is_refused_by_name(
+        self, token: str, why: str
+    ) -> None:
+        """`http.client` would refuse both — with the value in its message.
+
+        And that message is a `ValueError`/`UnicodeEncodeError`, which
+        `_read_secret` catches as "the server did not answer with JSON" — a
+        sentence about a request that was never sent.
+        """
+        context = ResolveContext(env={"BAO_ADDR": self.ADDRESS, "BAO_TOKEN": token})
         with pytest.raises(SecretResolutionError) as exc:
             resolve("K", "bao://kv/a#key", context)
-        assert "BAO_TOKEN" in exc.value.message
+        assert "BAO_TOKEN" in exc.value.message, why
+        assert "cannot be sent" in exc.value.message
         assert "s3cret" not in exc.value.message
+
+    def test_an_undecodable_token_file_says_how_it_is_malformed(
+        self, tmp_path: Path
+    ) -> None:
+        """The wording `envfile` settled on, not `.reason`'s "invalid start byte"."""
+        (tmp_path / ".vault-token").write_bytes(b"hvs.\xff\xfe\n")
+
+        context = ResolveContext(
+            env={"BAO_ADDR": self.ADDRESS, "HOME": str(tmp_path)}
+        )
+        with pytest.raises(SecretResolutionError, match="not valid UTF-8 text"):
+            resolve("K", "bao://kv/a#key", context)
 
     def test_an_unreadable_token_file_is_not_reported_as_no_token(
         self, tmp_path: Path

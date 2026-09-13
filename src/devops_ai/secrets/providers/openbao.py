@@ -34,6 +34,8 @@ ADDRESS_VARS = ("BAO_ADDR", "VAULT_ADDR")
 TOKEN_VARS = ("BAO_TOKEN", "VAULT_TOKEN")
 CACERT_VARS = ("BAO_CACERT", "VAULT_CACERT")
 TOKEN_FILE = ".vault-token"
+# What `http.client` encodes a header value as; anything else cannot be sent.
+HEADER_ENCODING = "latin-1"
 # urlopen speaks more than the web: an address typo'd into a `file:` URL would
 # otherwise read a local path and hand it back as a secret.
 NETWORK_URL_SCHEMES = frozenset({"http", "https"})
@@ -162,7 +164,7 @@ def _token(ctx: ResolveContext) -> str:
     for name in TOKEN_VARS:
         value = ctx.env.get(name, "").strip()
         if value:
-            return _single_line(value, name)
+            return _sendable(value, name)
 
     home = _home(ctx)
     path = home / TOKEN_FILE if home is not None else None
@@ -184,7 +186,7 @@ def _token(ctx: ResolveContext) -> str:
                 f"Run `bao login` (or `vault login`) to rewrite it."
             ) from None
         if from_file:
-            return _single_line(from_file, str(path))
+            return _sendable(from_file, str(path))
 
     where = f", which writes {path}" if path is not None else ""
     raise ProviderError(
@@ -193,17 +195,30 @@ def _token(ctx: ResolveContext) -> str:
     )
 
 
-def _single_line(token: str, source: str) -> str:
-    """A token becomes a header value, and a header value has no line breaks.
+def _sendable(token: str, source: str) -> str:
+    """A token becomes a header value, and a header value is narrow.
 
-    `http.client` raises on one — with the token in the exception text. Catching
-    it here keeps that value out of any handler further out, and says which of
-    the three sources needs fixing.
+    `http.client` refuses both a line break and anything outside latin-1 — the
+    first with the token in the exception text, the second with the offending
+    character in it. Either would also surface from inside `_read_secret`'s
+    `ValueError` handler as "the server did not answer with JSON", which is a
+    sentence about a request that was never sent. Refusing here keeps the value
+    out of any handler further out and names which of the three sources needs
+    fixing.
     """
+    unusable = ""
     if "\r" in token or "\n" in token:
+        unusable = "a line break"
+    else:
+        try:
+            token.encode(HEADER_ENCODING)
+        except UnicodeEncodeError:
+            unusable = f"a character outside {HEADER_ENCODING}"
+    if unusable:
         raise ProviderError(
-            f"The token from {source} contains a line break, so it cannot "
-            f"be sent. Run `bao login` (or `vault login`) to replace it."
+            f"The token from {source} contains {unusable}, so it cannot be "
+            f"sent in an HTTP header. Run `bao login` (or `vault login`) to "
+            f"replace it."
         )
     return token
 
@@ -429,6 +444,10 @@ def _status_error(
 
 def _reason(exc: BaseException) -> str:
     """Why something failed, in the terms the exception has — never its input."""
+    if isinstance(exc, UnicodeDecodeError):
+        # `.reason` is "invalid start byte", which describes a byte rather than
+        # the file. `envfile` settled on this wording for the same failure.
+        return "not valid UTF-8 text"
     reason = getattr(exc, "reason", None)
     if reason is None:
         reason = getattr(exc, "strerror", None)

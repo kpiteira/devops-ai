@@ -317,12 +317,13 @@ Only KV v2 mounts are supported; `mount` is the mount point, not the API's inter
 The certificate is verified against your system trust store unless `BAO_CACERT` (or
 `VAULT_CACERT`) names a bundle — the usual case for a homelab vault behind a private
 CA; there is no way to turn verification off. The token is presented only to the
-host `BAO_ADDR` names — a redirect off that host is refused rather than followed, so
-point `BAO_ADDR` at the active node or the load balancer in front of it. A redirect to
-the *same* host on another scheme (the usual `http` → `https` canonicalisation) is
-refused too, and says so: by the time that answer arrives the token has already gone
-out over the scheme you configured, so the fix is to spell `BAO_ADDR` with `https`
-rather than to be redirected there. An ambient
+server your address variable names — a redirect to another host or port is refused
+rather than followed, so point it at the active node or the load balancer in front of
+it. A redirect to the *same* host on another scheme (the usual `http` → `https`
+canonicalisation) is refused too, and says so: by the time that answer arrives the
+token has already gone out over the scheme you configured, so the fix is to spell the
+address with `https` rather than to be redirected there. Every message names whichever
+of `BAO_ADDR` / `VAULT_ADDR` you actually set. An ambient
 `HTTP_PROXY` / `HTTPS_PROXY` is deliberately not used either, for the same reason: a
 proxy configured for general web traffic is not a decision anyone made about a vault
 token. If you need a proxy to reach your vault, say so and it becomes an explicit

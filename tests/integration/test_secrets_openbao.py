@@ -528,14 +528,18 @@ def private_ca(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """
     directory = tmp_path_factory.mktemp("ca")
     cert, key = directory / "cert.pem", directory / "key.pem"
-    made = subprocess.run(
-        [
-            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-sha256",
-            "-days", "1", "-nodes", "-keyout", str(key), "-out", str(cert),
-            "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1",
-        ],
-        capture_output=True, text=True,
-    )
+    try:
+        made = subprocess.run(
+            [
+                "openssl", "req", "-x509", "-newkey", "rsa:2048", "-sha256",
+                "-days", "1", "-nodes", "-keyout", str(key), "-out", str(cert),
+                "-subj", "/CN=127.0.0.1", "-addext",
+                "subjectAltName=IP:127.0.0.1",
+            ],
+            capture_output=True, text=True,
+        )
+    except FileNotFoundError:
+        pytest.skip("openssl is not installed; it is not a declared dependency")
     if made.returncode != 0:
         pytest.skip(f"openssl could not make a test certificate: {made.stderr[-200:]}")
     return directory
@@ -545,6 +549,9 @@ def private_ca(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def tls_bao(private_ca: Path) -> Iterator[FakeBao]:
     """The fake server again, behind TLS signed by that certificate."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    # The default leaves TLS 1.0/1.1 reachable, which the security gate flags —
+    # rightly, even in a fixture: this stands in for a real server.
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(
         certfile=private_ca / "cert.pem", keyfile=private_ca / "key.pem"
     )
@@ -602,7 +609,7 @@ class TestPrivateCertificateAuthority:
     ) -> None:
         """A real bundle, but the wrong one — not a missing-file check."""
         other = tmp_path / "other-ca.pem"
-        subprocess.run(
+        subprocess.run(  # openssl proven present by `private_ca`
             ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-sha256",
              "-days", "1", "-nodes", "-keyout", str(tmp_path / "k.pem"),
              "-out", str(other), "-subj", "/CN=somewhere-else"],
