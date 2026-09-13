@@ -54,7 +54,14 @@ def write(ref: str, value: str, ctx: ResolveContext) -> str:
     path = _target(ctx.path(relative))
 
     try:
-        original = path.read_text(encoding="utf-8")
+        # `newline=""`, so the file arrives with its own line endings rather
+        # than with universal newlines' translation of them. `read_text` would
+        # hand back every CRLF as an LF, and writing that out again rewrites
+        # every line in the file to make one key's value fit — the opposite of
+        # what this promises. The reader is unaffected either way: `entry`
+        # strips a line before it parses it.
+        with path.open(encoding="utf-8", newline="") as stream:
+            original = stream.read()
         existed = True
     except FileNotFoundError:
         original, existed = "", False

@@ -25,7 +25,13 @@ from pathlib import Path
 
 import pytest
 
-from devops_ai.secrets import ResolveContext, SecretResolutionError, resolve
+from devops_ai.secrets import (
+    ProviderError,
+    ResolveContext,
+    SecretResolutionError,
+    resolve,
+    write,
+)
 
 VALUE = "the-value"
 SIBLING = "the-sibling-value"
@@ -45,6 +51,9 @@ def kv2(**data: object) -> tuple[int, str]:
 class Asked:
     path: str
     token: str | None
+    method: str = "GET"
+    content_type: str | None = None
+    body: dict | None = None
 
 
 @dataclass
@@ -66,8 +75,27 @@ class FakeBao:
 
 class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 — BaseHTTPRequestHandler's spelling
+        self._serve()
+
+    def do_POST(self) -> None:  # noqa: N802 — BaseHTTPRequestHandler's spelling
+        self._serve()
+
+    def do_PATCH(self) -> None:  # noqa: N802 — BaseHTTPRequestHandler's spelling
+        self._serve()
+
+    def _serve(self) -> None:
         fake: FakeBao = self.server.fake  # type: ignore[attr-defined]
-        fake.asked.append(Asked(self.path, self.headers.get("X-Vault-Token")))
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length) if length else b""
+        fake.asked.append(
+            Asked(
+                self.path,
+                self.headers.get("X-Vault-Token"),
+                self.command,
+                self.headers.get("Content-Type"),
+                json.loads(raw) if raw else None,
+            )
+        )
         fake.lines.append(self.requestline)
         status, body = fake.answer(self.path)
         payload = body if isinstance(body, bytes) else body.encode()
@@ -121,6 +149,10 @@ def bao() -> Iterator[FakeBao]:
 
 def read(ref: str, **env: str) -> str:
     return resolve("K", ref, ResolveContext(env=env))
+
+
+def store(ref: str, value: str, **env: str) -> str:
+    return write(ref, value, ResolveContext(env=env))
 
 
 # --- The request the provider makes ---
@@ -685,3 +717,119 @@ class TestNothingLeaks:
             read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
 
         assert SIBLING not in str(raised.value)
+
+
+# --- Writing one key without disturbing its siblings ---
+
+
+class TestWritingAKey:
+    """A patch, and what happens when the server will not take one.
+
+    The dev container proves the happy path in the acceptance suite; what it
+    cannot be made to produce on demand is a 403 on a patch, which is exactly
+    the case where getting the fallback wrong would destroy the siblings the
+    patch exists to protect.
+    """
+
+    def test_a_patch_carries_only_the_named_key_and_the_merge_media_type(
+        self, bao: FakeBao
+    ) -> None:
+        """The media type is not decoration: sent as plain JSON, KV v2 answers
+        415 — and a `POST` of the same body would replace every other key."""
+        bao.answer = lambda path: (200, "{}")
+
+        got = store(
+            "bao://kv/homelab/lux/grafana#token",
+            VALUE,
+            BAO_ADDR=bao.addr,
+            BAO_TOKEN="t-1",
+        )
+
+        assert got == "bao://kv/homelab/lux/grafana#token"
+        assert bao.asked == [
+            Asked(
+                "/v1/kv/data/homelab/lux/grafana",
+                "t-1",
+                "PATCH",
+                "application/merge-patch+json",
+                {"data": {"token": VALUE}},
+            )
+        ]
+
+    def test_a_secret_that_does_not_exist_yet_is_created(self, bao: FakeBao) -> None:
+        """KV v2 answers 404 to a patch of a secret with no current version."""
+        answers = iter([(404, ""), (200, "{}")])
+        bao.answer = lambda path: next(answers)
+
+        store("bao://kv/app#token", VALUE, BAO_ADDR=bao.addr, BAO_TOKEN="t-1")
+
+        assert [asked.method for asked in bao.asked] == ["PATCH", "POST"]
+        assert bao.asked[1].content_type == "application/json"
+        assert bao.asked[1].body == {"data": {"token": VALUE}}
+
+    def test_a_refused_patch_never_falls_back_to_a_replacing_write(
+        self, bao: FakeBao
+    ) -> None:
+        """The one case this file exists for. A token with `update` but not
+        `patch` gets a 403, and a `POST` would succeed — by discarding every
+        other key in the secret. It is refused with the capability named."""
+        bao.answer = lambda path: (403, '{"errors":["permission denied"]}')
+
+        with pytest.raises(ProviderError) as caught:
+            store("bao://kv/app#token", VALUE, BAO_ADDR=bao.addr, BAO_TOKEN="t-1")
+
+        assert [asked.method for asked in bao.asked] == ["PATCH"]
+        assert "`patch` capability" in str(caught.value)
+        assert VALUE not in str(caught.value)
+
+    def test_a_write_refusal_asks_for_write_access_not_read_access(
+        self, bao: FakeBao
+    ) -> None:
+        bao.answer = lambda path: (403, "{}")
+
+        with pytest.raises(ProviderError) as caught:
+            store("bao://kv/app#token", VALUE, BAO_ADDR=bao.addr, BAO_TOKEN="t-1")
+        write_message = str(caught.value)
+
+        with pytest.raises(SecretResolutionError) as read_caught:
+            read("bao://kv/app#token", BAO_ADDR=bao.addr, BAO_TOKEN="t-1")
+
+        assert "read access" in read_caught.value.message
+        assert "read access" not in write_message
+
+    def test_a_redirect_is_not_followed_on_the_way_in_either(
+        self, bao: FakeBao
+    ) -> None:
+        """urllib copies the request's headers onto a redirected request, and
+        a write's headers carry the token *and* the value."""
+        bao.answer = lambda path: (307, "")
+        bao.location = "http://127.0.0.1:1/v1/kv/data/app"
+
+        with pytest.raises(ProviderError) as caught:
+            store("bao://kv/app#token", VALUE, BAO_ADDR=bao.addr, BAO_TOKEN="t-1")
+
+        assert [asked.method for asked in bao.asked] == ["PATCH"]
+        assert "redirect" in str(caught.value)
+        assert VALUE not in str(caught.value)
+
+    def test_a_server_that_cannot_be_reached_names_no_value(
+        self, bao: FakeBao
+    ) -> None:
+        with pytest.raises(ProviderError) as caught:
+            store(
+                "bao://kv/app#token",
+                VALUE,
+                BAO_ADDR="http://127.0.0.1:1",
+                BAO_TOKEN="t-1",
+            )
+
+        assert VALUE not in str(caught.value)
+        assert "Cannot reach the server" in str(caught.value)
+
+    def test_a_malformed_reference_is_refused_before_anything_is_sent(
+        self, bao: FakeBao
+    ) -> None:
+        with pytest.raises(ProviderError):
+            store("bao://kv/app", VALUE, BAO_ADDR=bao.addr, BAO_TOKEN="t-1")
+
+        assert bao.asked == []

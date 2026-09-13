@@ -91,11 +91,59 @@ def test_a_check_error_line_survives_a_non_utf8_locale(tmp_path: Path) -> None:
     assert "Traceback" not in result.stderr.decode("utf-8", "replace")
 
 
-def _ksecret(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+def test_write_takes_its_value_from_stdin_and_prints_only_the_reference(
+    tmp_path: Path,
+) -> None:
+    """The whole point of stdin: a value on the command line is in the process
+    table, and this asserts what the command *does* print instead."""
+    result = _ksecret("write", "dotenv://out.env#K", cwd=tmp_path, stdin=VALUE + "\n")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "dotenv://out.env#K\n"
+    assert VALUE not in result.stdout
+    assert (tmp_path / "out.env").read_text() == f"K={VALUE}\n", (
+        "exactly one trailing newline is stripped"
+    )
+
+
+def test_a_second_trailing_newline_is_part_of_the_value(tmp_path: Path) -> None:
+    """So a refusal, here — and not a silently truncated secret."""
+    result = _ksecret(
+        "write", "dotenv://out.env#K", cwd=tmp_path, stdin=VALUE + "\n\n"
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert VALUE not in result.stderr
+    assert not (tmp_path / "out.env").exists()
+
+
+def test_a_value_that_is_not_text_is_refused_without_quoting_its_bytes(
+    tmp_path: Path,
+) -> None:
+    result = subprocess.run(
+        ["uv", "run", "--project", str(ROOT), "ksecret", "write", "dotenv://o.env#K"],
+        cwd=tmp_path,
+        env=os.environ.copy(),
+        input=b"\xff\xfe not text",
+        capture_output=True,
+        timeout=120,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == b""
+    assert b"\xff" not in result.stderr
+    assert b"not valid UTF-8" in result.stderr
+
+
+def _ksecret(
+    *args: str, cwd: Path, stdin: str | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["uv", "run", "--project", str(ROOT), "ksecret", *args],
         cwd=cwd,
         env=os.environ.copy(),
+        input=stdin,
         capture_output=True,
         text=True,
         timeout=120,
