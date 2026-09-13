@@ -241,11 +241,17 @@ briefs and tests reference them. -->
   #49 (issue #60) — nothing is blocked meanwhile. Item 6 (disclosure residual on disabled-as-absent): keep the
   RBAC diagnosis; residual accepted.
 - [x] 2026-09-13 (#58) outcome refinement: a spawned child receives the exact UTF-8 bytes
-  of every resolved value whatever the parent's locale, and that encoding can neither fail
-  nor leak. One shared `secrets.encode_env()` builds the POSIX bytes environment for all
+  of every resolved value whatever the parent's locale. That encoding never leaks a value
+  character, and cannot fail for any value a provider can legitimately return; a value with
+  no UTF-8 encoding at all is refused by name rather than silently altered — never passed
+  on as different bytes, and never quoted in the refusal. One shared `secrets.encode_env()`
+  builds the POSIX bytes environment for all
   three spawn sites (`ksecret run`, the `op://` and `akv://` providers), encoding with
   `surrogateescape` so a value inherited from `os.environ` round-trips, and naming only
-  the variable for the one input that still cannot encode. This refines the encoding
+  the variable for the one input that still cannot encode. The one provider that can
+  manufacture such a value — `akv://`, whose `json.loads` turns a `\uD800` escape into a
+  lone surrogate standing for no byte — rejects it at its own boundary, since that handler
+  is correct for the inherited values `env://` resolves to. This refines the encoding
   promise, which was silent on the *parent's* locale: under `LC_ALL=C` CPython encoded the
   environment with the locale's codec, so `ksecret run` could not pass a non-ASCII secret
   at all and the resulting `UnicodeEncodeError` quoted a character of it. Refusing to run

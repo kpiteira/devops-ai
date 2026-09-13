@@ -155,6 +155,22 @@ def _value(ref: str, stdout: str) -> str:
         ) from None
     if not isinstance(value, str):
         raise ProviderError(f"Secret {ref} has no value in Azure Key Vault.")
+    # `json.loads` is the one way a resolved value can carry a surrogate: a
+    # `\uD800` escape in az's output becomes a lone surrogate no byte stands
+    # for, since the output itself was decoded UTF-8 strict. Left alone it
+    # reaches `encode_env`, whose `surrogateescape` would hand the child a raw
+    # byte rather than the value's UTF-8 — a different secret, silently. The
+    # handler is right for an *inherited* value (`env://` resolves to one, and
+    # its surrogates do stand for bytes), so the refusal belongs here, where a
+    # surrogate is malformed data instead. Named, never quoted, like every
+    # other failure on this path.
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ProviderError(
+            f"Azure Key Vault returned a value for {ref} that is not valid "
+            f"text: it contains an unpaired surrogate."
+        ) from None
     return value
 
 

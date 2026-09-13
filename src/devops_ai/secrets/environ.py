@@ -32,6 +32,14 @@ ENCODING = "utf-8"
 # U+DC80..U+DCFF stands for a byte that was never UTF-8. Encoding with the same
 # handler hands that byte back unchanged. "strict" would refuse it instead, and
 # the variable carrying it is typically one this process merely inherited.
+#
+# Deliberately the same handler for a *resolved* value, which looks wrong and
+# is not: `env://NAME` resolves to an inherited value, so its surrogates stand
+# for real bytes too, and encoding those strictly would refuse a reference that
+# works today. The values where a surrogate stands for nothing are the ones a
+# provider can manufacture by decoding a text format — only `akv://`, via
+# `json.loads` — and that is where they are refused, at the boundary that knows
+# which kind it has. Here, provenance is already gone.
 ERRORS = "surrogateescape"
 
 

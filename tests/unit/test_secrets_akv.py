@@ -605,6 +605,38 @@ class TestAzureCliFailures:
         with pytest.raises(SecretResolutionError, match="no value"):
             resolve("K", REF, context(tmp_path))
 
+    def test_a_json_escape_for_a_lone_surrogate_is_refused_not_returned(
+        self, tmp_path: Path
+    ) -> None:
+        """The one way a *resolved* value can carry a surrogate — and it must not.
+
+        az's output is decoded UTF-8 strict, so no surrogate survives that. But
+        `json.loads` manufactures one from a `\\uD800` escape, and nothing
+        downstream can represent it: `encode_env` encodes with
+        `surrogateescape`, which would hand the child a raw byte instead of the
+        value's UTF-8 — a different secret than the vault holds, with nothing
+        raised. That handler is right for an inherited value (`env://` resolves
+        to one), so the refusal belongs here, where a surrogate stands for no
+        byte at all.
+        """
+        body = "recognisable-secret-body"
+        fake_az(tmp_path / "bin", stdout=f'"\\ud800{body}"')
+        with pytest.raises(SecretResolutionError, match="unpaired surrogate") as caught:
+            resolve("K", REF, context(tmp_path))
+        assert body not in caught.value.message
+        assert "d800" not in caught.value.message.lower(), "not even as an escape"
+
+    def test_a_paired_surrogate_escape_is_an_ordinary_character(
+        self, tmp_path: Path
+    ) -> None:
+        """The control: `\\uD83D\\uDE00` is a valid pair, and must still resolve.
+
+        Without this, refusing every `\\u`-escaped astral character would pass
+        the test above just as well.
+        """
+        fake_az(tmp_path / "bin", stdout='"grin-\\ud83d\\ude00"')
+        assert resolve("K", REF, context(tmp_path)) == "grin-\U0001f600"
+
     def test_an_az_that_never_answers_is_reported_as_a_timeout(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
