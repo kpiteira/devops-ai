@@ -31,6 +31,7 @@ from tests.acceptance.review_loop_runtime.conftest import (
     W49_SECOND_ORDER,
     ScratchPR,
     dispositions_file,
+    gh,
     gh_json,
     kreview,
     window_args,
@@ -344,8 +345,14 @@ def test_apply_is_idempotent_on_a_rerun(scratch: ScratchPR, tmp_path: Path) -> N
 def test_apply_dry_run_posts_nothing_on_a_live_thread(
     scratch: ScratchPR, tmp_path: Path
 ) -> None:
-    """`--dry-run` writes nothing — graded where there is something to write to."""
+    """`--dry-run` writes nothing — graded where there is something to write to.
+
+    Both writing verdicts are present: IMPLEMENT (which would reply and resolve) and
+    OUT_OF_SCOPE (which would also file an issue). With only the first, a dry run that
+    still files issues passes.
+    """
     c1 = scratch.comment(3, "line 3 should say three")
+    c2 = scratch.comment(19, "the repository should also have a LICENSE file")
     sha = scratch.push_fix("three")
     out = _apply(
         scratch,
@@ -361,15 +368,126 @@ def test_apply_dry_run_posts_nothing_on_a_live_thread(
                     "commit": sha,
                     "reply": "line 3 now says three",
                 },
+                {
+                    "id": f"t{c2}",
+                    "verdict": "OUT_OF_SCOPE",
+                    "shape": "isolated",
+                    "scope_outcome": "the twenty-line file",
+                    "issue_title": f"kreview-acceptance {scratch.tag}: LICENSE file",
+                },
             )
         ),
     ).json()
     assert out["posted"] == {"replies": 0, "resolved": 0, "issues": []}
     assert out["next"] is None
-    thread = scratch.thread_of(c1)
-    assert thread["resolved"] is False
-    assert len(thread["comments"]) == 1
+    for c in (c1, c2):
+        thread = scratch.thread_of(c)
+        assert thread["resolved"] is False
+        assert len(thread["comments"]) == 1
+    assert scratch.find_issues() == []
     assert scratch.babysit_comment() is None
+
+
+def test_apply_refuses_a_closed_pr(scratch: ScratchPR, tmp_path: Path) -> None:
+    """A real apply on a closed PR is refused (exit 3) and writes nothing.
+
+    Every other write-side fixture is open and the replays are `--dry-run`, so without
+    this a tool that posts to a merged or closed PR passes the gate.
+    """
+    c1 = scratch.comment(3, "line 3 should say three")
+    dispositions = str(
+        dispositions_file(
+            tmp_path,
+            {
+                "id": f"t{c1}",
+                "verdict": "PUSH_BACK",
+                "shape": "isolated",
+                "reply": "no",
+            },
+        )
+    )
+    gh("pr", "close", str(scratch.number), "--repo", scratch.repo)
+
+    r = _kr(
+        scratch,
+        "apply",
+        str(scratch.number),
+        "--json",
+        "--dispositions",
+        dispositions,
+    )
+    assert r.code == 3, (r.code, r.out, r.err)
+    assert len(scratch.thread_of(c1)["comments"]) == 1
+    assert scratch.babysit_comment() is None
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        pytest.param({"verdict": "MAYBE", "shape": "isolated"}, id="unknown-verdict"),
+        pytest.param({"verdict": "PUSH_BACK"}, id="missing-shape"),
+        pytest.param(
+            {"verdict": "PUSH_BACK", "shape": "systemic", "reply": "no"},
+            id="systemic-without-root-cause",
+        ),
+    ],
+)
+def test_apply_refuses_each_validation_class(
+    scratch: ScratchPR, tmp_path: Path, broken: dict[str, Any]
+) -> None:
+    """Every validation class the Surface pins is exit 2 with nothing posted.
+
+    The suite covered only "a finding with no disposition" and "a commit not on the PR";
+    an implementation that accepted an unknown verdict or a `systemic` with no root
+    cause still passed.
+    """
+    c1 = scratch.comment(3, "line 3 should say three")
+    r = _kr(
+        scratch,
+        "apply",
+        str(scratch.number),
+        "--json",
+        "--dispositions",
+        str(dispositions_file(tmp_path, {"id": f"t{c1}", **broken})),
+    )
+    assert r.code == 2, (r.code, r.out, r.err)
+    assert r.err.strip()
+    assert len(scratch.thread_of(c1)["comments"]) == 1
+    assert scratch.babysit_comment() is None
+
+
+def test_apply_refuses_an_id_that_is_not_in_the_round(
+    scratch: ScratchPR, tmp_path: Path
+) -> None:
+    """An id the packet never carried is a validation failure, not a silent skip."""
+    c1 = scratch.comment(3, "line 3 should say three")
+    r = _kr(
+        scratch,
+        "apply",
+        str(scratch.number),
+        "--json",
+        "--dispositions",
+        str(
+            dispositions_file(
+                tmp_path,
+                {
+                    "id": f"t{c1}",
+                    "verdict": "PUSH_BACK",
+                    "shape": "isolated",
+                    "reply": "no",
+                },
+                {
+                    "id": "t1",
+                    "verdict": "PUSH_BACK",
+                    "shape": "isolated",
+                    "reply": "no",
+                },
+            )
+        ),
+    )
+    assert r.code == 2, (r.code, r.out, r.err)
+    assert "t1" in r.err
+    assert len(scratch.thread_of(c1)["comments"]) == 1
 
 
 def test_apply_refuses_incomplete_dispositions(
@@ -703,6 +821,12 @@ def test_apply_repeats_only_stops_the_loop(scratch: ScratchPR, tmp_path: Path) -
         "converged",
         "repeats-only",
     )
+    # D13: one babysit comment, rewritten each round — not one appended per round
+    reports = [
+        c for c in scratch.issue_comments() if c["body"].startswith("## Babysit report")
+    ]
+    assert len(reports) == 1
+    assert [r["n"] for r in scratch.state()["rounds"]] == [1, 2]
 
 
 def test_apply_budget_stops_after_max_rounds(
@@ -935,6 +1059,13 @@ def test_reentry_is_advised_and_gated(scratch: ScratchPR, tmp_path: Path) -> Non
     assert s["babysit"]["run"] == 2
     assert s["babysit"]["rounds"] == 2
 
+    # a re-entry is "fresh budget, inherited ledger" (A9): a run that carried
+    # used_this_run forward, or dropped run 1's dispositions, also reaches run 2
+    p = _round(scratch)
+    assert p["signals"]["budget"] == {"max_rounds": 3, "used_this_run": 1}
+    assert p["ledger"][f"t{c1}"]["verdict"] == "PUSH_BACK"
+    assert p["ledger"][f"t{c2}"]["verdict"] == "PUSH_BACK"
+
 
 # ------------------------------------------------------------------ J10: skills
 
@@ -958,11 +1089,14 @@ def _shell_invocations(text: str) -> list[str]:
         if in_fence:
             candidates.append(line)
         candidates.extend(re.findall(r"`([^`\n]+)`", line))
-    return [
-        snippet.strip()
-        for snippet in candidates
-        if snippet.strip().removeprefix("$").strip().split(" ")[0] in FORBIDDEN_COMMANDS
-    ]
+    found: list[str] = []
+    for snippet in candidates:
+        # split() on any whitespace: a space-only split misses `git\tstatus`, and an
+        # empty snippet has no first word at all
+        words = snippet.strip().removeprefix("$").split()
+        if words and words[0] in FORBIDDEN_COMMANDS:
+            found.append(snippet.strip())
+    return found
 
 
 def test_skills_contain_no_gh_or_git_commands() -> None:
@@ -976,3 +1110,7 @@ def test_skills_contain_no_gh_or_git_commands() -> None:
     assert "kselfreview" in kbabysit
     assert "context: fork" in kbabysit
     assert "Never merge" in kbabysit
+    # the Surface pins the observer seat too: without this, kobserve can be left on the
+    # old report flow and J10 still passes
+    kobserve = (ROOT / "skills" / "kobserve" / "SKILL.md").read_text()
+    assert "kreview status" in kobserve

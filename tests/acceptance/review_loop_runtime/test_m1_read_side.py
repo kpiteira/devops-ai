@@ -1,10 +1,13 @@
 """M1 — read side: `kreview status` and the round packet.
 
-Every test runs the real console script against the real GitHub API on merged PRs of
-this repository. The numbers asserted were measured on 2026-09-13 with the shell in
-kreview 0.4.0 §1 (spec: Discovered context). A merged PR's commits are immutable; its
+The J1/J2/J3 tests run the real console script against the real GitHub API on merged PRs
+of this repository. The numbers they assert were measured on 2026-09-13 with the shell
+in kreview 0.4.0 §1 (spec: Discovered context). A merged PR's commits are immutable; its
 reviews and comments are not, so every `round` call here passes `--until MEASURED_UNTIL`
 and reads a frozen window rather than "everything up to now".
+
+The two J4 tests at the bottom run no command and touch no API: J4 delivers text in
+`README.md` and the two `SKILL.md` files, so they read those files from disk.
 """
 
 from __future__ import annotations
@@ -49,10 +52,45 @@ def test_help_lists_status_and_round() -> None:
     assert "round" in r.out
 
 
+STATUS_KEYS = {
+    "pr",
+    "checkout",
+    "scope",
+    "ci",
+    "reviews",
+    "boundary",
+    "automation",
+    "babysit",
+    "reentry",
+    "kselfreview_range",
+    "verdict",
+}
+
+
 def test_status_on_merged_pr_49() -> None:
     r = kreview("status", str(PR49), "--repo", REPO, "--json")
     assert r.code == 3, (r.out, r.err)
     s = r.json()
+    # the Surface says every key is present, so the whole shape is the assertion:
+    # a status that quietly omits `checkout` or `automation` is not this command
+    assert set(s) == STATUS_KEYS
+    assert set(s["pr"]) == {
+        "number",
+        "state",
+        "draft",
+        "head_sha",
+        "head_ref",
+        "base_ref",
+        "mergeable",
+        "author",
+    }
+    assert s["pr"]["number"] == PR49
+    assert s["pr"]["draft"] is False
+    assert s["pr"]["author"] == "kpiteira"
+    assert s["pr"]["base_ref"] == "main"
+    # run from a clone of the repo, on a branch that is not #49's head
+    assert s["checkout"]["matches_pr"] is False
+    assert s["checkout"]["branch"]
     assert s["verdict"] == "stop: merged"
     assert s["pr"]["state"] == "merged"
     assert s["pr"]["head_sha"].startswith(PR49_HEAD)
@@ -67,6 +105,19 @@ def test_status_on_merged_pr_49() -> None:
     assert s["automation"]["claude_review"] is False
     assert s["babysit"]["report_present"] is True
     assert s["babysit"]["status"] == "none"  # the 0.4.0 report carries no state block
+
+
+def test_status_without_repo_resolves_it_from_the_checkout() -> None:
+    """`--repo` defaults to the checkout's repository, and nothing else asserts that.
+
+    Every other call here passes `--repo`, so a broken default-resolution path would
+    ship green. Run from ROOT, which is a clone of the repository under test.
+    """
+    r = kreview("status", str(PR49), "--json")
+    assert r.code == 3, (r.out, r.err)
+    s = r.json()
+    assert s["pr"]["number"] == PR49
+    assert s["verdict"] == "stop: merged"
 
 
 def test_status_reports_missing_scope_on_10() -> None:
