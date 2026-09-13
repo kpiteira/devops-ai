@@ -210,6 +210,12 @@ class TestTheDotenvFile:
             "has#hash",
             "$NOT_A_REFERENCE",
             "",
+            '"',
+            '""',
+            "'",
+            "  ",
+            "=",
+            "#",
             "café-中文",
             "\ttab",
         ],
@@ -224,7 +230,19 @@ class TestTheDotenvFile:
             value
         )
 
-    @pytest.mark.parametrize("value", ["two\nlines", "trailing\n", "carriage\rreturn"])
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "two\nlines",
+            "trailing\n",
+            "carriage\rreturn",
+            # `str.splitlines` — which is what the reader splits on — counts
+            # these too, so a writer that only looked for \n or \r would put a
+            # value into this file that reads back cut in half.
+            "vertical\vtab",
+            "line\u2028separator",
+        ],
+    )
     def test_a_value_the_format_cannot_hold_is_refused_not_mangled(
         self, tmp_path: Path, value: str
     ) -> None:
@@ -266,6 +284,19 @@ class TestTheDotenvFile:
 
         assert "not valid UTF-8" in str(caught.value)
         assert (tmp_path / "f.env").read_bytes() == b"K=\xff\xfe\n"
+
+    @pytest.mark.parametrize("key", [" K ", "K=1", "#K", "export K"])
+    def test_a_name_that_is_not_a_key_blames_the_key_not_the_value(
+        self, tmp_path: Path, key: str
+    ) -> None:
+        """These are refused either way; the defect was the sentence, which sent
+        someone looking at the value for a problem in the reference."""
+        with pytest.raises(ProviderError) as caught:
+            write(f"dotenv://f.env#{key}", VALUE, ResolveContext(base_dir=tmp_path))
+
+        assert f"{key} cannot be a key" in str(caught.value)
+        assert "value containing a line break" not in str(caught.value)
+        assert not (tmp_path / "f.env").exists()
 
     def test_a_reference_with_no_key_says_what_was_expected(
         self, tmp_path: Path

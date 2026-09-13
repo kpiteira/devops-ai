@@ -26,6 +26,10 @@ from ..errors import ProviderError
 SCHEME = "dotenv://"
 KEY_SEPARATOR = "#"
 NEW_FILE_MODE = 0o600
+# A value that could not possibly be mistaken for part of a key, used to ask
+# `envfile` whether a *key* survives a round trip independently of the value
+# that follows it.
+PROBE = "probe"
 
 
 def handles(ref: str) -> bool:
@@ -163,6 +167,18 @@ def _spelling(key: str, value: str, path: Path) -> str:
     works, rather than deciding here, is what keeps the two from drifting: the
     rule for `'` and `"` lives in one place and this reads it.
     """
+    if envfile.entry(f"{key}={PROBE}") != (key, PROBE):
+        # The key, not the value: a name with an `=` in it, or with spaces
+        # around it, or one that starts a comment, is read back as a different
+        # key or as no key at all. Said separately because the sentence below
+        # would blame the value for a reference's problem, and send someone
+        # looking at the wrong half of what they typed.
+        raise ProviderError(
+            f"{key} cannot be a key in {path}: a {SCHEME} file reads a line as "
+            f"`KEY=value`, so a name carrying an `=`, surrounding whitespace, "
+            f"an `export ` prefix, or a leading `#` names something else once "
+            f"it is written down."
+        )
     for candidate in (value, f'"{value}"'):
         line = f"{key}={candidate}"
         if envfile.entry(line) == (key, value):

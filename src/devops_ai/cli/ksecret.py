@@ -116,6 +116,16 @@ def _stdin_value() -> str:
     self-synchronising, so a trailing `0A` is a newline and never the tail of
     some other character.
     """
+    if sys.stdin.isatty():
+        # Without this the command is indistinguishable from a hang: nothing
+        # has been printed, and stdin is a terminal nobody has been asked to
+        # type into. On stderr, so the one line on stdout is still the
+        # reference and a pipeline is unaffected — and only when there is a
+        # person there to read it.
+        typer.echo(
+            "ksecret write: reading the value from stdin; end it with Ctrl-D.",
+            err=True,
+        )
     stream = getattr(sys.stdin, "buffer", None)
     raw = stream.read() if stream is not None else sys.stdin.read().encode("utf-8")
     if raw.endswith(b"\n"):
