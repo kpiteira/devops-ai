@@ -289,6 +289,31 @@ class TestAzureCliFailures:
         assert "Key Vault Secrets User" in message
         assert "not found" not in message.lower(), "a name is not a code"
 
+    def test_a_secret_named_like_a_code_is_not_diagnosed_as_that_code(
+        self, tmp_path: Path
+    ) -> None:
+        """Where the earlier code anchoring still leaked: an *invalid* name.
+
+        `(Forbidden)` is not a legal Key Vault name, which is the point — az
+        rejects it with `BadParameter` and echoes it into the message, where a
+        scan for `(forbidden)` found it and reported a denial. Codes are read
+        only from the fields az writes codes in, so the echo is inert.
+        """
+        name = "(Forbidden)"
+        fake_az(
+            tmp_path / "bin",
+            code=1,
+            stderr=azure_error(
+                f"(BadParameter) The request URI contains an invalid name: {name}"
+            )
+            + "Code: BadParameter\n",
+        )
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", f"akv://a-vault/{name}", context(tmp_path))
+        message = caught.value.message
+        assert "Key Vault Secrets User" not in message, "an echoed name is not a code"
+        assert "invalid name" in message
+
     def test_an_unclassified_failure_quotes_azs_error_line(
         self, tmp_path: Path
     ) -> None:
@@ -435,7 +460,11 @@ class TestAzureCliFailures:
         az echoes the rejected name verbatim, and the name is the caller's — the
         same opening the error-code anchoring closed for `forbidden`.
         """
-        impostor = "does not allow operation 'abc123'"
+        version = "zz99"
+        # The collision has to name *this* version. An earlier version of this
+        # test spelled a different one, so the anchor could not have matched
+        # either way and the test passed without exercising anything.
+        impostor = f"does not allow operation '{version}'"
         fake_az(
             tmp_path / "bin",
             code=1,
@@ -444,8 +473,11 @@ class TestAzureCliFailures:
             ),
         )
         with pytest.raises(SecretResolutionError) as caught:
-            resolve("K", "akv://a-vault/a-secret/zz99", context(tmp_path))
-        assert "version id" not in caught.value.message
+            resolve("K", f"akv://a-vault/{impostor}/{version}", context(tmp_path))
+        message = caught.value.message
+        assert "version id" not in message
+        assert "list-versions" not in message
+        assert "invalid name" in message, "az's real reason must survive"
 
     def test_bad_parameter_without_a_pinned_version_is_not_blamed_on_one(
         self, tmp_path: Path

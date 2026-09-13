@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -124,66 +125,73 @@ def _diagnose(
     code: int,
     stderr: str,
 ) -> str:
-    """Name what went wrong from az's own error text.
+    """Name what went wrong, reading az's error from the fields that carry it.
 
     Azure answers several unrelated states with `(Forbidden)` — a missing role, a
-    vault firewall, and a *disabled* secret all land there (verified 2026-09-12
-    against the acceptance vault). Sending someone to chase RBAC for a secret they
-    disabled themselves is a confident wrong answer, so the states that can be told
-    apart are, and the rest carry az's own words rather than a guess.
+    vault firewall, and a *disabled* secret all land there (verified against the
+    acceptance vault). Sending someone to chase RBAC for a secret they disabled
+    themselves is a confident wrong answer, so the states that can be told apart
+    are, and the rest carry az's own words rather than a guess.
 
-    Only az's `ERROR:` lines are ever quoted back: a retrieval that failed holds no
-    value to leak, but the invariant is absolute, so nothing else from the child
-    reaches the message.
+    None of that may be read out of the raw response. `_parse` accepts any
+    non-empty segment, so a secret named `(Forbidden)` reaches az — which answers
+    `BadParameter` and echoes the rejected name back inside its message. A scan
+    of the whole response then reports an invalid name as access denied, and a
+    name carrying `does not allow operation '<version>'` steals the bad-version
+    branch. Both were reproduced before this was written. So: a code counts only
+    where az writes codes, and message text counts only at a message's start,
+    which is the one position an echoed name can never occupy.
     """
-    lowered = stderr.lower()
-    if _names_code(lowered, "SecretNotFound") or (
-        "was not found in this key vault" in lowered
-    ):
+    codes, messages = _az_error_fields(stderr)
+
+    def coded(name: str) -> bool:
+        return name.lower() in codes
+
+    def message_starts(prefix: str) -> bool:
+        return any(m.lower().startswith(prefix) for m in messages)
+
+    if coded("SecretNotFound"):
         return f"Secret not found in Azure Key Vault: {ref}."
     # az appends a pinned version to the request path, so Key Vault reads a
-    # segment that is not a version id as an *operation* name and answers
-    # `(BadParameter) Method GET does not allow operation 'latest'` — true, and
-    # useless to whoever wrote `/latest`. `list-versions` returns identifiers and
-    # attributes only, never values, so it is safe to send them to it.
-    #
-    # BadParameter alone is not enough to blame the version: `_parse` accepts any
-    # non-empty segment, so an invalid *secret name* answers BadParameter too
-    # (`The request URI contains an invalid name: bad_name`, verified). The
-    # message must name this version as the operation it refused, or the real
-    # failure is buried under advice to go list versions of a name Azure has
-    # already rejected.
-    if (
-        version is not None
-        and _names_code(lowered, "BadParameter")
-        and f"does not allow operation '{version.lower()}'" in lowered
+    # segment that is not a version id as an *operation* name and refuses it —
+    # true, and useless to whoever wrote `/latest`. `list-versions` returns
+    # identifiers and attributes only, never values, so it is safe to send an
+    # operator there.
+    if version is not None and coded("BadParameter") and _refused_operation(
+        messages, version
     ):
         return (
             f"{version} is not a version id in {ref}. Omit it to read the "
             f"current version, or take an id from: "
             + _az_command("list-versions", "--vault-name", vault, "--name", secret)
         )
-    # `az login` names itself in az's own guidance; matching the broader "please
-    # run" would swallow unrelated advice such as `az account set`.
-    if "az login" in lowered:
+    # An ERROR: line with no code is az speaking for itself rather than relaying
+    # a Key Vault response, which is exactly what "not logged in" is. Requiring
+    # that keeps an echoed name — which always arrives *with* a code — out.
+    if message_starts("please run 'az login'") or (
+        not codes and any("az login" in m.lower() for m in messages)
+    ):
         return f"Azure CLI is not logged in, so {ref} cannot be read. Run: az login"
-    if _names_code(lowered, "SecretDisabled") or "disabled secret" in lowered:
+    if coded("SecretDisabled") or (
+        coded("Forbidden")
+        and message_starts("operation get is not allowed on a disabled secret")
+    ):
         # Disabling is per version: an older enabled version still reads (verified).
         return (
             f"Secret {secret} is disabled in Key Vault {vault}. Enable it, or pin "
             f"an enabled version: {SCHEME}{vault}/{secret}/<version>."
         )
-    if (
-        _names_code(lowered, "Forbidden")
-        or "not authorized" in lowered
-        or "access denied" in lowered
-    ):
+    if coded("Forbidden"):
         return (
             f"Access denied reading {ref}.{_az_errors(stderr)} If that is a "
             f"permissions problem, your Azure identity needs the Key Vault "
             f"Secrets User role on {vault}."
         )
-    if "failed to resolve" in lowered or "name or service not known" in lowered:
+    if not codes and any(
+        phrase in message.lower()
+        for message in messages
+        for phrase in ("failed to resolve", "name or service not known")
+    ):
         return (
             f"Key Vault {vault} could not be reached — check the vault name "
             f"in {ref}."
@@ -227,23 +235,53 @@ def _az_command(*args: str) -> str:
     return shlex.join(["az", "keyvault", "secret", *args])
 
 
-def _names_code(lowered: str, code: str) -> bool:
-    """True when az named this Azure error code — not merely printed the word.
+_ERROR_LINE = re.compile(r"^ERROR:\s*(?:\(([A-Za-z]+)\)\s*)?(.*)$")
+_CODE_LINE = re.compile(r"^Code:\s*([A-Za-z]+)\s*$")
+_INNER_CODE_LINE = re.compile(r'^\s*"code":\s*"([A-Za-z]+)"')
+_OPERATION_REFUSAL = re.compile(
+    r"^method\s+\w+\s+does not allow operation\s+'(.*)'\.?$"
+)
 
-    Vault and secret names are the caller's to choose and az echoes them into
-    stderr verbatim (the host it could not resolve, the secret URL it refused),
-    so scanning for a bare `forbidden` lets a vault legitimately named
-    `forbidden` take the RBAC branch and bury the real diagnosis. Only the three
-    shapes az actually prints a code in count, all captured from the vault:
-    `(Forbidden)` in the headline, `Code: Forbidden` on its own line, and
-    `"code": "SecretDisabled"` inside an inner-error blob.
+
+def _az_error_fields(stderr: str) -> tuple[frozenset[str], tuple[str, ...]]:
+    """The error codes az reported, and the message text of each `ERROR:` line.
+
+    Every pattern is anchored to the start of a line, because that is the one
+    place a vault or secret name cannot reach: az echoes rejected names inside
+    message text, never as a line of their own. The three code positions are all
+    captured from the acceptance vault — `ERROR: (Forbidden)` in the headline, a
+    standalone `Code: Forbidden`, and `"code": "SecretDisabled"` in an inner
+    error. Only the *first* parenthesised token of an `ERROR:` line is a code; a
+    later one is prose.
     """
-    code = code.lower()
-    return (
-        f"({code})" in lowered
-        or f"code: {code}" in lowered
-        or f'"code": "{code}"' in lowered
-    )
+    codes: set[str] = set()
+    messages: list[str] = []
+    for line in stderr.splitlines():
+        error = _ERROR_LINE.match(line)
+        if error is not None:
+            if error.group(1) is not None:
+                codes.add(error.group(1).lower())
+            messages.append(error.group(2))
+            continue
+        for pattern in (_CODE_LINE, _INNER_CODE_LINE):
+            found = pattern.match(line)
+            if found is not None:
+                codes.add(found.group(1).lower())
+                break
+    return frozenset(codes), tuple(messages)
+
+
+def _refused_operation(messages: tuple[str, ...], version: str) -> bool:
+    """True when az's message *is* Key Vault refusing this version as an operation.
+
+    Anchored at the message start and compared against the pinned version, so a
+    secret name spelling the same sentence cannot claim the branch.
+    """
+    for message in messages:
+        refusal = _OPERATION_REFUSAL.match(message.strip().lower())
+        if refusal is not None and refusal.group(1) == version.lower():
+            return True
+    return False
 
 
 def _az_errors(stderr: str) -> str:
