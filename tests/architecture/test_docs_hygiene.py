@@ -13,6 +13,8 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 
 # A whole line that is nothing but an XML/HTML-shaped tag, open or closing.
@@ -60,13 +62,18 @@ def scan(root: Path) -> tuple[list[str], list[str]]:
     return paths, offenders
 
 
-def test_no_tracked_markdown_ends_with_a_tool_artifact_tag() -> None:
-    paths, offenders = scan(ROOT)
+def enforce(root: Path) -> None:
+    """The gate itself. Raises AssertionError naming every offender it found."""
+    paths, offenders = scan(root)
     assert paths, "no tracked markdown found — the gate would be vacuously green"
     assert not offenders, (
         "tracked markdown ending in a bare tag line — almost always a tool "
         "artifact, not content. Delete the line:\n  " + "\n  ".join(offenders)
     )
+
+
+def test_no_tracked_markdown_ends_with_a_tool_artifact_tag() -> None:
+    enforce(ROOT)
 
 
 def test_gate_flags_artifact_tags() -> None:
@@ -130,3 +137,25 @@ def test_selection_scans_tracked_files_only(tmp_path: Path) -> None:
         "tracked-offender.md",
     ]
     assert offenders == [f"tracked-offender.md (last line: {_CLOSE}content>)"]
+
+    # and the gate itself goes red, naming the tracked offender and only it
+    with pytest.raises(AssertionError) as failure:
+        enforce(tmp_path)
+    assert "tracked-offender.md" in str(failure.value)
+    assert "untracked-offender.md" not in str(failure.value)
+
+
+def test_an_empty_corpus_is_not_a_pass(tmp_path: Path) -> None:
+    """A gate that scans nothing must go red, not green.
+
+    Silently passing over an empty set is the failure this gate exists to
+    prevent. This exercises `enforce` itself, so deleting the guard turns it
+    red — asserting a copy of the guard here would not.
+    """
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / "notes.txt").write_text("not markdown\n")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "notes.txt"], check=True)
+
+    assert scan(tmp_path) == ([], []), "fixture should hold no tracked markdown"
+    with pytest.raises(AssertionError, match="vacuously green"):
+        enforce(tmp_path)
