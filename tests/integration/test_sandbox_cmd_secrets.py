@@ -8,14 +8,19 @@ integration test; only the Docker call is faked.
 from __future__ import annotations
 
 import json
+import os
 import stat
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from devops_ai.cli.sandbox_cmd import sandbox_start_command
 
 SECRET = "from-the-main-checkout"
+AKV_SECRET = "from-the-key-vault"
 
 
 def test_dotenv_reference_reads_the_main_repo_not_the_worktree(
@@ -114,6 +119,106 @@ def test_a_legacy_file_is_tightened_even_when_resolution_fails(
     assert stat.S_IMODE(legacy.stat().st_mode) == 0o600, (
         "a failed resolution left the old secrets file world-readable"
     )
+
+
+class TestAnAkvReferenceReachesTheSandbox:
+    """J7 names `[sandbox.secrets]`, and that path is not the `ksecret` one.
+
+    kinfra builds its own ResolveContext and materialises `.env.secrets` itself,
+    so a regression between the provider and the slot file would leave the
+    advertised sandbox support broken while the `ksecret` tests stayed green.
+    Faked exactly as the sibling tests above fake it — Docker and the health
+    gate — plus `az`; the worktree, the config and the slot file are real.
+    """
+
+    def test_the_slot_file_carries_the_resolved_value_at_mode_0600(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _, worktree = _main_repo_with_worktree(tmp_path)
+        _declare_akv_secrets(worktree)
+        _fake_az_on_path(tmp_path, monkeypatch, value=AKV_SECRET)
+        registry_path, slot_dir = _registry_with_slot(tmp_path, worktree)
+
+        with (
+            patch("devops_ai.cli.sandbox_cmd.REGISTRY_PATH", registry_path),
+            patch("devops_ai.cli.sandbox_cmd.start_sandbox"),
+            patch("devops_ai.cli.sandbox_cmd.run_health_gate", return_value=True),
+        ):
+            code, msg = sandbox_start_command(worktree_path=worktree)
+
+        assert code == 0, msg
+        assert AKV_SECRET not in msg, "a resolved value must not be echoed"
+        secrets_file = slot_dir / ".env.secrets"
+        # The declared literal is laid over the environment and reaches the file
+        # beside the reference it is declared with (the M1 layering amendment).
+        assert secrets_file.read_text() == (
+            f"API_KEY={AKV_SECRET}\nAZURE_CORE_ONLY_SHOW_ERRORS=true\n"
+        )
+        assert stat.S_IMODE(secrets_file.stat().st_mode) == 0o600
+
+    def test_a_vault_failure_stops_before_docker_and_names_the_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _, worktree = _main_repo_with_worktree(tmp_path)
+        _declare_akv_secrets(worktree)
+        _fake_az_on_path(
+            tmp_path, monkeypatch, code=3,
+            stderr="ERROR: (SecretNotFound) A secret with (name/id) api-key "
+                   "was not found in this key vault.\n",
+        )
+        registry_path, slot_dir = _registry_with_slot(tmp_path, worktree)
+
+        with (
+            patch("devops_ai.cli.sandbox_cmd.REGISTRY_PATH", registry_path),
+            patch("devops_ai.cli.sandbox_cmd.start_sandbox") as docker,
+            patch("devops_ai.cli.sandbox_cmd.run_health_gate", return_value=True),
+        ):
+            code, msg = sandbox_start_command(worktree_path=worktree)
+
+        assert code == 1
+        # Not `"not found" in msg`: that is equally true of "Azure CLI (az) not
+        # found", so a harness that never put the fake on PATH would pass this
+        # while proving nothing about the vault. Only the SecretNotFound branch
+        # produces this sentence.
+        assert "API_KEY" in msg
+        assert "Secret not found in Azure Key Vault" in msg
+        docker.assert_not_called()
+        assert not (slot_dir / ".env.secrets").exists()
+
+
+def _declare_akv_secrets(worktree: Path) -> None:
+    """Point the worktree's config at a Key Vault reference plus a sibling literal."""
+    config = worktree / ".devops-ai" / "infra.toml"
+    config.write_text(
+        config.read_text().replace(
+            'DB_PASSWORD = "dotenv://.env#DB_PASSWORD"',
+            'API_KEY = "akv://a-vault/api-key"\n'
+            'AZURE_CORE_ONLY_SHOW_ERRORS = "true"\n',
+        )
+    )
+
+
+def _fake_az_on_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    value: str = "",
+    code: int = 0,
+    stderr: str = "",
+) -> None:
+    """An `az` the provider will find, on the PATH kinfra resolves against."""
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir(exist_ok=True)
+    program = bin_dir / "az"
+    program.write_text(
+        f"#!{sys.executable}\n"
+        "import json, sys\n"
+        f"sys.stdout.write(json.dumps({value!r}) if {code} == 0 else '')\n"
+        f"sys.stderr.write({stderr!r})\n"
+        f"sys.exit({code})\n"
+    )
+    program.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
 
 
 def _main_repo_with_worktree(tmp_path: Path) -> tuple[Path, Path]:

@@ -121,7 +121,7 @@ create` calls.
 |-----------|-------|------|------------|--------|----------|
 | M1 — ksecret with env, dotenv, 1Password | briefs/M1-ksecret-core.md | J1, J2, J3, J4, J5 | — | delivered | [c40452a](https://github.com/kpiteira/devops-ai/commit/c40452a) · [#32](https://github.com/kpiteira/devops-ai/pull/32) · [divergence](divergences/M1-2026-09-12.md) (resolved by #30) |
 | M2 — OpenBao provider | briefs/M2-openbao.md | J6 | M1 | delivered | [04fea7f](https://github.com/kpiteira/devops-ai/commit/04fea7f) · [#51](https://github.com/kpiteira/devops-ai/pull/51) |
-| M3 — Azure Key Vault provider | briefs/M3-azure-key-vault.md | J7 | M1 | pending | — |
+| M3 — Azure Key Vault provider | briefs/M3-azure-key-vault.md | J7 | M1 | PR | [#49](https://github.com/kpiteira/devops-ai/pull/49) |
 | M4 — write (optional) | briefs/M4-write.md | J8 | M2, M3 | pending | — |
 
 M2 and M3 are independent and may run in parallel. M4 is optional: it may be dropped
