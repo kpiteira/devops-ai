@@ -59,9 +59,12 @@ gh api graphql --paginate -f query='
         pageInfo { hasNextPage endCursor }
       }}}}' -f owner="${REPO%/*}" -f repo="${REPO#*/}" -F pr="$PR_NUMBER"
 
-# 3. General PR comments (not attached to lines)
+# 3. General PR comments (not attached to lines). created_at is fetched, not optional:
+#    the repeat-round rule below filters on it, and without it an observation posted
+#    between rounds cannot be told from one already handled — so it gets re-triaged or
+#    silently skipped, depending on which way you guess.
 gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" \
-  --jq '.[] | {id, user: .user.login, body}'
+  --jq '.[] | {id, user: .user.login, created_at, body}'
 
 # 4. CI state (a red check is feedback too)
 gh pr checks "$PR_NUMBER" 2>/dev/null || true
@@ -79,15 +82,25 @@ reviews, while only **4** of those 13 reviews opened a thread at all — and fro
 (14:27) on, 7 of the last 8 opened none, so 8 of the 9 findings that whole phase produced
 existed only in the bodies. Parse them out:
 
+**Fetch once, into a file, and check that the fetch worked** — then let both the parser and
+its guard read those same bytes. One fetch means the two can never disagree about which
+reviews they cover, and an explicit status check means a dead network can never look like a
+quiet round:
+
 ````bash
-set -o pipefail   # a failed fetch must not read as "no findings" — see below
-# --paginate runs the --jq filter per page, so emit a marker line per review and let awk
-# carry that review's commit_id AND submitted_at down its body. The fence toggle stops a
+REVIEWS=$(mktemp)
+if ! gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
+     --jq '.[] | select(.state != "PENDING")
+           | "@@REVIEW\t\(.id)\t\(.commit_id)\t\(.submitted_at)", (.body // "")' > "$REVIEWS"
+then
+  echo "FETCH FAILED — this is not an empty round. Stop and report it."; exit 1
+fi
+grep -c '^@@REVIEW' "$REVIEWS"   # 0 here means genuinely no submitted reviews yet
+
+# --paginate runs the --jq filter per page, so each review emits a marker line and awk
+# carries its commit_id and submitted_at down the body. The fence toggle stops a
 # `**path:line**` line *inside* a quoted snippet from being counted as a finding of its own.
-gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
-  --jq '.[] | select(.state != "PENDING")
-        | "@@REVIEW\t\(.id)\t\(.commit_id)\t\(.submitted_at)", (.body // "")' \
-| awk -F'\t' '
+awk -F'\t' '
     $1=="@@REVIEW" { rid=$2; sha=$3; ts=$4; sup=0; fence=0; next }
     /^```/         { fence=!fence; next }
     fence          { next }
@@ -95,42 +108,35 @@ gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
     sup && /^- \*\*Files reviewed/ { sup=0 }
     sup && /^\*\*[^*]+:[0-9]+\*\*$/ {
       s=substr($0,3,length($0)-4); p=s; sub(/:[0-9]+$/,"",p); l=s; sub(/^.*:/,"",l)
-      print ts"\t"rid"\t"sha"\t"p"\t"l }'
+      print ts"\t"rid"\t"sha"\t"p"\t"l }' "$REVIEWS"
 # one row per suppressed finding: submitted_at · review-id · the commit the review judged
 # · path · line
+
+grep -oE '^#+ +Suppressed comments \([0-9]+\)' "$REVIEWS" | grep -oE '[0-9]+' \
+  | awk '{n += $1} END {print "declared: " n+0}'
 ````
 
-**Scope the rows to this round.** The parser walks every review the PR has, so on round N
-it re-emits rounds 1..N-1 as well. `submitted_at` is carried for exactly that reason: apply
-the same cutoff the threads get — keep only rows newer than the round you last handled.
-Skipping it re-triages old findings every round *and* poisons the provenance totals and the
-second-order stop with findings that were already answered, which is the opposite of what
-counting suppressed findings is for.
-
-**Zero rows is an ambiguous negative** — "no suppressed comments", "no reviews", "nothing
-new this round", *or* "the parse broke". Never read it as the first. The headers declare
-their own counts, so make the parse check itself, over **the same review set the parser
-used** — the same `state != "PENDING"` filter, or a pending body's header inflates
-`declared` and reports a parser defect that isn't one:
-
-```bash
-set -o pipefail
-gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
-  --jq '.[] | select(.state != "PENDING") | .body // ""' \
-  | grep -oE '^#+ +Suppressed comments \([0-9]+\)' | grep -oE '[0-9]+' \
-  | awk '{n += $1} END {print "declared: " n+0}'
-```
-
-Parsed must equal declared **over the whole PR** (compare before the per-round cutoff, or
+Parsed must equal declared **over the whole file** (compare before the per-round cutoff, or
 you are comparing two different questions). A mismatch is a defect in the parser — GitHub
 changed the format — never an empty round: say so and triage that round from the bodies by
 hand.
 
-**Both pipelines must fail closed.** Without `pipefail`, a `gh api` that dies on an expired
-token or a network blip still lets `awk` exit 0 with no input, so parsed and declared are
-both `0`, the equality guard is *satisfied*, and the loop records a clean empty round over
-data it never saw. A guard that passes hardest when the fetch failed is worse than no
-guard. Confirm a non-zero review count before believing either number.
+**Why the file, and why the `if`.** Piping straight from `gh` gives three ways to be wrong
+and this shape closes all of them. Two pipelines with separately-typed `--jq` filters drift
+— one grows a `state` predicate the other lacks, and `declared` exceeds `parsed` for a
+reason that is not a parser defect at all. And `set -o pipefail` is *not* enough on its own:
+it sets the pipeline's exit status, but nothing reads it, so `awk` still prints
+`declared: 0` and that zero is indistinguishable in the output from a real empty set. A
+guard that passes most reliably when the fetch failed is worse than no guard. The status
+must be branched on, which is what `if ! gh api … ; then` does, and the review count printed
+separately is what tells a real zero from a broken one.
+
+**Scope the rows to this round.** The file holds every review the PR has, so on round N the
+parser re-emits rounds 1..N-1 as well. `submitted_at` is carried for exactly that reason:
+apply the same cutoff the threads get — keep only rows newer than the round you last
+handled. Skipping it re-triages old findings every round *and* poisons the provenance totals
+and the second-order stop with findings that were already answered, which is the opposite of
+what counting suppressed findings is for.
 
 Measured on devops-ai #49 (2026-09-13): 15 parsed, 15 declared, across the 11 headers; the
 two Copilot reviews with no header — an approval, and a round whose single finding *did*
@@ -286,8 +292,12 @@ was correct; none was the fix; round 12 was clean only because the echo sites ra
 class was filed afterwards as #60. One `systemic → unvalidated segments reach the error
 text` in round 6 would have bought that outcome for one round instead of six.
 
-Two findings in the same round that share a mechanism are one `systemic` row with one root
-cause, not two `isolated` rows that happen to rhyme.
+Two findings in the same round that share a mechanism get **the same root cause**, not two
+`isolated` labels that happen to rhyme. They still get **one table row each** — the row is
+the unit of a finding, and the provenance and source counts have to reconcile against
+Findings — but both rows carry the identical `systemic → <root cause>` text, and the
+*Systemic root causes* summary names the cause once with its sites listed under it. Naming
+the class is what collapses; the ledger never does.
 
 ## Categorize: IMPLEMENT / PUSH BACK / DISCUSS / OUT OF SCOPE
 

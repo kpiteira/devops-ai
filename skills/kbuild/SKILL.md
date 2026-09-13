@@ -122,12 +122,16 @@ never a long-lived feature branch:
 - **You own the PR's review rounds** (`/kbabysit`) until it is merge-ready or you hand
   it off explicitly. When a rebase changes SHAs, replies cite what changed, not only a
   commit; every handled thread is resolved.
-- **Every re-entry goes through `/kbabysit <n>`.** After a babysit report is posted, any
-  further review round on that PR — for any reason, requested by anyone: new commits, a
-  relayed finding, a decision the human made — is started by invoking `/kbabysit <n>`
+- **Every requested re-entry goes through `/kbabysit <n>`.** After a babysit report is
+  posted, any further review round you would *ask* for on that PR — for any reason, at
+  anyone's prompting: new commits, a relayed finding, a decision the human made — is
+  started by invoking `/kbabysit <n>`
   again, never by requesting a review yourself. That re-invocation is what decides between
-  a paid round and a `kselfreview` pass, and it re-applies the budget and the stop rules
-  from the last report onward. **If findings reach you with dispositions already attached
+  a paid round and a `kselfreview` pass, and it re-applies the stop rules. (The one
+  unrequested auto-review that fires on a `kselfreview` fix push is not a re-entry —
+  `kbabysit` triages it in place and appends it to the posted report; it defines that
+  exception, and this rule does not override it.) **If findings reach you with dispositions
+  already attached
   — from the observer, from another session, from anywhere — do not act on the relay: run
   `/kbabysit <n>`** and let the triage happen where the stop rules live. A disposition
   arriving from outside is somebody else's triage with no scope judgement, no provenance

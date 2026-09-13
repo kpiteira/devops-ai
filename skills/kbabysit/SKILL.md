@@ -128,14 +128,18 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
     level read here could only ever describe somebody else's round:
 
     ```bash
+    # Identical predicate in both filters — submitted Copilot reviews, nothing else. A
+    # PENDING review has no published body, so counting it while not counting its (absent)
+    # footer reports a broken parser that isn't one; this is the same `state != "PENDING"`
+    # predicate kreview's parser uses, and it has to stay the same one.
     # --paginate runs the --jq filter per page, so `length` yields one count per page: sum
     # them. Reporting from page 1 alone goes wrong at 30+ reviews, exactly where it matters.
     gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
-      --jq '[.[] | select(.user.login | test("copilot"; "i"))] | length' \
+      --jq '[.[] | select(.state != "PENDING" and (.user.login | test("copilot"; "i")))] | length' \
       | awk '{n += $1} END {print "copilot reviews so far: " n+0}'
 
     gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
-      --jq '.[] | select(.user.login | test("copilot"; "i")) | .body // ""' \
+      --jq '.[] | select(.state != "PENDING" and (.user.login | test("copilot"; "i"))) | .body // ""' \
       | grep -oE 'Review effort level:\*\* *[A-Za-z]+' | sed -E 's/.*\*\* *//' \
       | sort -u | tr '\n' ' '      # the distinct levels seen, not the last one found
     ```
@@ -173,6 +177,33 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
     automation still wired up (an `anthropics/claude-code-action` workflow on `pull_request`
     events, or a "Claude Code Review" check run appearing), don't touch it — but **flag it
     prominently in the final report** so the human can unplug it for real.
+
+## 0b. Re-entry check — before spending anything
+
+**If a babysit report is already posted on this PR, this run is a re-entry and decides here,
+not in step 1.** Without this branch the re-entry rule is a promise nothing executes: a run
+triggered only by "HEAD moved" would walk into step 1 and buy a Copilot round, which is
+exactly what `kselfreview` is supposed to cover.
+
+```bash
+gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" \
+  --jq '.[] | select(.body | test("^## Babysit report")) | "\(.created_at)"' | tail -1
+LAST_REVIEWED_SHA=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
+  --jq '.[] | select(.state != "PENDING") | .commit_id' | tail -1)
+git log --oneline "$LAST_REVIEWED_SHA..HEAD"     # the unreviewed commits, if any
+```
+
+- **No prior report** → first run; go to step 1.
+- **Report present, and the only change since is fix commits nobody has reviewed** →
+  run `kselfreview <last-reviewed-sha>..HEAD` (the range form, never the bare one), act on
+  what it finds, append to the existing report. **Do not request a review.** This is the
+  case the second-order stop hands forward, and buying a round for it is the spend the rule
+  exists to prevent.
+- **Report present, and something genuinely new needs a reviewer** — the human asked, a
+  relayed finding turned out to be real, the PR changed substantively — → go to step 1, and
+  count this round against the budget *and* against the PR's running total (step 4).
+
+Whichever branch runs, every stop rule in step 4 applies to it.
 
 ## 1. Request the review
 
@@ -337,7 +368,9 @@ Concretely:
 - The observer seat has no re-request verb at all (`kobserve`): `/kbabysit <n>` or a
   question to the human, nothing else.
 - Unreviewed fix commits after a posted report are covered by `kselfreview`, per the
-  second-order stop above — they are not a reason to buy a round.
+  second-order stop above — they are not a reason to buy a round. **Step 0b is where that
+  is executed**, before step 1 can spend anything; a rule with no branch in the procedure
+  is a rule the next run walks straight past.
 
 This is the narrow reading of *stopping is a state*: new commits are a legitimate trigger;
 the trigger **re-enters the loop, it does not bypass it.** Measured on 2026-09-13: #49 and
