@@ -106,6 +106,7 @@ class Resolver:
         self.functions: dict[str, tuple[str, str]] = {}  # local name -> (mod, attr)
         self.encoders: set[str] = set()         # local names bound to encode_env
         self.wildcards: set[str] = set()        # watched modules imported with `*`
+        self.unfollowable: set[str] = set()     # spawns bound somewhere unreadable
         # The dotted package the parsed file lives in, so a relative import can
         # be resolved to the module it actually names. Without it a relative
         # encoder import cannot be proven and is refused.
@@ -163,6 +164,16 @@ class Resolver:
                     for target in targets:
                         if isinstance(target, ast.Name):
                             self.functions[target.id] = aliased
+                        else:
+                            # `self.spawn = subprocess.run`, or any other
+                            # non-name target: following it would mean tracking
+                            # instance attributes across a class, which is more
+                            # machinery than this gate should carry. So it is
+                            # refused instead — the same answer `*args`, a
+                            # wildcard import and an unresolvable relative
+                            # import get. Found in self-review, not by a
+                            # reviewer, and closed rather than left implied.
+                            self.unfollowable.add(f"{aliased[0]}.{aliased[1]}")
             if isinstance(
                 node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
             ):
@@ -291,6 +302,12 @@ def offenders_in(tree: ast.AST, where: str, package: str | None = None) -> list[
     """
     offenders: list[str] = []
     bindings = Resolver(tree, package)
+    for spawn in sorted(bindings.unfollowable):
+        offenders.append(
+            f"{where} binds {spawn} to something other than a plain name, so the "
+            f"calls through it cannot be read here; assign it to a module-level "
+            f"name or call {spawn} directly"
+        )
     for wildcarded in sorted(bindings.wildcards):
         # `from subprocess import *` leaves an alias literally named `*`. Every
         # name it binds is invisible, so a later bare `run(cmd, env=raw)` is not
@@ -614,6 +631,51 @@ def test_a_name_assigned_from_a_spawn_is_followed_to_the_spawn() -> None:
     # And an assignment from something unwatched stays unwatched.
     assert offenders_in(
         ast.parse("import shutil\nspawn = shutil.copy\nspawn(a, env=raw_env)\n"),
+        "m.py",
+    ) == []
+
+
+def test_a_spawn_bound_to_an_attribute_is_refused_rather_than_followed() -> None:
+    """The seventh spelling, found in self-review rather than by a reviewer.
+
+    `self.spawn = subprocess.run` binds the spawn somewhere a module-level AST
+    walk cannot follow — doing so would mean tracking instance attributes across
+    a class, which is more machinery than this gate should carry. So it gets the
+    same answer as `*args`, a wildcard import and an unresolvable relative
+    import: refused. Closed here rather than left as a known hole, because a
+    gate with a hole its author knows about is worth less than one that says so.
+    """
+    on_an_attribute = offenders_in(
+        ast.parse(
+            "import subprocess\n"
+            "class C:\n"
+            "    def __init__(self):\n"
+            "        self.spawn = subprocess.run\n"
+        ),
+        "m.py",
+    )
+    assert len(on_an_attribute) == 1, on_an_attribute
+    assert "cannot be read here" in on_an_attribute[0]
+    assert "subprocess.run" in on_an_attribute[0]
+
+    # Controls: a plain-name alias is followed, not refused (it is readable), and
+    # an attribute bound to something unwatched is not this gate's business.
+    assert offenders_in(
+        ast.parse(
+            "from devops_ai.secrets import encode_env\n"
+            "import subprocess\n"
+            "spawn = subprocess.run\n"
+            "spawn(cmd, env=encode_env(raw_env))\n"
+        ),
+        "m.py",
+    ) == []
+    assert offenders_in(
+        ast.parse(
+            "import shutil\n"
+            "class C:\n"
+            "    def f(self):\n"
+            "        self.c = shutil.copy\n"
+        ),
         "m.py",
     ) == []
 
