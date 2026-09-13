@@ -150,6 +150,31 @@ class TestReadingASecret:
 
 
 class TestMalformedReferences:
+    def test_a_nul_byte_is_a_malformed_reference_not_a_crash(
+        self, tmp_path: Path
+    ) -> None:
+        """A NUL cannot reach a child process at all.
+
+        `subprocess.run` raises ValueError before `az` starts, and the resolver
+        translates only ProviderError — so without this the failure escapes as a
+        traceback, and `ksecret check`, whose job is to *report* what resolves,
+        crashes instead of reporting.
+        """
+        fake_az(tmp_path / "bin", stdout=json.dumps("unused"))
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", "akv://a-vault/a\x00b", context(tmp_path))
+        message = caught.value.message
+        assert "NUL" in message
+        assert "\x00" not in message, "the raw byte must not be echoed"
+
+    def test_a_nul_byte_is_reported_by_check_rather_than_raised(
+        self, tmp_path: Path
+    ) -> None:
+        """The contract that broke: `check` classifies, it does not crash."""
+        fake_az(tmp_path / "bin", stdout=json.dumps("unused"))
+        result = check("K", "akv://a-vault/a\x00b", context(tmp_path))
+        assert result.status == ERROR
+
     @pytest.mark.parametrize(
         "ref",
         ["akv://", "akv://a-vault", "akv://a-vault/", "akv:///a-secret",

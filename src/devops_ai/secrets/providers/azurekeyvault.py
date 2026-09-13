@@ -26,6 +26,7 @@ from ..errors import ProviderError
 
 SCHEME = "akv://"
 TIMEOUT = 30
+NUL = "\0"
 
 
 def handles(ref: str) -> bool:
@@ -94,6 +95,17 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
 
 def _parse(ref: str) -> tuple[str, str, str | None]:
     """Split a reference into vault, secret and optional version."""
+    # A NUL cannot survive exec: `subprocess.run` raises ValueError before `az`
+    # starts, and the resolver only translates ProviderError — so it would leave
+    # `ksecret check`, whose whole job is to *report* what resolves, dumping a
+    # traceback instead. Rejected here as the malformed reference it is. This is
+    # not the deferred question of validating names against Azure's rules: it is
+    # the one character that cannot reach a child process at all.
+    if NUL in ref:
+        shown = ref.replace(NUL, "\\0")
+        raise ProviderError(
+            f"Malformed reference {shown}. A reference cannot contain a NUL byte."
+        )
     parts = ref[len(SCHEME):].split("/")
     if len(parts) not in (2, 3) or not all(parts):
         raise ProviderError(
