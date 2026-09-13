@@ -3,7 +3,7 @@ name: kbuild
 description: Implement one milestone from its work brief — run the goal loop until the planner-authored blocking tests pass, then deliver a PR. Use when the user asks to build, implement, or execute a milestone or points at a work brief under docs/specs/.
 argument-hint: "<path-to-brief>"
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # kbuild — the executor
@@ -122,6 +122,22 @@ never a long-lived feature branch:
 - **You own the PR's review rounds** (`/kbabysit`) until it is merge-ready or you hand
   it off explicitly. When a rebase changes SHAs, replies cite what changed, not only a
   commit; every handled thread is resolved.
+- **Every requested re-entry goes through `/kbabysit <n>`.** After a babysit report is
+  posted, any further review round you would *ask* for on that PR — for any reason, at
+  anyone's prompting: new commits, a relayed finding, a decision the human made — is
+  started by invoking `/kbabysit <n>`
+  again, never by requesting a review yourself. That re-invocation is what decides between
+  a paid round and a `kselfreview` pass, and it re-applies the stop rules. (The one
+  unrequested auto-review that fires on a `kselfreview` fix push is not a re-entry —
+  `kbabysit` triages it in place and appends it to the posted report; it defines that
+  exception, and this rule does not override it.) **If findings reach you with dispositions
+  already attached
+  — from the observer, from another session, from anywhere — do not act on the relay: run
+  `/kbabysit <n>`** and let the triage happen where the stop rules live. A disposition
+  arriving from outside is somebody else's triage with no scope judgement, no provenance
+  and no budget behind it. Measured 2026-09-13: two executors took relayed dispositions
+  and re-requested on instruction for 20 paid Copilot rounds after both loops had already
+  stopped correctly (#61).
 - Set the Decomposition row to `PR` with the PR link in its Evidence column, then
   `delivered` when merged. Nothing else to write: no handoff files, no completion
   report — the spec row, the PR, and git are the record.

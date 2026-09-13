@@ -15,6 +15,7 @@ import pkgutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 from typing import Protocol, cast
 
 from . import providers
@@ -24,6 +25,17 @@ from .errors import ProviderError, SecretResolutionError
 OK = "ok"
 LITERAL = "literal"
 ERROR = "error"
+
+# The attribute a provider sets to say its values are bytes the OS handed us
+# rather than text a format invented, so `encode_env`'s `surrogateescape` is
+# right for them and this module's check is not.
+#
+# Read off the provider rather than listed here, because listing it would make
+# adding a provider touch the resolver — the one thing this package's
+# architecture forbids. It is an opt-out, never an opt-in: a provider added
+# tomorrow is checked because its author did nothing, and passing raw bytes
+# through is the line someone has to choose to write.
+INHERITS_OS_BYTES = "INHERITS_OS_BYTES"
 
 
 class Provider(Protocol):
@@ -104,6 +116,31 @@ def layered_env(
     return env
 
 
+def context_for(
+    entries: Mapping[str, str], base_dir: Path | None = None
+) -> ResolveContext:
+    """The context `entries` resolve in — the environment *and* its provenance.
+
+    The two have to be built together. `layered_env` lays the declared literals
+    over the inherited environment, and a provider then spawns a child with the
+    result; which half a value came from decides how its bytes are chosen, and
+    the merged mapping no longer records that. Every caller that resolves a
+    mapping of entries goes through here, so the answer cannot drift between
+    `ksecret run`, `ksecret check`, `--infra` and kinfra's provisioning.
+
+    Only the *literals* are declared. A reference's own name is not: an entry
+    whose value is a reference leaves whatever `env` already held under that
+    name untouched until it resolves, so an entry named `PATH` would still be
+    the inherited `PATH` here — and claiming it would re-spell the very
+    variable `utf8_keys` exists to protect.
+    """
+    env = layered_env(entries)
+    declared = frozenset(literals(entries))
+    if base_dir is None:
+        return ResolveContext(env=env, declared=declared)
+    return ResolveContext(base_dir=base_dir, env=env, declared=declared)
+
+
 def resolve(
     var_name: str, ref: str, ctx: ResolveContext | None = None
 ) -> str:
@@ -116,7 +153,7 @@ def resolve(
     if provider is None:
         return ref
     try:
-        return provider.resolve(ref, context)
+        return _representable(provider.resolve(ref, context), ref, provider)
     except ProviderError as exc:
         raise SecretResolutionError(
             var_name=var_name,
@@ -124,6 +161,38 @@ def resolve(
             message=f"{var_name}: {exc}",
             reason=str(exc),
         ) from None
+
+
+def _representable(value: str, ref: str, provider: Provider) -> str:
+    """`value` unchanged, or a refusal — never something a child cannot receive.
+
+    A `str` carries no provenance, so this is the last point that knows where a
+    value came from. Downstream, `encode_env` encodes with `surrogateescape`:
+    for an inherited value that is right, and for a surrogate standing for no
+    byte it silently hands the child a *different secret* than the vault holds.
+
+    Parsing a text format is what manufactures one — `json.loads` turns a
+    `\\uD800` escape into a lone surrogate, and nothing says the next provider
+    will use JSON to do it. So the rule is on what a provider *returns*, not on
+    how it got there: every value goes through here, whatever the provider
+    parsed and however it spelled the call.
+
+    (That escape is doubled deliberately. Written singly it is not a mention of
+    a surrogate but one — a docstring is a string literal, so Python builds the
+    character, and on 3.14 the module then cannot be compiled at all.)
+    """
+    if getattr(provider, INHERITS_OS_BYTES, False):
+        return value
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        # Never `from`, and nothing of `value` in the sentence: the exception
+        # being replaced quotes the character it choked on and its position.
+        raise ProviderError(
+            f"{ref} resolved to a value that is not valid text: it contains an "
+            f"unpaired surrogate, which has no UTF-8 encoding."
+        ) from None
+    return value
 
 
 def resolve_all(

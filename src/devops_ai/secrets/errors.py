@@ -13,6 +13,15 @@ class ProviderError(Exception):
     """A provider could not resolve a reference. Carries the reason, unlabelled."""
 
 
+class EnvironmentEncodingError(Exception):
+    """A name or value cannot be encoded into a child's POSIX environment.
+
+    Names the variable and never its value: the `UnicodeEncodeError` this
+    replaces quotes the character it choked on, and for a resolved secret that
+    character is part of the secret.
+    """
+
+
 class SecretResolutionError(Exception):
     """Secret resolution failure with actionable guidance.
 

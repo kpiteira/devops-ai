@@ -120,8 +120,8 @@ create` calls.
 | Milestone | Brief | Jobs | Depends on | Status | Evidence |
 |-----------|-------|------|------------|--------|----------|
 | M1 — ksecret with env, dotenv, 1Password | briefs/M1-ksecret-core.md | J1, J2, J3, J4, J5 | — | delivered | [c40452a](https://github.com/kpiteira/devops-ai/commit/c40452a) · [#32](https://github.com/kpiteira/devops-ai/pull/32) · [divergence](divergences/M1-2026-09-12.md) (resolved by #30) |
-| M2 — OpenBao provider | briefs/M2-openbao.md | J6 | M1 | pending | — |
-| M3 — Azure Key Vault provider | briefs/M3-azure-key-vault.md | J7 | M1 | pending | — |
+| M2 — OpenBao provider | briefs/M2-openbao.md | J6 | M1 | delivered | [04fea7f](https://github.com/kpiteira/devops-ai/commit/04fea7f) · [#51](https://github.com/kpiteira/devops-ai/pull/51) |
+| M3 — Azure Key Vault provider | briefs/M3-azure-key-vault.md | J7 | M1 | delivered | [dc0bf28](https://github.com/kpiteira/devops-ai/commit/dc0bf28) · [#49](https://github.com/kpiteira/devops-ai/pull/49) |
 | M4 — write (optional) | briefs/M4-write.md | J8 | M2, M3 | pending | — |
 
 M2 and M3 are independent and may run in parallel. M4 is optional: it may be dropped
@@ -232,3 +232,31 @@ briefs and tests reference them. -->
 - Deferred (M2): multi-line secret values abort kinfra's `.env.secrets` writer with a
   bare traceback — pre-existing, made reachable by KV-stored PEMs. Issue #50; out of
   M2's outcome. Karl 2026-09-13.
+- [x] 2026-09-13 (M3) decision, follow-up (issue #60): `akv://` vault and secret segments are to be
+  validated against Azure's own name rules (`^[a-zA-Z0-9-]{3,24}$` vault,
+  `^[0-9a-zA-Z-]+$` secret) before anything is spawned, refusing malformed references
+  with a plain message. Root cause of PR #49 review rounds 6–11 (every one an echo of an
+  unvalidated segment in `az`'s error text). Changes which references the provider
+  accepts (pinned Surface). Acknowledged by Karl 2026-09-13; lands as a small PR after
+  #49 (issue #60) — nothing is blocked meanwhile. Item 6 (disclosure residual on disabled-as-absent): keep the
+  RBAC diagnosis; residual accepted.
+- [x] 2026-09-13 (#58) outcome refinement: a spawned child receives the exact UTF-8 bytes
+  of every resolved value whatever the parent's locale, and that encoding never leaks a
+  value character. Under `LC_ALL=C` CPython encoded the child environment with the locale's
+  codec, so `ksecret run` could not pass a non-ASCII secret and the `UnicodeEncodeError`
+  quoted a character of it. Refusing to run under a non-UTF-8 locale was rejected (minimal
+  images lack `C.UTF-8`; containers and CI are what this is for). Shape: one shared
+  `secrets.encode_env()` at every spawn site, re-encoding only the entries the caller
+  declared (inherited variables such as `PATH` pass through as the parent holds them), and
+  the resolver refusing by name any resolved value with no UTF-8 encoding, for every
+  provider; both enforced by `tests/architecture/test_child_env_encoding.py`. Promise
+  confirmed by Karl 2026-09-13; delivered by [#62](https://github.com/kpiteira/devops-ai/pull/62)
+  (`bb7e4f8`).
+- [x] 2026-09-13 (#58) decision: a `$VAR` / `env://` reference whose inherited value is not
+  valid UTF-8 passes its raw bytes through to the child (`INHERITS_OS_BYTES` on the env
+  provider) — the one documented exception to the promise above. The alternative, refusing
+  by name, would break a working reference on a variable the user may not control.
+  Karl 2026-09-13: keep as shipped. Also accepted: the six locale tests skip on macOS with
+  the encoding named (#57's Linux integration job is the guard); `ksecret run` exits 1 with
+  a message on an unencodable value; the `op://`/`akv://` spawn sites changed as part of
+  the class fix.

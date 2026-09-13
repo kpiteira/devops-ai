@@ -153,6 +153,270 @@ class TestDotenvReference:
             resolve("K", "dotenv://.env", ctx(project))
 
 
+# --- OpenBao / Vault references, before any socket is opened ---
+
+
+class TestOpenBaoReferenceShape:
+    """Everything the provider settles without asking a server.
+
+    Reaching a server is `tests/integration/test_secrets_openbao.py`; what a
+    malformed reference or an unusable environment means is decided here, where
+    it is decided in the code.
+    """
+
+    # A syntactically valid address that is never reached: every case here
+    # fails before a socket is opened, which `tests/unit/conftest.py` enforces.
+    ADDRESS = "http://127.0.0.1:1"
+
+    @pytest.mark.parametrize(
+        "ref",
+        [
+            "bao://kv/app",  # no #key
+            "bao://kv/app#",  # empty key
+            "bao://kv#key",  # no path under the mount
+            "bao://#key",  # no mount
+            "bao://",
+        ],
+    )
+    def test_a_reference_that_is_not_mount_path_key_says_so(self, ref: str) -> None:
+        with pytest.raises(SecretResolutionError, match="<mount>/<path>"):
+            resolve("K", ref, ResolveContext(env={"BAO_ADDR": self.ADDRESS,
+                                                  "BAO_TOKEN": "t"}))
+
+    def test_no_address_anywhere_names_both_variables(self) -> None:
+        with pytest.raises(SecretResolutionError, match="BAO_ADDR.*VAULT_ADDR"):
+            resolve("K", "bao://kv/a#key", ResolveContext(env={"BAO_TOKEN": "t"}))
+
+    def test_an_address_that_is_not_a_web_url_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """urlopen speaks `file:` too: a typo must not read a path back as a secret."""
+        planted = tmp_path / "passwd"
+        planted.write_text("root:x:0:0")
+
+        with pytest.raises(SecretResolutionError, match="http or https"):
+            resolve(
+                "K",
+                "bao://kv/a#key",
+                ResolveContext(env={"BAO_ADDR": planted.as_uri(), "BAO_TOKEN": "t"}),
+            )
+
+    @pytest.mark.parametrize("address", ["ftp://vault.example.com", "gopher://v/1"])
+    def test_a_scheme_urlopen_speaks_but_openbao_does_not_is_refused(
+        self, address: str
+    ) -> None:
+        """The sibling `file://` case names the scheme rule but does not isolate
+        it: `file://` has no host either, so `bool(parts.hostname)` refuses it
+        with the scheme check removed. These do have a host, so only the scheme
+        check stands between them and urllib opening an FTP connection.
+        """
+        context = ResolveContext(env={"BAO_ADDR": address, "BAO_TOKEN": "t"})
+        with pytest.raises(SecretResolutionError, match="http or https"):
+            resolve("K", "bao://kv/a#key", context)
+
+    @pytest.mark.parametrize(
+        "address",
+        [
+            "http://[::1",  # urlsplit raises "Invalid IPv6 URL" on this
+            "https://vault.example.com?wrapped=1",
+            "https://vault.example.com#fragment",
+            "vault.example.com:8200",  # no scheme at all
+        ],
+    )
+    def test_an_address_that_is_not_a_plain_base_url_is_refused(
+        self, address: str
+    ) -> None:
+        """A fragment silently eats the whole path: the request would GET `/`."""
+        context = ResolveContext(env={"BAO_ADDR": address, "BAO_TOKEN": "t"})
+        with pytest.raises(SecretResolutionError, match="not a server address"):
+            resolve("K", "bao://kv/a#key", context)
+
+    @pytest.mark.parametrize(
+        "address",
+        [
+            "https://user:hunter2@vault.example.com",
+            "https://hunter2@vault.example.com",
+        ],
+    )
+    def test_an_address_carrying_credentials_is_refused_without_echoing_it(
+        self, address: str
+    ) -> None:
+        """`netloc` keeps userinfo, and the address is named in every sentence below.
+
+        A password in `BAO_ADDR` would ride into stderr on the first connection
+        failure — the one thing this module promises never to print.
+        """
+        context = ResolveContext(env={"BAO_ADDR": address, "BAO_TOKEN": "t"})
+        with pytest.raises(SecretResolutionError) as exc:
+            resolve("K", "bao://kv/a#key", context)
+        assert "not a server address" in exc.value.message
+        assert "hunter2" not in exc.value.message
+
+    @pytest.mark.parametrize(
+        "address",
+        [
+            "http://127.0.0.1:99999",
+            "http://127.0.0.1:-1",
+            "http://127.0.0.1:abc",
+            "http://127.0.0.1:0",
+        ],
+    )
+    def test_an_address_whose_port_is_not_a_port_is_refused_as_an_address(
+        self, address: str
+    ) -> None:
+        """Unvalidated, `:99999` reaches `getaddrinfo` and answers as a name failure.
+
+        `_address` is the function whose job is saying what a bad address is;
+        a port outside 0-65535 is one, and `.port` parses only on access.
+        Port 0 is the bind-any port and never a destination: unrefused it
+        answers `[Errno 49] Can't assign requested address`, which is about
+        this machine rather than about the address the user typed.
+        """
+        context = ResolveContext(env={"BAO_ADDR": address, "BAO_TOKEN": "t"})
+        with pytest.raises(SecretResolutionError, match="not a server address"):
+            resolve("K", "bao://kv/a#key", context)
+
+    @pytest.mark.parametrize("address", ["http://:8200", "https://:443"])
+    def test_an_address_that_names_no_host_is_refused(self, address: str) -> None:
+        """A `netloc` of `:8200` is non-empty and its port parses — but `hostname`
+        is None, and urllib reads the empty host as localhost. A typo'd address
+        would present the token to a server the address never named.
+        """
+        context = ResolveContext(env={"BAO_ADDR": address, "BAO_TOKEN": "t"})
+        with pytest.raises(SecretResolutionError, match="not a server address"):
+            resolve("K", "bao://kv/a#key", context)
+
+    @pytest.mark.skipif(
+        getattr(os, "geteuid", lambda: 1)() == 0,
+        reason="root reads through mode 000",
+    )
+    def test_a_token_file_under_an_unreadable_home_says_so(
+        self, tmp_path: Path
+    ) -> None:
+        """`Path.exists()` propagates EACCES — the existence check was the traceback.
+
+        Only ENOENT/ENOTDIR/EBADF/ELOOP are swallowed by `exists()`; a home the
+        user cannot stat into raised `PermissionError` straight out of `resolve`.
+        """
+        home = tmp_path / "home"
+        home.mkdir()
+        (home / ".vault-token").write_text("hvs.token\n")
+        home.chmod(0o000)
+        try:
+            context = ResolveContext(
+                env={"BAO_ADDR": self.ADDRESS, "HOME": str(home)}
+            )
+            with pytest.raises(SecretResolutionError, match="Cannot read"):
+                resolve("K", "bao://kv/a#key", context)
+        finally:
+            home.chmod(0o755)
+
+    @pytest.mark.parametrize("ref", ["bao://kv/../secret/a#key", "bao://kv/./a#key"])
+    def test_a_path_that_climbs_out_of_its_mount_is_refused(self, ref: str) -> None:
+        """The server would clean the path and redirect outside the mount."""
+        context = ResolveContext(env={"BAO_ADDR": self.ADDRESS, "BAO_TOKEN": "t"})
+        with pytest.raises(SecretResolutionError, match="<mount>/<path>"):
+            resolve("K", ref, context)
+
+    @pytest.mark.parametrize(
+        ("token", "why"),
+        [("s3cret\ntoken", "a line break"), ("s3cret-\u4e2d", "outside latin-1")],
+    )
+    def test_a_token_an_http_header_cannot_carry_is_refused_by_name(
+        self, token: str, why: str
+    ) -> None:
+        """`http.client` would refuse both — with the value in its message.
+
+        And that message is a `ValueError`/`UnicodeEncodeError`, which
+        `_read_secret` catches as "the server did not answer with JSON" — a
+        sentence about a request that was never sent.
+        """
+        context = ResolveContext(env={"BAO_ADDR": self.ADDRESS, "BAO_TOKEN": token})
+        with pytest.raises(SecretResolutionError) as exc:
+            resolve("K", "bao://kv/a#key", context)
+        assert "BAO_TOKEN" in exc.value.message, why
+        assert "cannot be sent" in exc.value.message
+        assert "s3cret" not in exc.value.message
+
+    def test_an_undecodable_token_file_says_how_it_is_malformed(
+        self, tmp_path: Path
+    ) -> None:
+        """The wording `envfile` settled on, not `.reason`'s "invalid start byte"."""
+        (tmp_path / ".vault-token").write_bytes(b"hvs.\xff\xfe\n")
+
+        context = ResolveContext(
+            env={"BAO_ADDR": self.ADDRESS, "HOME": str(tmp_path)}
+        )
+        with pytest.raises(SecretResolutionError, match="not valid UTF-8 text"):
+            resolve("K", "bao://kv/a#key", context)
+
+    @pytest.mark.skipif(
+        getattr(os, "geteuid", lambda: 1)() == 0,
+        reason="root reads through mode 000",
+    )
+    def test_an_unreadable_token_file_is_not_reported_as_no_token(
+        self, tmp_path: Path
+    ) -> None:
+        """Two causes, two messages: `bao login` only helps once you know which.
+
+        A mode-000 file, not undecodable bytes: those exercise the
+        `UnicodeDecodeError` arm that the test above already covers, which
+        would leave the `OSError` arm — a `PermissionError` on the file itself
+        — green whatever it did.
+        """
+        token_file = tmp_path / ".vault-token"
+        token_file.write_text("hvs.readable-but-not-by-you\n")
+        token_file.chmod(0o000)
+
+        context = ResolveContext(
+            env={"BAO_ADDR": self.ADDRESS, "HOME": str(tmp_path)}
+        )
+        with pytest.raises(SecretResolutionError, match="Cannot read") as exc:
+            resolve("K", "bao://kv/a#key", context)
+        assert "not valid UTF-8" not in exc.value.message, "the other arm"
+        assert "readable-but-not-by-you" not in exc.value.message
+
+    def test_a_ca_bundle_that_is_not_there_is_named(self, tmp_path: Path) -> None:
+        context = ResolveContext(
+            env={
+                "BAO_ADDR": self.ADDRESS,
+                "BAO_TOKEN": "t",
+                "BAO_CACERT": str(tmp_path / "absent.pem"),
+            }
+        )
+        with pytest.raises(SecretResolutionError, match="BAO_CACERT"):
+            resolve("K", "bao://kv/a#key", context)
+
+    def test_no_token_anywhere_says_how_to_get_one(self, tmp_path: Path) -> None:
+        context = ResolveContext(
+            env={"BAO_ADDR": self.ADDRESS, "HOME": str(tmp_path / "nowhere")}
+        )
+        with pytest.raises(SecretResolutionError, match="bao login"):
+            resolve("K", "bao://kv/a#key", context)
+
+    def test_a_context_with_no_home_reads_no_token_file_at_all(self) -> None:
+        """The home is the context's, and there is no fallback to the process's.
+
+        `Path.home()` would consult `os.environ`, making this the one input the
+        provider does not take from `ctx.env` — so a deliberately sanitised
+        context could still read the operator's `~/.vault-token`. Every real
+        caller carries HOME, so only such a context sees this.
+        """
+        context = ResolveContext(env={"BAO_ADDR": self.ADDRESS})
+        with pytest.raises(SecretResolutionError, match="bao login") as exc:
+            resolve("K", "bao://kv/a#key", context)
+        assert "which writes" not in exc.value.message, "no file was looked for"
+
+    def test_an_empty_token_file_is_no_token_at_all(self, tmp_path: Path) -> None:
+        (tmp_path / ".vault-token").write_text("\n")
+
+        context = ResolveContext(
+            env={"BAO_ADDR": self.ADDRESS, "HOME": str(tmp_path)}
+        )
+        with pytest.raises(SecretResolutionError, match="bao login"):
+            resolve("K", "bao://kv/a#key", context)
+
+
 # --- Literals and unregistered schemes ---
 
 
@@ -248,10 +512,10 @@ class TestTheToolIsFoundOnThePathTheChildWillUse:
 
 class TestDiscovery:
     def test_every_milestone_scheme_has_a_provider(self) -> None:
-        assert {"env://", "dotenv://", "op://"} <= set(schemes())
+        assert {"env://", "dotenv://", "op://", "bao://"} <= set(schemes())
 
     def test_each_reference_is_claimed_by_exactly_one_provider(self) -> None:
-        for ref in ("env://A", "$A", "dotenv://f#A", "op://v/i/f"):
+        for ref in ("env://A", "$A", "dotenv://f#A", "op://v/i/f", "bao://m/p#k"):
             assert provider_for(ref) is not None
 
 

@@ -24,6 +24,15 @@ class ResolveContext:
 
     base_dir: Path = field(default_factory=Path.cwd)
     env: Mapping[str, str] = field(default_factory=lambda: os.environ)
+    # The names in `env` that devops-ai put there, rather than inherited from
+    # the process it runs in. A provider spawns a child with this environment,
+    # and the two halves need different encoders: a declared value was read
+    # from a file decoded as strict UTF-8 and is ours to spell, while an
+    # inherited one must go back out as the bytes it came in as. `env` alone
+    # cannot tell them apart, so a provider that guessed would be wrong in one
+    # direction or the other — see `secrets.environ`. Empty is the safe
+    # default: nothing claimed, so nothing re-spelled.
+    declared: frozenset[str] = frozenset()
 
     def path(self, relative: str) -> Path:
         """Resolve a reference's path against the context's base directory."""

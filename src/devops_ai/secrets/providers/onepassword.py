@@ -12,7 +12,8 @@ import shutil
 import subprocess
 
 from ..context import ResolveContext
-from ..errors import ProviderError
+from ..environ import encode_env
+from ..errors import EnvironmentEncodingError, ProviderError
 
 SCHEME = "op://"
 TIMEOUT = 30
@@ -46,8 +47,10 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
             # returned. Matches the CLI's UTF-8 output path.
             encoding="utf-8",
             timeout=TIMEOUT,
-            env=dict(ctx.env),
+            env=encode_env(ctx.env, utf8_keys=ctx.declared),
         )
+    except EnvironmentEncodingError as exc:
+        raise ProviderError(str(exc)) from None
     except subprocess.TimeoutExpired:
         raise ProviderError(
             "1Password CLI timed out. Try: eval $(op signin)"
