@@ -460,6 +460,49 @@ class TestRedirects:
             thread.join(timeout=5)
 
 
+# --- The token goes only to the named server, by every route ---
+
+
+class TestAmbientProxies:
+    def test_an_http_proxy_in_the_environment_never_sees_the_token(
+        self, bao: FakeBao, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`build_opener` installs a default `ProxyHandler` unless given one.
+
+        Measured before the empty handler: the proxy received
+        `GET http://…/v1/kv/data/a` carrying `X-Vault-Token`, and the vault
+        server received nothing at all. `getproxies()` reads `os.environ`, not
+        the resolve context, so the variables are set there — and the no-proxy
+        variables are cleared, because `ProxyHandler` consults those before
+        using a proxy at all. Both servers are on `127.0.0.1`, so an inherited
+        `no_proxy=localhost,127.0.0.1` would send the request straight to the
+        vault with the empty handler removed, and this check would then pass
+        while proving nothing.
+        """
+        proxy = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        seen = FakeBao(addr=f"http://127.0.0.1:{proxy.server_address[1]}")
+        proxy.fake = seen  # type: ignore[attr-defined]
+        thread = threading.Thread(
+            target=proxy.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        )
+        thread.start()
+        for name in ("NO_PROXY", "no_proxy"):
+            monkeypatch.delenv(name, raising=False)
+        for name in ("HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
+            monkeypatch.setenv(name, seen.addr)
+
+        try:
+            got = read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="s3cret-token")
+
+            assert got == VALUE
+            assert seen.asked == [], "the proxy must never see the request"
+            assert bao.asked[0].token == "s3cret-token"
+        finally:
+            proxy.shutdown()
+            proxy.server_close()
+            thread.join(timeout=5)
+
+
 # --- The private-CA path, over real TLS ---
 
 
