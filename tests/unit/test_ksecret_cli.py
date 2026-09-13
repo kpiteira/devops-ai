@@ -7,7 +7,9 @@ itself decides: which references it collects, and where it resolves them from.
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -302,3 +304,166 @@ class TestALiteralIsNeverEchoedWithoutPrint:
         result = runner.invoke(app, ["check", "--env-file", "refs.env"])
         assert "CONN: literal" in result.output
         assert "hunter2" not in result.output
+
+
+ACCENTED = "café-über"
+
+
+def filesystem_encoding(monkeypatch: pytest.MonkeyPatch, codec: str) -> None:
+    """`os.fsencode` as it behaves under a given locale, installed by hand.
+
+    macOS hardcodes its filesystem encoding to UTF-8 whatever `LC_ALL` says, so
+    a locale fixture is inert there and the codec has to be installed instead.
+    Bytes pass through untouched, as the real `os.fsencode` does — `subprocess`
+    puts a bytes environment back through it — and `surrogateescape` is the real
+    handler, not `strict`: getting that wrong would make the controls below red
+    for the wrong reason and look like a finding.
+
+    Two codecs, because they answer different questions. `ascii` is `LC_ALL=C`,
+    where a value we authored cannot be spelled at all. `iso8859-15` is the
+    harder case: every byte decodes, so nothing fails — the two encoders simply
+    disagree about which bytes a character is, and only there can a test tell
+    `utf-8` from the locale apart on a value that holds no surrogate.
+    """
+
+    def locale_codec(value: object) -> bytes:
+        if isinstance(value, bytes):
+            return value
+        return str(value).encode(codec, "surrogateescape")
+
+    monkeypatch.setattr(os, "fsencode", locale_codec)
+
+
+def only_this_environment(monkeypatch: pytest.MonkeyPatch, **names: str) -> None:
+    """Start from an empty environment, so the developer's own cannot decide."""
+    for key in list(os.environ):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in names.items():
+        monkeypatch.setenv(key, value)
+
+
+def fake_op(directory: Path, log: Path) -> None:
+    """An `op` that records the bytes of one variable it was spawned with."""
+    directory.mkdir(parents=True, exist_ok=True)
+    program = directory / "op"
+    program.write_text(
+        f"#!{sys.executable}\n"
+        "import os, pathlib, sys\n"
+        f"pathlib.Path({str(log)!r}).write_bytes(os.environb.get(b'GREETING', b''))\n"
+        "sys.stdout.write('resolved-secret')\n",
+        encoding="utf-8",
+    )
+    program.chmod(0o755)
+
+
+def test_a_declared_literal_reaches_a_provider_child_as_its_own_utf8(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`op` is a child too, and a literal declared beside a reference is ours.
+
+    An env file's literal lines are laid over the process environment *before*
+    anything resolves, precisely so a declared `OP_ACCOUNT` reaches the `op`
+    that the next line spawns — `literals()` says so, and kinfra's `_context`
+    repeats it. So that spawn carries the same promise as the final one: the
+    value was read from a file devops-ai decodes as strict UTF-8, which means it
+    can hold characters the operator's locale cannot spell. Handing it to the
+    locale's codec instead fails the whole command under `LC_ALL=C`.
+    """
+    bin_dir = tmp_path / "bin"
+    log = tmp_path / "seen-by-op"
+    fake_op(bin_dir, log)
+
+    env_file = tmp_path / "f.env"
+    env_file.write_text(
+        f"GREETING={ACCENTED}\nTOKEN=op://v/i/f\n", encoding="utf-8"
+    )
+
+    only_this_environment(monkeypatch, PATH=str(bin_dir))
+    filesystem_encoding(monkeypatch, "ascii")
+
+    result = runner.invoke(
+        app, ["run", "--env-file", str(env_file), "--", sys.executable, "-c", ""]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert log.read_bytes() == ACCENTED.encode("utf-8"), (
+        "the provider child got the locale's spelling of a value we authored"
+    )
+
+
+def test_an_inherited_value_still_is_not_respelled_for_a_provider_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The control, in the other direction — and the reason for the PATH fix.
+
+    Declaring the literals must not re-open what `utf8_keys` closed: a variable
+    the env file never named is still handed on exactly as this process holds
+    it, so "fix the literals" cannot be satisfied by encoding the whole
+    environment again — the regression that started this.
+
+    `iso8859-15` and a real character, for the same reason as the test below:
+    the first draft used a surrogate under `ascii`, and a surrogate round-trips
+    to the identical byte through *either* encoder. It asserted the right bytes
+    and could not have gone red for the mechanism it names.
+    """
+    bin_dir = tmp_path / "bin"
+    log = tmp_path / "seen-by-op"
+    fake_op(bin_dir, log)
+
+    env_file = tmp_path / "f.env"
+    env_file.write_text("TOKEN=op://v/i/f\n", encoding="utf-8")
+
+    only_this_environment(monkeypatch, PATH=str(bin_dir))
+    # Inherited, and named nowhere in the env file.
+    monkeypatch.setenv("GREETING", "café")
+    filesystem_encoding(monkeypatch, "iso8859-15")
+
+    result = runner.invoke(
+        app, ["run", "--env-file", str(env_file), "--", sys.executable, "-c", ""]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert log.read_bytes() == "café".encode("iso8859-15"), (
+        "an inherited value must go back out as the bytes it came in as"
+    )
+
+
+def test_a_reference_named_after_an_inherited_variable_is_not_claimed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Declaring the *literals* is not the same as declaring the entries.
+
+    An entry whose value is a reference has not been laid over the environment
+    yet — until it resolves, that name still holds whatever this process
+    inherited. Claiming every entry name instead would hand the provider child a
+    re-spelled value, which is the regression `utf8_keys` was added to undo, so
+    this is the one spelling of `declared` that looks equivalent and is not.
+
+    It takes `iso8859-15` to see. Under `ascii` the two encoders agree on every
+    value that survives both, so the first draft of this test passed with
+    `declared` spelled either way — a check that was green in the broken case
+    and the healthy one alike, which is the defect this suite exists to catch.
+    """
+    bin_dir = tmp_path / "bin"
+    log = tmp_path / "seen-by-op"
+    fake_op(bin_dir, log)
+
+    env_file = tmp_path / "f.env"
+    # GREETING is an entry name *and* a reference, so it is not laid over the
+    # environment until it resolves: what `op` sees is still the inherited one.
+    env_file.write_text("GREETING=op://v/i/f\n", encoding="utf-8")
+
+    only_this_environment(monkeypatch, PATH=str(bin_dir))
+    # A real character, not a surrogate: a surrogate round-trips to the same
+    # byte through either encoder, so it could not tell the two apart.
+    monkeypatch.setenv("GREETING", "café")
+    filesystem_encoding(monkeypatch, "iso8859-15")
+
+    result = runner.invoke(
+        app, ["run", "--env-file", str(env_file), "--", sys.executable, "-c", ""]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert log.read_bytes() == "café".encode("iso8859-15"), (
+        "an entry name that is a reference must not claim the inherited value"
+    )

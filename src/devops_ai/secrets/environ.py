@@ -76,14 +76,15 @@ def _inherited(text: str, subject: str, name: str) -> bytes:
         return os.fsencode(text)
     except UnicodeEncodeError:
         # Not reachable from `os.environ` itself, which decodes with
-        # surrogateescape and so yields nothing this cannot re-encode. It *is*
-        # reachable where a caller passes an environment carrying values it did
-        # not declare to us: the `op://` and `akv://` providers hand `op` and
-        # `az` a `ctx.env` holding declared literals, which came from a strict
-        # UTF-8 decode and so can be real non-ASCII characters an ASCII locale
-        # cannot spell. That failed before this module existed too — the
-        # difference is that CPython raised from inside the spawn with the
-        # offending character quoted, and this names the variable instead.
+        # surrogateescape and so yields nothing this cannot re-encode. It is
+        # reachable only where a caller hands us a value it authored without
+        # declaring it — text from a strict UTF-8 decode can hold characters an
+        # ASCII locale cannot spell, and nothing here knows it was ours. That is
+        # a caller bug rather than an operator's, which is why it names the
+        # variable instead of guessing an encoding for it: every shipped caller
+        # declares what it put there (`secrets.context_for`), and a new one that
+        # forgets lands here rather than silently re-spelling a child's
+        # environment.
         raise EnvironmentEncodingError(
             f"{subject} {name} cannot be encoded back into the bytes it was "
             f"read as, so it cannot be passed to a child process."

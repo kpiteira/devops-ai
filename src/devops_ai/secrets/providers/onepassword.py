@@ -47,7 +47,7 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
             # returned. Matches the CLI's UTF-8 output path.
             encoding="utf-8",
             timeout=TIMEOUT,
-            env=encode_env(ctx.env),
+            env=encode_env(ctx.env, utf8_keys=ctx.declared),
         )
     except EnvironmentEncodingError as exc:
         raise ProviderError(str(exc)) from None

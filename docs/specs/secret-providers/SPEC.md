@@ -257,10 +257,17 @@ briefs and tests reference them. -->
   under a *decodable* non-UTF-8 locale (`iso8859-15`, where `E9` is held as `é` rather
   than as a surrogate) those two differ. Encoding the whole environment alike turned
   `ksecret run -- <bare command>` into exit 127; measured on Linux, not reasoned. So
-  `encode_env` takes the names its caller declared: `ksecret run` names every entry of
-  its env files (the resolved references plus the declared literals), and the two
-  provider spawns name nothing, because they inject nothing — `op` and `az` receive the
-  operator's own environment. Inherit is the default, so a caller that forgets fails to
+  `encode_env` takes the names its caller declared, and a provider spawn declares them
+  too: an env file's literal lines are laid over the environment *before* anything
+  resolves, precisely so a declared `OP_ACCOUNT` reaches the `op` that the next line
+  spawns, and they were read from a file decoded as strict UTF-8 — so they can hold
+  characters an ASCII locale cannot spell, and the promise covers them at that spawn
+  exactly as at the final one. A reference's *own* name is not declared: until it
+  resolves, that name still holds whatever was inherited, and claiming it would re-spell
+  the very variable this paragraph is about. `ResolveContext` carries that provenance
+  beside the environment (`secrets.context_for`), so the two are built together and the
+  answer cannot drift between `ksecret run`, `ksecret check`, `--infra` and kinfra's
+  provisioning. Inherit is the default, so a caller that forgets fails to
   apply the promise to its own values rather than silently re-spelling a child's whole
   environment. What remains open for Karl on PR #62 is narrower than it was: a `$VAR` or
   `env://` entry is *declared*, so it is encoded UTF-8 like any other, and whether that

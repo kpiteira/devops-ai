@@ -15,6 +15,7 @@ import pkgutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 from typing import Protocol, cast
 
 from . import providers
@@ -113,6 +114,31 @@ def layered_env(
     env = dict(os.environ if base is None else base)
     env.update(literals(entries))
     return env
+
+
+def context_for(
+    entries: Mapping[str, str], base_dir: Path | None = None
+) -> ResolveContext:
+    """The context `entries` resolve in — the environment *and* its provenance.
+
+    The two have to be built together. `layered_env` lays the declared literals
+    over the inherited environment, and a provider then spawns a child with the
+    result; which half a value came from decides how its bytes are chosen, and
+    the merged mapping no longer records that. Every caller that resolves a
+    mapping of entries goes through here, so the answer cannot drift between
+    `ksecret run`, `ksecret check`, `--infra` and kinfra's provisioning.
+
+    Only the *literals* are declared. A reference's own name is not: an entry
+    whose value is a reference leaves whatever `env` already held under that
+    name untouched until it resolves, so an entry named `PATH` would still be
+    the inherited `PATH` here — and claiming it would re-spell the very
+    variable `utf8_keys` exists to protect.
+    """
+    env = layered_env(entries)
+    declared = frozenset(literals(entries))
+    if base_dir is None:
+        return ResolveContext(env=env, declared=declared)
+    return ResolveContext(base_dir=base_dir, env=env, declared=declared)
 
 
 def resolve(
