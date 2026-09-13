@@ -35,10 +35,10 @@ def offending_last_line(text: str) -> str | None:
     return None
 
 
-def tracked_markdown() -> list[str]:
+def tracked_markdown(root: Path) -> list[str]:
     """Every markdown path git tracks — untracked WIP in a checkout is not ours."""
     listing = subprocess.run(
-        ["git", "-C", str(ROOT), "ls-files", "-z", "--", "*.md"],
+        ["git", "-C", str(root), "ls-files", "-z", "--", "*.md"],
         capture_output=True,
         text=True,
         check=True,
@@ -46,19 +46,23 @@ def tracked_markdown() -> list[str]:
     return [name for name in listing.split("\0") if name]
 
 
-def test_no_tracked_markdown_ends_with_a_tool_artifact_tag() -> None:
-    paths = tracked_markdown()
-    assert paths, "no tracked markdown found — the gate would be vacuously green"
-
+def scan(root: Path) -> tuple[list[str], list[str]]:
+    """(tracked markdown paths, one description per offender among them)."""
+    paths = tracked_markdown(root)
     offenders = []
     for name in paths:
-        path = ROOT / name
+        path = root / name
         if not path.is_file():  # tracked but deleted in the working tree
             continue
         found = offending_last_line(path.read_text(encoding="utf-8", errors="replace"))
         if found is not None:
             offenders.append(f"{name} (last line: {found})")
+    return paths, offenders
 
+
+def test_no_tracked_markdown_ends_with_a_tool_artifact_tag() -> None:
+    paths, offenders = scan(ROOT)
+    assert paths, "no tracked markdown found — the gate would be vacuously green"
     assert not offenders, (
         "tracked markdown ending in a bare tag line — almost always a tool "
         "artifact, not content. Delete the line:\n  " + "\n  ".join(offenders)
@@ -94,3 +98,35 @@ def test_gate_leaves_real_documents_alone() -> None:
     )
     tripped = [text for text in documents if offending_last_line(text) is not None]
     assert not tripped, tripped
+
+
+def test_selection_scans_tracked_files_only(tmp_path: Path) -> None:
+    """The pathspec half of the gate, falsifiable without dirtying this checkout.
+
+    Without this, a regression in `tracked_markdown` — a wrong pathspec, a walk
+    that picks up untracked files — would leave the gate green, because the real
+    corpus it scans is clean either way.
+    """
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    artifact = "# Doc\n\nprose\n" + _CLOSE + "content>\n"
+
+    (tmp_path / "tracked-offender.md").write_text(artifact)
+    (tmp_path / "tracked-clean.md").write_text("# Doc\n\nordinary prose.\n")
+    (tmp_path / "tracked-gone.md").write_text("# Doc\n\nprose\n")
+    (tmp_path / "not-markdown.txt").write_text(artifact)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "add", "tracked-offender.md",
+         "tracked-clean.md", "tracked-gone.md", "not-markdown.txt"],
+        check=True,
+    )
+    (tmp_path / "tracked-gone.md").unlink()  # tracked, deleted in the tree
+    (tmp_path / "untracked-offender.md").write_text(artifact)
+
+    paths, offenders = scan(tmp_path)
+
+    assert sorted(paths) == [
+        "tracked-clean.md",
+        "tracked-gone.md",
+        "tracked-offender.md",
+    ]
+    assert offenders == [f"tracked-offender.md (last line: {_CLOSE}content>)"]
