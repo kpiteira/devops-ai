@@ -165,7 +165,15 @@ def _check_infra() -> list[CheckResult]:
     # Gitignored files live in the main checkout, not in a worktree cut from it,
     # and a declared literal is visible to a sibling reference — both are how
     # kinfra resolves these, which is the whole promise of --infra.
-    base_dir = main_repo_root(project_root) or project_root
+    base_dir = main_repo_root(project_root)
+    if base_dir is None:
+        # kinfra refuses here rather than guessing a root (sandbox_cmd), so
+        # answering from a different base would be a confident wrong answer
+        # about relative references — the failure this flag keeps having.
+        typer.echo(
+            "ksecret check: cannot determine main repository root.", err=True
+        )
+        raise typer.Exit(1)
     context = ResolveContext(
         base_dir=base_dir, env=layered_env(config.secrets)
     )

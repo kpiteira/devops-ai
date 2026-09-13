@@ -7,6 +7,7 @@ itself decides: which references it collects, and where it resolves them from.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         'OP_ACCOUNT = "my-team.1password.com"\n'
         'MISSING = "$NOT_SET_ANYWHERE"\n'
     )
+    subprocess.run(["git", "init", "-q", "."], cwd=tmp_path, check=True)
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("NOT_SET_ANYWHERE", raising=False)
     return tmp_path
@@ -70,6 +72,25 @@ class TestCheckInfra:
         )
         result = runner.invoke(app, ["check", "--infra"])
         assert result.exit_code == 0, result.output
+
+    def test_outside_a_git_repository_it_refuses_like_kinfra_does(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """kinfra errors rather than guessing a root; --infra must not differ."""
+        (tmp_path / ".devops-ai").mkdir()
+        (tmp_path / ".env").write_text("FROM_FILE=secret-value\n")
+        (tmp_path / ".devops-ai" / "infra.toml").write_text(
+            '[project]\nname = "demo"\nprefix = "demo"\n\n'
+            '[sandbox]\ncompose_file = "docker-compose.yml"\n\n'
+            '[sandbox.secrets]\nX = "dotenv://.env#FROM_FILE"\n'
+        )
+        monkeypatch.chdir(tmp_path)
+
+        result = runner.invoke(app, ["check", "--infra"])
+
+        assert result.exit_code == 1
+        assert "main repository root" in result.output
+        assert "X: ok" not in result.output, "it cannot know that from here"
 
     def test_outside_a_project_it_says_so(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
