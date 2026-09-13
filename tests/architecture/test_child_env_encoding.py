@@ -34,6 +34,7 @@ Enforced structure is run, not read.
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterator
 from pathlib import Path
 from typing import NamedTuple
 
@@ -64,8 +65,13 @@ OS_SPAWNS = {
 }
 WATCHED = {"subprocess": SUBPROCESS_SPAWNS, "os": OS_SPAWNS}
 # Where `encode_env` may legitimately come from, so a call to it can be resolved
-# to an import rather than merely matched by name.
-ENCODER_MODULES = {"devops_ai.secrets", "devops_ai.secrets.environ", "environ"}
+# to an import rather than merely matched by name. Split by `ImportFrom.level`
+# because `.module` drops the leading dots: `from ..environ import encode_env`
+# (the real spelling in both providers) and `from environ import encode_env` (an
+# unrelated top-level module this gate must not vouch for) are both `"environ"`
+# here, and only the level tells them apart.
+ENCODER_MODULES_RELATIVE = {"environ"}
+ENCODER_MODULES_ABSOLUTE = {"devops_ai.secrets", "devops_ai.secrets.environ"}
 # `env` is the 11th parameter of `Popen`, and `run`/`call`/`check_*` forward
 # their positional arguments to it — so `Popen(cmd, ..., raw_env)` passes an
 # environment without ever writing `env=`. Verified against
@@ -100,6 +106,8 @@ class Resolver:
         self.modules: dict[str, str] = {}       # local name -> "subprocess"|"os"
         self.functions: dict[str, tuple[str, str]] = {}  # local name -> (mod, attr)
         self.encoders: set[str] = set()         # local names bound to encode_env
+        self.wildcards: set[str] = set()        # watched modules imported with `*`
+        rebound: set[str] = set()               # names this module defines itself
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -110,15 +118,47 @@ class Resolver:
                         if alias.asname is None:
                             self.modules[root] = root
             elif isinstance(node, ast.ImportFrom):
-                if node.module in WATCHED:
+                # Absolute or relative is not cosmetic here: `.module` omits the
+                # dots, so `from .subprocess import run` — a sibling module that
+                # is not the stdlib — would otherwise register as a real spawn,
+                # and `from environ import encode_env` as this package's helper.
+                absolute = node.level == 0
+                if absolute and node.module in WATCHED:
                     for alias in node.names:
-                        self.functions[alias.asname or alias.name] = (
-                            node.module, alias.name
-                        )
-                elif node.module in ENCODER_MODULES:
+                        if alias.name == "*":
+                            # `from subprocess import *` binds names that cannot
+                            # be enumerated from the AST, so a later bare
+                            # `run(...)` would be invisible to the walk and the
+                            # gate would report a clean sweep. Recorded so it
+                            # fails closed, like `*args` and `**kwargs`.
+                            self.wildcards.add(node.module)
+                        else:
+                            self.functions[alias.asname or alias.name] = (
+                                node.module, alias.name
+                            )
+                elif (
+                    node.module in ENCODER_MODULES_ABSOLUTE
+                    if absolute
+                    else node.module in ENCODER_MODULES_RELATIVE
+                ):
                     for alias in node.names:
                         if alias.name == ENCODE_ENV:
                             self.encoders.add(alias.asname or alias.name)
+            elif isinstance(
+                node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
+            ):
+                rebound.add(node.name)
+            elif isinstance(node, ast.arg):
+                rebound.add(node.arg)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                rebound.add(node.id)
+        # A name the module binds itself is not the import any more. Lexical
+        # scoping would say *where* the shadow applies; an architecture gate does
+        # not need that machinery to fail closed — dropping the name entirely
+        # refuses to vouch for it anywhere, which is the safe direction. Only
+        # `encoders` is narrowed: dropping a shadowed *spawn* name would make the
+        # gate watch less, which is the unsafe one.
+        self.encoders -= rebound
 
     def is_encoder(self, node: ast.expr) -> bool:
         """A call to *this package's* `encode_env`, resolved rather than spelled.
@@ -150,39 +190,68 @@ class Resolver:
         return None
 
 
+def read_source(path: Path) -> ast.AST:
+    # Never a bare `read_text()`: that decodes with the *locale's* codec, so
+    # under the `LC_ALL=C` this change is validated in, this gate died on the
+    # first em dash in `src/` before checking anything. The third site of the
+    # harness's own version of #58, after `run_child`'s `text=True` and the
+    # repo-path test's `Path.mkdir` — source is UTF-8 by PEP 3120, so say so.
+    return ast.parse(path.read_text(encoding="utf-8"), str(path))
+
+
+def watched_spawns(
+    tree: ast.AST, bindings: Resolver
+) -> Iterator[tuple[ast.Call, str, str]]:
+    """Each call in `tree` that reaches a watched spawn, however it is spelled."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        target = bindings.target(node)
+        if target is None:
+            continue
+        module, attr = target
+        if attr in WATCHED[module]:
+            yield node, module, attr
+
+
 def spawns_passing_an_environment() -> list[Spawn]:
     """Every watched spawn call in `src/`, with the module and attribute named."""
     found = []
     for path in source_files():
-        # Never a bare `read_text()`: that decodes with the *locale's* codec, so
-        # under the `LC_ALL=C` this change is validated in, this gate died on the
-        # first em dash in `src/` before checking anything. The third site of the
-        # harness's own version of #58, after `run_child`'s `text=True` and the
-        # repo-path test's `Path.mkdir` — source is UTF-8 by PEP 3120, so say so.
-        tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
+        tree = read_source(path)
         bindings = Resolver(tree)
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            target = bindings.target(node)
-            if target is None:
-                continue
-            module, attr = target
-            if attr in WATCHED[module]:
-                found.append(Spawn(path, node, module, attr, bindings))
+        for node, module, attr in watched_spawns(tree, bindings):
+            found.append(Spawn(path, node, module, attr, bindings))
     return found
 
 
-def test_every_spawn_that_passes_an_environment_encodes_it() -> None:
+def offenders_in(tree: ast.AST, where: str) -> list[str]:
+    """Every way this module could hand a child a locale-encoded environment.
+
+    Takes a tree rather than walking `src/` so each rule below can be falsified
+    against source written for the purpose, instead of only by planting a real
+    offender in the package and putting it back afterwards.
+    """
     offenders: list[str] = []
-    for path, node, module, attr, bindings in spawns_passing_an_environment():
-        where = f"{path.relative_to(ROOT)}:{node.lineno}"
+    bindings = Resolver(tree)
+    for wildcarded in sorted(bindings.wildcards):
+        # `from subprocess import *` leaves an alias literally named `*`. Every
+        # name it binds is invisible, so a later bare `run(cmd, env=raw)` is not
+        # a spawn as far as this walk is concerned and the gate would report a
+        # clean sweep of a file it never understood.
+        offenders.append(
+            f"{where} does `from {wildcarded} import *` — the names it binds "
+            f"cannot be read here, so a spawn written as a bare call would be "
+            f"invisible to this gate; import explicitly"
+        )
+    for node, module, attr in watched_spawns(tree, bindings):
+        where_at = f"{where}:{node.lineno}"
         if module == "subprocess":
             # A splatted `*args` can carry the environment into the positional
             # slot below without any of it being readable here.
             if any(isinstance(a, ast.Starred) for a in node.args):
                 offenders.append(
-                    f"{where} {module}.{attr}(*args) — arguments that cannot be "
+                    f"{where_at} {module}.{attr}(*args) — arguments that cannot be "
                     f"read here cannot be vouched for; pass "
                     f"env={ENCODE_ENV}(...) explicitly"
                 )
@@ -190,31 +259,47 @@ def test_every_spawn_that_passes_an_environment_encodes_it() -> None:
                 node.args[ENV_POSITION]
             ):
                 offenders.append(
-                    f"{where} {module}.{attr}() passes an environment in "
+                    f"{where_at} {module}.{attr}() passes an environment in "
                     f"positional slot {ENV_POSITION} without {ENCODE_ENV}(): "
                     f"`env=` is not the only way to hand a child an environment"
                 )
             for keyword in node.keywords:
                 if keyword.arg is None:
                     offenders.append(
-                        f"{where} {module}.{attr}(**kwargs) — an environment that "
+                        f"{where_at} {module}.{attr}(**kwargs) — an environment that "
                         f"cannot be read here cannot be vouched for; pass "
                         f"env={ENCODE_ENV}(...) explicitly"
                     )
                 elif keyword.arg == "env" and not bindings.is_encoder(keyword.value):
                     offenders.append(
-                        f"{where} {module}.{attr}(env=...) does not go through "
+                        f"{where_at} {module}.{attr}(env=...) does not go through "
                         f"{ENCODE_ENV}(): the child's environment would be encoded "
                         f"with the locale's codec"
                     )
         else:
-            args: list[ast.expr] = list(node.args)
-            args += [k.value for k in node.keywords if k.arg is not None]
-            if not any(bindings.is_encoder(a) for a in args):
-                offenders.append(
-                    f"{where} {module}.{attr}() takes an environment and none of "
-                    f"its arguments is {ENCODE_ENV}(...)"
-                )
+            # "Some argument is encode_env(...)" was never a check on *the*
+            # environment: `os.execve(path, encode_env(argv), raw_env)` satisfied
+            # it while handing the child a raw environment, because the encoded
+            # argument was the argv. Each of these APIs puts the environment in a
+            # different slot (`execve(path, args, env)` but `spawnve(mode, path,
+            # args, env)`), and none is called anywhere in `src/` — so a slot
+            # table here would be guesswork no call site exercises. Refused
+            # outright instead, which is what the note on OS_SPAWNS always
+            # claimed to buy: adding the first one is a decision, and part of
+            # that decision is teaching this gate where its environment goes.
+            offenders.append(
+                f"{where_at} {module}.{attr}() hands a child an environment in a "
+                f"positional slot this gate does not track. No {module} spawn "
+                f"exists in src/ today; adding the first one means teaching "
+                f"this gate its environment slot, deliberately"
+            )
+    return offenders
+
+
+def test_every_spawn_that_passes_an_environment_encodes_it() -> None:
+    offenders: list[str] = []
+    for path in source_files():
+        offenders += offenders_in(read_source(path), str(path.relative_to(ROOT)))
     assert not offenders, (
         "a child's environment must be built by devops_ai.secrets.encode_env, "
         "never by the locale's codec:\n  " + "\n  ".join(offenders)
@@ -350,6 +435,125 @@ def test_a_lookalike_encode_env_does_not_satisfy_the_gate() -> None:
     assert not Resolver(unimported).is_encoder(env_argument(unimported)), (
         "a name this module never imported satisfied the gate"
     )
+
+
+# Three ways this gate could vouch for a binding it cannot actually prove — one
+# mechanism, three spellings. Each below is a resolution the AST does not
+# support, so each fails closed rather than guessing.
+
+
+def test_a_relative_import_is_not_the_absolute_one_that_shares_its_tail() -> None:
+    """`ImportFrom.module` omits the dots, so `level` is the only separator.
+
+    Both tables read it. `from ..environ import encode_env` is how both
+    providers import the real helper; `from environ import encode_env` is some
+    unrelated top-level module, and the two arrive here spelled identically.
+    The mirror image is on the spawn side: `from .subprocess import run` is a
+    sibling module, not the stdlib spawn this gate watches.
+    """
+    def accepts_encoder(source: str) -> bool:
+        tree = ast.parse(source + f"{ENCODE_ENV}(raw)\n")
+        call = next(
+            n for n in ast.walk(tree)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Name)
+            and n.func.id == ENCODE_ENV
+        )
+        return Resolver(tree).is_encoder(call)
+
+    # The two spellings that exist in src/, plus the absolute ones tests use.
+    assert accepts_encoder("from .environ import encode_env\n")
+    assert accepts_encoder("from ..environ import encode_env\n")
+    assert accepts_encoder("from devops_ai.secrets import encode_env\n")
+    assert accepts_encoder("from devops_ai.secrets.environ import encode_env\n")
+    # An unrelated top-level `environ`, indistinguishable once the dots are gone.
+    assert not accepts_encoder("from environ import encode_env\n"), (
+        "any top-level module named environ could vouch for the environment"
+    )
+    # And the same confusion on the spawn table, in the other direction.
+    assert Resolver(ast.parse("from subprocess import run\n")).functions == {
+        "run": ("subprocess", "run")
+    }
+    assert Resolver(ast.parse("from .subprocess import run\n")).functions == {}
+
+
+def test_a_wildcard_import_of_a_spawn_module_fails_closed() -> None:
+    """`from subprocess import *` binds names that cannot be enumerated here.
+
+    A later bare `run(cmd, env=raw)` is then not a spawn as far as the walk is
+    concerned, and the gate reports a clean sweep of a file it never understood.
+    """
+    wildcarded = offenders_in(
+        ast.parse("from subprocess import *\nrun(cmd, env=raw_env)\n"), "w.py"
+    )
+    assert len(wildcarded) == 1, wildcarded
+    assert "import *" in wildcarded[0]
+
+    # Control: the same spawn imported explicitly and encoded is clean, so
+    # "offends on everything" cannot satisfy the assertion above.
+    assert offenders_in(
+        ast.parse(
+            "from devops_ai.secrets import encode_env\n"
+            "from subprocess import run\n"
+            "run(cmd, env=encode_env(raw_env))\n"
+        ),
+        "n.py",
+    ) == []
+
+
+def test_an_encode_env_the_module_rebinds_is_not_vouched_for() -> None:
+    """An imported name the module redefines is not that import any more.
+
+    The binding tables come from `ast.walk`, which has no notion of scope, so a
+    local `def encode_env` or a parameter of that name satisfied a gate whose
+    invariant names `devops_ai.secrets.encode_env` specifically.
+    """
+    imported = (
+        "from devops_ai.secrets import encode_env\n"
+        "import subprocess\n"
+        "subprocess.run(cmd, env=encode_env(raw_env))\n"
+    )
+    assert offenders_in(ast.parse(imported), "m.py") == []
+
+    shadowed_by_a_def = imported + "def encode_env(x):\n    return x\n"
+    shadowed_by_a_param = (
+        "from devops_ai.secrets import encode_env\n"
+        "import subprocess\n"
+        "def f(encode_env):\n"
+        "    subprocess.run(cmd, env=encode_env(raw_env))\n"
+    )
+    shadowed_by_assignment = (
+        "from devops_ai.secrets import encode_env\n"
+        "import subprocess\n"
+        "encode_env = str\n"
+        "subprocess.run(cmd, env=encode_env(raw_env))\n"
+    )
+    for source in (shadowed_by_a_def, shadowed_by_a_param, shadowed_by_assignment):
+        assert offenders_in(ast.parse(source), "m.py") != [], source
+
+
+def test_an_os_spawn_is_refused_rather_than_guessed_at() -> None:
+    """"Some argument is `encode_env(...)`" was never a check on *the* argument.
+
+    `os.execve(path, encode_env(argv), raw_env)` satisfied it while handing the
+    child a raw environment — the encoded argument was the argv. The slot
+    differs per API (`execve(path, args, env)` but `spawnve(mode, path, args,
+    env)`) and none is called in `src/`, so there is no call site to check a
+    slot table against. Refused outright instead.
+    """
+    encoded_argv_raw_env = offenders_in(
+        ast.parse(
+            "from devops_ai.secrets import encode_env\n"
+            "import os\n"
+            "os.execve(path, encode_env(argv), raw_env)\n"
+        ),
+        "m.py",
+    )
+    assert len(encoded_argv_raw_env) == 1, encoded_argv_raw_env
+    assert "does not track" in encoded_argv_raw_env[0]
+
+    # Control: an `os` call outside the spawn family is not touched.
+    assert offenders_in(ast.parse("import os\nos.getcwd()\n"), "m.py") == []
 
 
 def test_the_positional_environment_slot_is_where_this_gate_thinks_it_is() -> None:
