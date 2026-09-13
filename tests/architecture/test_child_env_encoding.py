@@ -153,27 +153,10 @@ class Resolver:
         rebound: set[str] = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign | ast.AnnAssign):
-                # `spawn = subprocess.run` then `spawn(cmd, env=raw)` reached a
-                # child while `target()` returned None for it, so the gate never
-                # looked at the call at all.
-                aliased = self._resolve(node.value) if node.value else None
-                if aliased is not None and aliased[1] in WATCHED[aliased[0]]:
-                    targets = (
-                        node.targets if isinstance(node, ast.Assign) else [node.target]
-                    )
-                    for target in targets:
-                        if isinstance(target, ast.Name):
-                            self.functions[target.id] = aliased
-                        else:
-                            # `self.spawn = subprocess.run`, or any other
-                            # non-name target: following it would mean tracking
-                            # instance attributes across a class, which is more
-                            # machinery than this gate should carry. So it is
-                            # refused instead — the same answer `*args`, a
-                            # wildcard import and an unresolvable relative
-                            # import get. Found in self-review, not by a
-                            # reviewer, and closed rather than left implied.
-                            self.unfollowable.add(f"{aliased[0]}.{aliased[1]}")
+                self._rebind(
+                    node.value,
+                    node.targets if isinstance(node, ast.Assign) else [node.target],
+                )
             if isinstance(
                 node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
             ):
@@ -230,6 +213,88 @@ class Resolver:
         anchor = anchor[: len(anchor) - (node.level - 1)]
         resolved = ".".join(anchor + (node.module.split(".") if node.module else []))
         return resolved in ENCODER_MODULES_ABSOLUTE
+
+    def _rebind(self, value: ast.expr | None, targets: list[ast.expr]) -> None:
+        """Follow a name bound from something watched, or refuse to vouch for it.
+
+        Eight spellings of one mechanism reached this gate across four rounds —
+        `spawn = subprocess.run`, `self.spawn = ...`, a module alias chain, and
+        so on — each fixed by naming the shape. That is the wrong axis, and the
+        ninth spelling would have been found the same way. The rule is on the
+        *binding* instead: a rebinding this walk can prove is followed, and one
+        it cannot is refused. A new shape lands in the second branch by
+        default, so it fails closed without anyone having thought of it.
+
+        What a static walk still cannot prove is named rather than implied: a
+        rebinding produced by a *call* — `getattr(sp, "run")`, an
+        `importlib.import_module`, a decorator — is invisible here, because a
+        call is also how every real spawn site is written
+        (`completed = subprocess.run(...)`), and refusing those would refuse
+        the package this gate guards. That is the gate's limit, not an
+        oversight to close in a later round.
+        """
+        # A call *uses* a spawn; it does not rebind one, and `watched_spawns`
+        # already reads every call in the tree.
+        if value is None or isinstance(value, ast.Call):
+            return
+
+        aliased = self._resolve(value)
+        module = (
+            self.modules[value.id]
+            if isinstance(value, ast.Name) and value.id in self.modules
+            else None
+        )
+        spawn = aliased is not None and aliased[1] in WATCHED[aliased[0]]
+        if module is None and not spawn:
+            # Not a binding of anything watched — unless the expression still
+            # *mentions* one, in which case something we watch went somewhere
+            # this walk cannot follow.
+            for mention in sorted(self._watched_mentions(value)):
+                self.unfollowable.add(mention)
+            return
+
+        for target in targets:
+            if not isinstance(target, ast.Name):
+                # `self.spawn = subprocess.run`, or any other non-name target:
+                # following it would mean tracking instance attributes across a
+                # class, which is more machinery than this gate should carry.
+                self.unfollowable.add(
+                    module if module is not None else f"{aliased[0]}.{aliased[1]}"
+                )
+            elif module is not None:
+                self.modules[target.id] = module
+            else:
+                assert aliased is not None
+                self.functions[target.id] = aliased
+
+    def _watched_mentions(self, expr: ast.expr) -> set[str]:
+        """Watched names this expression refers to without binding one plainly.
+
+        `os.environ` must not count: the module name is there, but the
+        attribute says it is not a spawn, so treating the mention as a hole
+        would make the gate refuse most of the package. Only a *bare* reference
+        to a watched module — one that could still become `.run` anywhere
+        downstream — and a name already bound to a spawn are holes.
+        """
+        consumed: set[int] = set()
+        for node in ast.walk(expr):
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in self.modules
+            ):
+                consumed.add(id(node.value))
+        mentions: set[str] = set()
+        for node in ast.walk(expr):
+            if not isinstance(node, ast.Name) or id(node) in consumed:
+                continue
+            if node.id in self.modules:
+                mentions.add(self.modules[node.id])
+            elif node.id in self.functions:
+                module, attr = self.functions[node.id]
+                if attr in WATCHED[module]:
+                    mentions.add(f"{module}.{attr}")
+        return mentions
 
     def _resolve(self, expr: ast.expr) -> tuple[str, str] | None:
         """(`module`, `attribute`) this expression names, if it names one."""
@@ -889,3 +954,62 @@ def test_no_module_can_be_made_unimportable_by_its_own_docstring() -> None:
         "a docstring that cannot be encoded as UTF-8 makes its module "
         "uncompilable on Python 3.14:\n  " + "\n  ".join(offenders)
     )
+
+
+def test_a_module_alias_chain_is_followed_and_an_unprovable_one_is_refused() -> None:
+    """The eighth spelling — and the last one fixed by naming a shape.
+
+    `import subprocess as sp; child_api = sp; child_api.run(cmd, env=raw)` left
+    `child_api` out of the module table, so `target()` returned None and the
+    call was never examined: the gate did not approve the site, it never looked.
+    Copilot's fourth finding on this file, and the fourth round in which this
+    gate resolved a name and then vouched for a binding it could not prove.
+
+    So the fix is not a ninth branch keyed on this shape. A rebinding the walk
+    can *prove* is followed; every other one is refused, which is where a shape
+    nobody has thought of now lands by default. The three below are the same
+    rule seen from three sides.
+    """
+    # Provable: a plain name bound to a watched module *is* that module, so the
+    # call through it is read like any other and the missing encoder is found.
+    followed = offenders_in(
+        ast.parse(
+            "import subprocess as sp\n"
+            "child_api = sp\n"
+            "child_api.run(cmd, env=raw_env)\n"
+        ),
+        "m.py",
+    )
+    assert len(followed) == 1, followed
+    assert f"does not go through {ENCODE_ENV}()" in followed[0]
+
+    # Control for that one: the same chain, encoded properly, is clean — so
+    # "offends on any aliased module" cannot satisfy the assertion above.
+    assert offenders_in(
+        ast.parse(
+            "from devops_ai.secrets import encode_env\n"
+            "import subprocess as sp\n"
+            "child_api = sp\n"
+            "child_api.run(cmd, env=encode_env(raw_env))\n"
+        ),
+        "m.py",
+    ) == []
+
+    # Unprovable: the module goes somewhere a module-level walk cannot follow.
+    # Neither is spelled anywhere in the resolver — they fail closed because
+    # they are not provable, not because they were anticipated.
+    for source in (
+        "import subprocess as sp\nmod = sp if flag else sp\nmod.run(c, env=raw)\n",
+        "import subprocess as sp\nbag = [sp]\n",
+        "from subprocess import run\nbag = {'spawn': run}\n",
+    ):
+        refused = offenders_in(ast.parse(source), "m.py")
+        assert len(refused) == 1, (source, refused)
+        assert "cannot be read here" in refused[0]
+
+    # And the false positive this must not have: `os` is a watched module, so a
+    # gate that flagged every mention of one would refuse most of the package.
+    # An attribute that is not a spawn says so by itself.
+    assert offenders_in(
+        ast.parse("import os\nenv = os.environ\nwhere = os.defpath\n"), "m.py"
+    ) == []
