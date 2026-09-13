@@ -314,7 +314,13 @@ def _origin(url: str) -> Origin:
     try:
         parts = urllib.parse.urlsplit(url)
         scheme = parts.scheme.lower()
-        port = parts.port or DEFAULT_PORTS.get(scheme, 0)
+        # `is not None`, not `or`: an explicit `:0` is a port, and a bogus one.
+        # `_address` already refuses it in the configured address, so letting a
+        # redirect normalise it to the default would refuse and allow the same
+        # thing in the two halves of one policy.
+        port = (
+            parts.port if parts.port is not None else DEFAULT_PORTS.get(scheme, 0)
+        )
     except ValueError:
         return Origin("", url.lower(), 0)
     return Origin(scheme, (parts.hostname or "").lower(), port)

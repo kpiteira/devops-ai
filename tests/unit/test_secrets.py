@@ -209,6 +209,10 @@ class TestOpenBaoReferenceShape:
             ("https://vault/x", "https://VAULT/y", True),
             ("https://vault:8200/x", "https://vault/y", False),
             ("https://vault/x", "https://other/y", False),
+            # An explicit `:0` is a port, and `_address` refuses it outright —
+            # normalising it to the default here would let a redirect reach
+            # what a configured address may not.
+            ("http://vault/x", "http://vault:0/y", False),
         ],
     )
     def test_a_default_port_is_the_same_endpoint_written_twice(
