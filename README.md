@@ -266,7 +266,7 @@ cd ~/Documents/dev/devops-ai && uv tool install -e . --reinstall
 | `env://NAME` (shorthand `$NAME`) | exported variable `NAME`; if it is not exported, key `NAME` in `./.env` |
 | `dotenv://<path>#<KEY>` | key `KEY` in the `KEY=value` file at `path` |
 | `op://<vault>/<item>/<field>` | a 1Password item field, read with your own `op` grant |
-| `bao://<mount>/<path>#<key>` | an OpenBao / HashiCorp Vault KV v2 key *(coming)* |
+| `bao://<mount>/<path>#<key>` | key `<key>` of the KV v2 secret at `<mount>/<path>` in OpenBao or HashiCorp Vault |
 | `akv://<vault>/<secret>` | an Azure Key Vault secret *(coming)* |
 
 `env://NAME` is the canonical form and `$NAME` the shorthand; both fall back to `./.env`,
@@ -276,6 +276,58 @@ comment lines, blank lines, an `export ` prefix, and single or double quotes.
 Resolution happens on the host, with your credentials — your `op` grant, your `az`
 session, your Vault token. A command started by `ksecret run` receives plain values in
 its environment and never talks to a vault itself.
+
+### OpenBao and HashiCorp Vault (`bao://`)
+
+`bao://<mount>/<path>#<key>` reads the current version of the KV v2 secret at
+`<mount>/<path>` and returns one key of it — `bao://kv/homelab/lux/grafana#password`
+is the `password` key of `kv/homelab/lux/grafana`. The `#<key>` part is required: a
+KV v2 secret holds several keys, and there is no sensible default among them.
+
+Two environment variables say where and who, and `ksecret` reads them the way the
+`bao` CLI does — the `BAO_*` spelling first, then the `VAULT_*` one, so both tools
+talk to the same server:
+
+| Variable | Meaning |
+|----------|---------|
+| `BAO_ADDR`, else `VAULT_ADDR` | the server's base URL, e.g. `https://vault.example.com` |
+| `BAO_TOKEN`, else `VAULT_TOKEN`, else `~/.vault-token` | the token to present |
+| `BAO_CACERT`, else `VAULT_CACERT` | a CA bundle to verify the server with, for a private CA |
+
+`~/.vault-token` is the file `bao login` (or `vault login`) writes, so once you have
+logged in there is nothing to export but the address. An AppRole- or OIDC-issued
+token works the same way: this provider *uses* a token, it never obtains one.
+
+The `bao` binary itself is not required — `ksecret` speaks the HTTP API with the
+standard library, so a container with `ksecret`, an address and a token can resolve
+`bao://` references without a second CLI installed.
+
+```bash
+export BAO_ADDR=https://vault.example.com
+bao login                                     # writes ~/.vault-token
+ksecret read 'bao://kv/apps/myapp#api-key'    # prints `ok <reference>`, not the value
+```
+
+Quote a reference that carries a `#` when you type it: a zsh with `extendedglob` set
+reads the `#` as a glob operator and refuses the word before `ksecret` ever sees it.
+
+Only KV v2 mounts are supported; `mount` is the mount point, not the API's internal
+`data/` segment, which `ksecret` adds for you.
+
+The certificate is verified against your system trust store unless `BAO_CACERT` (or
+`VAULT_CACERT`) names a bundle — the usual case for a homelab vault behind a private
+CA; there is no way to turn verification off. The token is presented only to the
+address your address variable names. **No redirect is ever followed** — any `3xx`,
+including one that stays on the same server, is an error naming the status. Deciding
+per hop whether a location may be handed a vault token is more attack surface than
+reading one secret is worth, so point the address at the server that holds the secret
+rather than letting it be redirected there: at the active node rather than a standby,
+and spelled `https` rather than upgraded to it. Where a message asks you to change the
+address, it names whichever of `BAO_ADDR` / `VAULT_ADDR` you actually set. An ambient
+`HTTP_PROXY` / `HTTPS_PROXY` is deliberately not used either, for the same reason: a
+proxy configured for general web traffic is not a decision anyone made about a vault
+token. If you need a proxy to reach your vault, say so and it becomes an explicit
+setting rather than an inherited one.
 
 ### Which reference to use
 
@@ -297,11 +349,10 @@ terminal output.
 ### In a kinfra sandbox
 
 `[sandbox.secrets]` in `.devops-ai/infra.toml` goes through the same resolver
-`ksecret` uses, so every **implemented** reference above works there. The two marked
-*(coming)* do not yet: until their provider ships, `bao://…` and `akv://…` are
-unclaimed schemes, which means they are treated as literals (see the first row) and
-the URI itself is injected as the value. `ksecret check` labels them `literal` — that
-is how you tell.
+`ksecret` uses, so every **implemented** reference above works there. The one marked
+*(coming)* does not yet: until its provider ships, `akv://…` is an unclaimed scheme,
+which means it is treated as a literal (see the first row) and the URI itself is
+injected as the value. `ksecret check` labels it `literal` — that is how you tell.
 
 ```toml
 [sandbox.secrets]
