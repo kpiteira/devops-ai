@@ -95,7 +95,7 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
 
 def _parse(ref: str) -> tuple[str, str, str | None]:
     """Split a reference into vault, secret and optional version."""
-    # Two characters classes never belong in a reference, for different reasons.
+    # Two character classes never belong in a reference, for different reasons.
     #
     # A NUL cannot survive exec: `subprocess.run` raises ValueError before `az`
     # starts, and the resolver translates only ProviderError, so it would leave
