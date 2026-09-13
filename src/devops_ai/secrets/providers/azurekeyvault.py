@@ -118,7 +118,9 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
     return _value(ref, result.stdout)
 
 
-def write(ref: str, value: str, ctx: ResolveContext) -> str:
+def write(
+    ref: str, value: str, ctx: ResolveContext, if_absent: bool = False
+) -> str:
     """Store a new version of the secret, handing `az` the value in a file."""
     vault, secret, version = _parse(ref)
     if version is not None:
@@ -141,6 +143,9 @@ def write(ref: str, value: str, ctx: ResolveContext) -> str:
             f"Store it with LF line endings, or encode it (base64, say)."
         )
     executable = _executable(ctx)
+
+    if if_absent and _exists(executable, ctx, ref, vault, secret):
+        return ref
 
     with _value_file(value) as path:
         command = [
@@ -184,6 +189,39 @@ def write(ref: str, value: str, ctx: ResolveContext) -> str:
             )
         )
     return ref
+
+
+def _exists(
+    executable: str, ctx: ResolveContext, ref: str, vault: str, secret: str
+) -> bool:
+    """Whether the secret has a readable current version.
+
+    `--query id`, never `value`: whether something is there is not a reason to
+    pull a secret into this process. A *disabled* secret answers no, the same
+    as an absent one does everywhere else in this module (Karl, 2026-09-13) —
+    so `--if-absent` stores a new, enabled version over one, which is also what
+    a plain write does. Any other failure is raised rather than read as room to
+    write: a vault that cannot answer has not said the secret is missing.
+    """
+    result = subprocess.run(
+        [
+            executable, "keyvault", "secret", "show",
+            "--vault-name", vault, "--name", secret,
+            "--query", "id", "--output", "tsv", "--only-show-errors",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=TIMEOUT,
+        env=encode_env(ctx.env, utf8_keys=ctx.declared),
+    )
+    if result.returncode == 0:
+        return True
+    if _reads_as_absent(*_az_error_fields(result.stderr or "")):
+        return False
+    raise ProviderError(
+        _diagnose(ref, vault, secret, None, result.returncode, result.stderr or "")
+    )
 
 
 def _executable(ctx: ResolveContext) -> str:
@@ -367,17 +405,7 @@ def _diagnose(
     def message_starts(prefix: str) -> bool:
         return any(m.lower().startswith(prefix) for m in messages)
 
-    # A disabled secret answers exactly as an absent one — same exit code, same
-    # sentence, same reference (Karl, 2026-09-13). Whether a name exists in the
-    # vault is not something a caller who cannot read it gets to learn, so the
-    # two states are deliberately indistinguishable from outside. Both shapes
-    # Azure reports it in are captured here, from the same verified response:
-    # the inner-error code, and the Forbidden headline naming the state.
-    disabled = coded("SecretDisabled") or (
-        coded("Forbidden")
-        and message_starts("operation get is not allowed on a disabled secret")
-    )
-    if coded("SecretNotFound") or disabled:
+    if _reads_as_absent(codes, messages):
         return f"Secret not found in Azure Key Vault: {ref}."
     if coded("Conflict") and message_starts("secret "):
         # A deleted secret's name is not free until the deletion finishes, and
@@ -488,6 +516,32 @@ def _az_command(*args: str) -> str:
     names need no quotes, so a real failure's message is unchanged either way.
     """
     return shlex.join(["az", "keyvault", "secret", *args])
+
+
+def _reads_as_absent(codes: frozenset[str], messages: tuple[str, ...]) -> bool:
+    """Whether az said the secret is not there — disabled counting as not there.
+
+    A disabled secret answers exactly as an absent one: same exit code, same
+    sentence, same reference (Karl, 2026-09-13). Whether a name exists in the
+    vault is not something a caller who cannot read it gets to learn, so the
+    two states are deliberately indistinguishable from outside. Both shapes
+    Azure reports it in are captured here, from the same verified response: the
+    inner-error code, and the Forbidden headline naming the state.
+
+    Read in two places — the sentence a failed read gets, and the question
+    `--if-absent` asks — so that "disabled is absent" is one rule rather than
+    two that could drift apart.
+    """
+    disabled = "secretdisabled" in codes or (
+        "forbidden" in codes
+        and any(
+            message.lower().startswith(
+                "operation get is not allowed on a disabled secret"
+            )
+            for message in messages
+        )
+    )
+    return "secretnotfound" in codes or disabled
 
 
 _ERROR_LINE = re.compile(r"^ERROR:\s*(?:\(([A-Za-z]+)\)\s*)?(.*)$")

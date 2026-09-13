@@ -95,7 +95,9 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
     return value
 
 
-def write(ref: str, value: str, ctx: ResolveContext) -> str:
+def write(
+    ref: str, value: str, ctx: ResolveContext, if_absent: bool = False
+) -> str:
     """Set one key of a KV v2 secret, leaving the secret's other keys alone."""
     mount, path, key = _parse(ref)
     server = _address(ctx)
@@ -103,6 +105,9 @@ def write(ref: str, value: str, ctx: ResolveContext) -> str:
     tls = _tls(ctx)
     location = _location(mount, path)
     body: dict[str, object] = {"data": {key: value}}
+
+    if if_absent and _holds(server, mount, path, key, ref, token, tls):
+        return ref
 
     try:
         _send(server, "PATCH", location, token, tls, body, MERGE_PATCH_TYPE)
@@ -124,6 +129,33 @@ def write(ref: str, value: str, ctx: ResolveContext) -> str:
                 created.code, ref, mount, path, server, writing=True
             ) from None
     return ref
+
+
+def _holds(
+    server: Server,
+    mount: str,
+    path: str,
+    key: str,
+    ref: str,
+    token: str,
+    tls: ssl.SSLContext | None,
+) -> bool:
+    """Whether the secret already carries this key — asked, not assumed absent.
+
+    A 404 is the one failure that means "no": the secret has no current
+    version, so it holds nothing. Anything else is a server that could not
+    answer the question, and treating that as absence would turn a refused read
+    into an overwrite — the one outcome `--if-absent` exists to prevent.
+    """
+    try:
+        body = _send(server, "GET", _location(mount, path), token, tls)
+    except _Status as status:
+        if status.code == NOT_FOUND:
+            return False
+        raise _status_error(status.code, ref, mount, path, server) from None
+    envelope = body.get("data")
+    values = envelope.get("data") if isinstance(envelope, dict) else None
+    return isinstance(values, dict) and key in values
 
 
 def _parse(ref: str) -> tuple[str, str, str]:

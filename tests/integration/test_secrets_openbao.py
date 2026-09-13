@@ -833,3 +833,61 @@ class TestWritingAKey:
             store("bao://kv/app", VALUE, BAO_ADDR=bao.addr, BAO_TOKEN="t-1")
 
         assert bao.asked == []
+
+
+class TestWritingOnlyWhenAbsent:
+    def test_a_key_that_is_already_there_is_not_patched(self, bao: FakeBao) -> None:
+        bao.answer = lambda path: kv2(token="minted-earlier")
+
+        got = write(
+            "bao://kv/app#token",
+            VALUE,
+            ResolveContext(env={"BAO_ADDR": bao.addr, "BAO_TOKEN": "t-1"}),
+            if_absent=True,
+        )
+
+        assert got == "bao://kv/app#token"
+        assert [asked.method for asked in bao.asked] == ["GET"]
+
+    def test_a_sibling_key_is_not_this_key(self, bao: FakeBao) -> None:
+        answers = iter([kv2(other="something-else"), (200, "{}")])
+        bao.answer = lambda path: next(answers)
+
+        write(
+            "bao://kv/app#token",
+            VALUE,
+            ResolveContext(env={"BAO_ADDR": bao.addr, "BAO_TOKEN": "t-1"}),
+            if_absent=True,
+        )
+
+        assert [asked.method for asked in bao.asked] == ["GET", "PATCH"]
+
+    def test_a_secret_that_does_not_exist_is_created(self, bao: FakeBao) -> None:
+        answers = iter([(404, ""), (404, ""), (200, "{}")])
+        bao.answer = lambda path: next(answers)
+
+        write(
+            "bao://kv/app#token",
+            VALUE,
+            ResolveContext(env={"BAO_ADDR": bao.addr, "BAO_TOKEN": "t-1"}),
+            if_absent=True,
+        )
+
+        assert [asked.method for asked in bao.asked] == ["GET", "PATCH", "POST"]
+
+    def test_a_server_that_could_not_answer_is_not_read_as_room_to_write(
+        self, bao: FakeBao
+    ) -> None:
+        """A refused read is not an absence. Writing on one would be exactly
+        the overwrite `--if-absent` was asked to avoid."""
+        bao.answer = lambda path: (403, "{}")
+
+        with pytest.raises(ProviderError):
+            write(
+                "bao://kv/app#token",
+                VALUE,
+                ResolveContext(env={"BAO_ADDR": bao.addr, "BAO_TOKEN": "t-1"}),
+                if_absent=True,
+            )
+
+        assert [asked.method for asked in bao.asked] == ["GET"]

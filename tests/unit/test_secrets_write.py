@@ -726,3 +726,209 @@ class TestTheProvidersStillOnlyCarryOneScheme:
             for other in (dotenv, onepassword, azurekeyvault):
                 if other is not provider:
                     assert not provider.handles(other.SCHEME + "x/y")
+
+
+# ------------------------------------------------------------- --if-absent
+
+
+class TestLeavingAnExistingSecretAlone:
+    """`--if-absent`: what `agent create` wants on a second run.
+
+    Each provider asks its own backend rather than the core resolving first,
+    and the point of that is the negative case: a read that fails for a reason
+    other than absence must not be read as room to overwrite.
+    """
+
+    def test_a_key_that_is_there_is_not_replaced(self, tmp_path: Path) -> None:
+        (tmp_path / "f.env").write_text("K=already\nOTHER=x\n")
+
+        got = write(
+            "dotenv://f.env#K", VALUE, ResolveContext(base_dir=tmp_path),
+            if_absent=True,
+        )
+
+        assert got == "dotenv://f.env#K"
+        assert (tmp_path / "f.env").read_text() == "K=already\nOTHER=x\n"
+
+    def test_a_key_that_is_missing_is_still_written(self, tmp_path: Path) -> None:
+        (tmp_path / "f.env").write_text("OTHER=x\n")
+
+        write(
+            "dotenv://f.env#K", VALUE, ResolveContext(base_dir=tmp_path),
+            if_absent=True,
+        )
+
+        assert (tmp_path / "f.env").read_text() == f"OTHER=x\nK={VALUE}\n"
+
+    def test_an_empty_key_counts_as_present(self, tmp_path: Path) -> None:
+        """A dotenv file says what it holds; `K=` is a value someone wrote."""
+        (tmp_path / "f.env").write_text("K=\n")
+
+        write(
+            "dotenv://f.env#K", VALUE, ResolveContext(base_dir=tmp_path),
+            if_absent=True,
+        )
+
+        assert (tmp_path / "f.env").read_text() == "K=\n"
+
+    def test_an_azure_secret_that_reads_is_left_alone(self, tmp_path: Path) -> None:
+        log = fake_cli(
+            tmp_path / "bin",
+            "az",
+            {"keyvault secret show": {"stdout": "https://v/secrets/s/1\n"}},
+        )
+
+        got = write(
+            "akv://a-vault/a-secret", VALUE, on_path(tmp_path / "bin"), if_absent=True
+        )
+
+        assert got == "akv://a-vault/a-secret"
+        assert [call["argv"][2] for call in calls_of(log)] == ["show"]
+
+    def test_the_existence_check_never_asks_for_the_value(
+        self, tmp_path: Path
+    ) -> None:
+        log = fake_cli(
+            tmp_path / "bin",
+            "az",
+            {"keyvault secret show": {"stdout": "https://v/secrets/s/1\n"}},
+        )
+
+        write(
+            "akv://a-vault/a-secret", VALUE, on_path(tmp_path / "bin"), if_absent=True
+        )
+
+        argv = calls_of(log)[0]["argv"]
+        assert argv[argv.index("--query") + 1] == "id"
+
+    def test_an_azure_secret_that_is_not_there_is_written(
+        self, tmp_path: Path
+    ) -> None:
+        log = fake_cli(
+            tmp_path / "bin",
+            "az",
+            {
+                "keyvault secret show": {
+                    "code": 3,
+                    "stderr": "ERROR: (SecretNotFound) nope\nCode: SecretNotFound\n",
+                },
+                "keyvault secret set": {},
+            },
+        )
+
+        write(
+            "akv://a-vault/a-secret", VALUE, on_path(tmp_path / "bin"), if_absent=True
+        )
+
+        assert [call["argv"][2] for call in calls_of(log)] == ["show", "set"]
+
+    def test_a_vault_that_could_not_answer_is_not_read_as_room_to_write(
+        self, tmp_path: Path
+    ) -> None:
+        """The failure this exists to prevent: a denied read is not an absence,
+        and overwriting on one would be the opposite of what was asked."""
+        log = fake_cli(
+            tmp_path / "bin",
+            "az",
+            {
+                "keyvault secret show": {
+                    "code": 1,
+                    "stderr": "ERROR: (Forbidden) denied\nCode: Forbidden\n",
+                },
+                "keyvault secret set": {},
+            },
+        )
+
+        with pytest.raises(ProviderError) as caught:
+            write(
+                "akv://a-vault/a-secret",
+                VALUE,
+                on_path(tmp_path / "bin"),
+                if_absent=True,
+            )
+
+        assert "Access denied" in str(caught.value)
+        assert [call["argv"][2] for call in calls_of(log)] == ["show"], "never set"
+
+    def test_a_1password_field_that_already_holds_something_is_left_alone(
+        self, tmp_path: Path
+    ) -> None:
+        log = fake_cli(
+            tmp_path / "bin",
+            "op",
+            op_answers(
+                **{
+                    "item list": {
+                        "stdout": json.dumps(
+                            [{"id": "existingid0000000000000001", "title": "my-item"}]
+                        )
+                    },
+                    "item get": {
+                        "stdout": json.dumps(
+                            {
+                                "id": "existingid0000000000000001",
+                                "fields": [
+                                    {"id": "password", "label": "password",
+                                     "value": "minted-earlier"},
+                                ],
+                            }
+                        )
+                    },
+                }
+            ),
+        )
+
+        got = write(
+            "op://a-vault/my-item/password",
+            VALUE,
+            on_path(tmp_path / "bin"),
+            if_absent=True,
+        )
+
+        assert [call["argv"][:2] for call in calls_of(log)] == [
+            ["item", "list"], ["item", "get"],
+        ]
+        assert got == "op://a-vault/existingid0000000000000001/password"
+
+    def test_an_empty_built_in_field_is_an_empty_slot_not_a_secret(
+        self, tmp_path: Path
+    ) -> None:
+        """`op item create` gives a Login item a `password` field with no value
+        at all; a reference to it names a slot, and filling it is the job."""
+        log = fake_cli(
+            tmp_path / "bin",
+            "op",
+            op_answers(
+                **{
+                    "item list": {
+                        "stdout": json.dumps(
+                            [{"id": "existingid0000000000000001", "title": "my-item"}]
+                        )
+                    },
+                    "item get": {
+                        "stdout": json.dumps(
+                            {
+                                "id": "existingid0000000000000001",
+                                "fields": [
+                                    {"id": "password", "label": "password",
+                                     "purpose": "PASSWORD"},
+                                ],
+                            }
+                        )
+                    },
+                }
+            ),
+        )
+
+        write(
+            "op://a-vault/my-item/password",
+            VALUE,
+            on_path(tmp_path / "bin"),
+            if_absent=True,
+        )
+
+        assert [call["argv"][:2] for call in calls_of(log)][-1] == ["item", "edit"]
+
+    def test_the_host_environment_refuses_either_way(self) -> None:
+        with pytest.raises(ProviderError):
+            write("env://SOME_NAME", VALUE, if_absent=True)

@@ -78,7 +78,9 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
     return values[name]
 
 
-def write(ref: str, value: str, ctx: ResolveContext) -> str:
+def write(
+    ref: str, value: str, ctx: ResolveContext, if_absent: bool = False
+) -> str:
     """Refuse: this provider reads a place `ksecret` has no way to put a value.
 
     Not an unimplemented case. A process cannot set a variable in the shell that
@@ -86,6 +88,9 @@ def write(ref: str, value: str, ctx: ResolveContext) -> str:
     about to exit — and the `.env` fallback beside it is somebody else's file,
     reached by this scheme only as a last resort for *reading*. A write has to
     name the file it means, which a file reference does.
+
+    `if_absent` changes nothing here: there is no write to skip, and a variable
+    that happens to be set is not a secret this stored.
     """
     raise ProviderError(
         f"{ref} cannot be written: the host environment is read-only. A "

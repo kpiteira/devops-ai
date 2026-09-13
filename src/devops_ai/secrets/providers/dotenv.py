@@ -48,7 +48,9 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
     return values[key]
 
 
-def write(ref: str, value: str, ctx: ResolveContext) -> str:
+def write(
+    ref: str, value: str, ctx: ResolveContext, if_absent: bool = False
+) -> str:
     """Set the key in the file, leaving every other line exactly as it was."""
     relative, key = _parse(ref)
     path = _target(ctx.path(relative))
@@ -72,6 +74,9 @@ def write(ref: str, value: str, ctx: ResolveContext) -> str:
         raise ProviderError(f"Cannot read {path}: not valid UTF-8 text.") from None
     except OSError as exc:
         raise ProviderError(f"Cannot read {path}: {exc.strerror}.") from None
+
+    if if_absent and key in envfile.parse(original):
+        return ref
 
     _save(path, _with_key(original, key, value, path), existed)
     return ref

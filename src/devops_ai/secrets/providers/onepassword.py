@@ -91,7 +91,9 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
     return str(result.stdout)
 
 
-def write(ref: str, value: str, ctx: ResolveContext) -> str:
+def write(
+    ref: str, value: str, ctx: ResolveContext, if_absent: bool = False
+) -> str:
     """Store the value in the item's field; answer with the item-ID reference."""
     vault, item, field = _parse(ref)
     executable = _executable(ctx)
@@ -115,6 +117,12 @@ def write(ref: str, value: str, ctx: ResolveContext) -> str:
             executable, ctx, ref, "read",
             ["item", "get", item_id, "--vault", vault, "--format=json"],
         )
+        if if_absent and _has_value(document, field):
+            # The item is already in hand, so this costs nothing and answers
+            # with the same id reference a write would have: a caller re-running
+            # provisioning stores the same string whether or not it minted the
+            # credential this time.
+            return f"{SCHEME}{vault}/{item_id}/{field}"
         _set_field(document, field, value)
         _op(
             executable, ctx, ref, "update",
@@ -241,15 +249,13 @@ def _set_field(document: dict[str, Any], field: str, value: str) -> None:
     that has already happened, setting both is what makes the read that follows
     return this value rather than a coin toss.
     """
-    fields = document.setdefault("fields", [])
-    if not isinstance(fields, list):
-        fields = []
-        document["fields"] = fields
+    if not isinstance(document.get("fields"), list):
+        document["fields"] = []
+    fields = document["fields"]
     matched = [
         entry
-        for entry in fields
-        if isinstance(entry, dict)
-        and any(entry.get(name) == field for name in FIELD_NAMES)
+        for entry in _fields(document)
+        if any(entry.get(name) == field for name in FIELD_NAMES)
     ]
     for entry in matched:
         entry["value"] = value
@@ -257,6 +263,29 @@ def _set_field(document: dict[str, Any], field: str, value: str) -> None:
         fields.append(
             {"id": field, "type": CONCEALED, "label": field, "value": value}
         )
+
+
+def _has_value(document: dict[str, Any], field: str) -> bool:
+    """Whether the item already carries something under that name.
+
+    An empty string is not something: `op item create` gives a Login item its
+    built-in `username` and `password` fields with no value at all, and a
+    reference to one of those names an empty slot rather than a secret. Writing
+    into it is what `--if-absent` is for.
+    """
+    return any(
+        entry.get("value")
+        for entry in _fields(document)
+        if any(entry.get(name) == field for name in FIELD_NAMES)
+    )
+
+
+def _fields(document: dict[str, Any]) -> list[dict[str, Any]]:
+    """The item's fields, whatever `op` put under that key."""
+    fields = document.get("fields")
+    if not isinstance(fields, list):
+        return []
+    return [entry for entry in fields if isinstance(entry, dict)]
 
 
 def _identifier(created: subprocess.CompletedProcess[str], ref: str) -> str:

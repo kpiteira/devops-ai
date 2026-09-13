@@ -25,8 +25,20 @@ from .resolver import provider_for
 WRITE = "write"
 
 
-def write(ref: str, value: str, ctx: ResolveContext | None = None) -> str:
+def write(
+    ref: str,
+    value: str,
+    ctx: ResolveContext | None = None,
+    if_absent: bool = False,
+) -> str:
     """Store `value` at `ref`; return the reference a caller should keep.
+
+    `if_absent` leaves a secret that is already there alone, and still answers
+    with its reference — what a provisioning step re-run on an existing
+    deployment needs, where minting a second credential is the failure. Each
+    provider answers the question against its own backend rather than this
+    module resolving first: a read that fails for a reason other than absence
+    must not be mistaken for permission to overwrite.
 
     Raises `ProviderError` with a sentence that names the reference and never
     the value.
@@ -49,4 +61,4 @@ def write(ref: str, value: str, ctx: ResolveContext | None = None) -> str:
             f"{provider.SCHEME} references cannot be written; this provider "
             f"only reads."
         )
-    return str(writer(ref, value, context))
+    return str(writer(ref, value, context, if_absent))

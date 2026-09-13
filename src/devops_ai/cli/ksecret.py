@@ -77,6 +77,11 @@ def read(
 @app.command()
 def write(
     ref: str = typer.Argument(help="Secret reference to store the value at"),
+    if_absent: bool = typer.Option(
+        False,
+        "--if-absent",
+        help="Leave a secret that already exists alone, and print its reference",
+    ),
 ) -> None:
     """Store the value on stdin at a reference; print the canonical reference."""
     try:
@@ -86,7 +91,7 @@ def write(
         raise typer.Exit(1) from None
 
     try:
-        canonical = write_secret(ref, value, ResolveContext())
+        canonical = write_secret(ref, value, ResolveContext(), if_absent)
     except ProviderError as exc:
         typer.echo(f"ksecret write: {exc}", err=True)
         raise typer.Exit(1) from None
