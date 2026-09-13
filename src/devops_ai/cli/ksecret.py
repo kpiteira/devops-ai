@@ -17,9 +17,11 @@ from devops_ai.config import find_project_root, load_config
 from devops_ai.secrets import (
     ERROR,
     CheckResult,
+    EnvironmentEncodingError,
     ResolveContext,
     SecretResolutionError,
-    layered_env,
+    context_for,
+    encode_env,
     provider_for,
     read_env_file,
     resolve,
@@ -87,10 +89,9 @@ def run(
         typer.echo(f"ksecret run: {exc.strerror}: {exc.filename}", err=True)
         raise typer.Exit(1) from None
 
-    environ = layered_env(entries)
-    resolved, errors = resolve_all(
-        _references(entries), ResolveContext(env=environ)
-    )
+    context = context_for(entries)
+    environ = dict(context.env)
+    resolved, errors = resolve_all(_references(entries), context)
     if errors:
         for error in errors:
             typer.echo(error.message, err=True)
@@ -98,7 +99,16 @@ def run(
     environ.update(resolved)
 
     try:
-        completed = subprocess.run(command, env=environ)
+        # Only the names this run declared carry the UTF-8 promise. Everything
+        # else in `environ` was inherited from this process, and re-spelling it
+        # breaks the child: a PATH directory named with the byte E9 is not found
+        # by a child sent looking for C3 A9.
+        completed = subprocess.run(
+            command, env=encode_env(environ, utf8_keys=entries.keys())
+        )
+    except EnvironmentEncodingError as exc:
+        typer.echo(f"ksecret run: {exc}", err=True)
+        raise typer.Exit(1) from None
     except OSError as exc:
         typer.echo(
             f"ksecret run: cannot execute {command[0]}: {exc.strerror}", err=True
@@ -127,7 +137,7 @@ def check(
         raise typer.Exit(1) from None
 
 
-    context = ResolveContext(env=layered_env(entries))
+    context = context_for(entries)
 
     results = [check_ref(key, ref, context) for key, ref in entries.items()]
     results += [check_ref(_label(ref), ref, context) for ref in refs or []]
@@ -174,9 +184,7 @@ def _check_infra() -> list[CheckResult]:
             "ksecret check: cannot determine main repository root.", err=True
         )
         raise typer.Exit(1)
-    context = ResolveContext(
-        base_dir=base_dir, env=layered_env(config.secrets)
-    )
+    context = context_for(config.secrets, base_dir)
     return [
         check_ref(key, config.secrets[key], context)
         for key in sorted(config.secrets)

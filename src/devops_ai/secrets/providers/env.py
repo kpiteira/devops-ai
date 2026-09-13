@@ -15,6 +15,23 @@ from ..errors import ProviderError
 SCHEME = "env://"
 SHORTHAND = "$"
 FALLBACK_FILE = ".env"
+# This provider hands back what `os.environ` holds, and that is bytes the OS
+# gave us: Python decoded them with `surrogateescape`, so a surrogate in
+# U+DC80..U+DCFF stands for a real byte and has to reach the child as that byte.
+# Every other provider returns text, and the resolver refuses a surrogate from
+# one of those — it stands for nothing, and `encode_env` would quietly hand the
+# child a different secret than the backend holds. Only this module can know
+# which kind its values are, so only this module says so.
+#
+# The name promises less than it looks like it does, and deliberately: what
+# survives byte-for-byte is what the parent's locale could *not* decode. Under
+# a decodable non-UTF-8 locale — `LANG=en_US.ISO-8859-1`, where `os.environ`
+# holds byte 0xE9 as `é` rather than as a surrogate — the child now receives
+# that character's UTF-8, `C3 A9`, where before this change it received `E9`.
+# That is the promise being kept (a child gets UTF-8 whatever the locale), not
+# broken; but it is a behaviour change for inherited variables, and it is why
+# this opt-out is a narrower exception than "raw bytes pass through".
+INHERITS_OS_BYTES = True
 
 
 def handles(ref: str) -> bool:

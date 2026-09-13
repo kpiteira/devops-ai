@@ -73,7 +73,14 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
     # The `bao` CLI writes strings, but the API stores arbitrary JSON, so a
     # number or a boolean is possible. Render it as it was stored rather than
     # refuse a secret the user can plainly see in their vault.
-    return value if isinstance(value, str) else json.dumps(value)
+    #
+    # A `\uD800` escape nested in a rendered structure is harmless: `json.dumps`
+    # defaults to `ensure_ascii`, so it comes back as the seven ASCII characters
+    # of the escape. A bare string one is not, and `resolver._representable`
+    # refuses it for every provider rather than each parser guarding itself.
+    if not isinstance(value, str):
+        return json.dumps(value)
+    return value
 
 
 def _parse(ref: str) -> tuple[str, str, str]:

@@ -170,6 +170,39 @@ class TestTheRequest:
         assert read("bao://kv/a#port", BAO_ADDR=bao.addr, BAO_TOKEN="t") == "8200"
         assert read("bao://kv/a#enabled", BAO_ADDR=bao.addr, BAO_TOKEN="t") == "true"
 
+    def test_a_json_escape_for_a_lone_surrogate_is_refused_not_returned(
+        self, bao: FakeBao
+    ) -> None:
+        """A `\\uD800` escape is the one way this provider invents a surrogate.
+
+        The body arrives as ASCII and decodes fine; `json.loads` is what turns
+        the escape into a lone surrogate. Returned unchanged it would reach
+        `encode_env`, whose `surrogateescape` hands the child a raw byte
+        instead of the value's UTF-8 — a different secret than the vault holds,
+        with nothing raised. Refused in `resolver._representable`, which every
+        provider's value passes through, so the class is closed in one place
+        rather than once per provider that happens to parse JSON.
+        """
+        body = "recognisable-secret-body"
+        bao.answer = lambda path: kv2(key=f"\ud800{body}")
+
+        with pytest.raises(SecretResolutionError, match="unpaired surrogate") as caught:
+            read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
+
+        assert body not in caught.value.message
+        assert "d800" not in caught.value.message.lower(), "not even as an escape"
+
+    def test_a_paired_surrogate_escape_is_an_ordinary_character(
+        self, bao: FakeBao
+    ) -> None:
+        """The control: refusing every `\\u`-escaped astral character would
+        satisfy the test above just as well, and break real secrets."""
+        bao.answer = lambda path: kv2(key="grin-\U0001f600")
+
+        got = read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
+
+        assert got == "grin-\U0001f600"
+
     def test_a_malformed_reference_never_reaches_the_network(
         self, bao: FakeBao
     ) -> None:

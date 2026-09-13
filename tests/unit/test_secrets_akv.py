@@ -605,6 +605,43 @@ class TestAzureCliFailures:
         with pytest.raises(SecretResolutionError, match="no value"):
             resolve("K", REF, context(tmp_path))
 
+    def test_a_json_escape_for_a_lone_surrogate_is_refused_not_returned(
+        self, tmp_path: Path
+    ) -> None:
+        """`json.loads` is the one way a *resolved* value can carry a surrogate.
+
+        az's output is decoded UTF-8 strict, so no surrogate survives that — but
+        a JSON escape is not a decode, and nothing downstream can represent what
+        it produces: `encode_env` encodes with `surrogateescape`, which would
+        hand the child a raw byte instead of the value's UTF-8 — a different
+        secret than the vault holds, with nothing raised. That handler is right
+        for an inherited value (`env://` resolves to one), so the refusal
+        belongs where a value's provenance is still known.
+
+        Refused for every provider at once in `resolver._representable`, not
+        here — a rule keyed on this provider, or on the spelling `json.loads`,
+        is one the next provider walks past.
+        `tests/architecture/test_child_env_encoding.py` exercises every
+        installed provider with the same value.
+        """
+        body = "recognisable-secret-body"
+        fake_az(tmp_path / "bin", stdout=f'"\\ud800{body}"')
+        with pytest.raises(SecretResolutionError, match="unpaired surrogate") as caught:
+            resolve("K", REF, context(tmp_path))
+        assert body not in caught.value.message
+        assert "d800" not in caught.value.message.lower(), "not even as an escape"
+
+    def test_a_paired_surrogate_escape_is_an_ordinary_character(
+        self, tmp_path: Path
+    ) -> None:
+        """The control: `\\uD83D\\uDE00` is a valid pair, and must still resolve.
+
+        Without this, refusing every `\\u`-escaped astral character would pass
+        the test above just as well.
+        """
+        fake_az(tmp_path / "bin", stdout='"grin-\\ud83d\\ude00"')
+        assert resolve("K", REF, context(tmp_path)) == "grin-\U0001f600"
+
     def test_an_az_that_never_answers_is_reported_as_a_timeout(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
