@@ -132,4 +132,3 @@ Vertical slices; each runs end-to-end on agent-memory and is validated against i
 
 **Scale (J6)** is exercised throughout (agent-memory is the M1 target), not deferred to its own
 milestone — if the core loop can't handle 24K LOC, we want to know at M1.
-</content>

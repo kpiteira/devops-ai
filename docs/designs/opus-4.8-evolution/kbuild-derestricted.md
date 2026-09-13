@@ -188,4 +188,3 @@ contract as reliably as it honored "DO NOT write pytest for E2E." **That is prec
 CashFlow observation's job:** run a VALIDATION task under this rewrite and watch whether the E2E
 classification stays honest without the prohibition. If it drifts, the prohibition was earning its
 keep and goes back — as a contract with teeth, not as proof the principle failed.
-</content>

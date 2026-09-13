@@ -58,4 +58,3 @@ sandbox" path does not apply. M1's VALIDATION is a **direct run of the skill on 
 the generated artifacts checked against the v1 baseline and the five gates. It is a real end-to-end
 run with observable outputs (the artifacts), just not containerized. Each milestone file states its
 VALIDATION in those terms.
-</content>

@@ -259,4 +259,3 @@ the one step that cannot be automated — it's the point of the map.
 - [ ] All five gates pass; the v1-known findings are recovered; evidence (the artifacts + a
       comparison table vs v1) is recorded. A gate failure is a real result — it informs whether the
       bottom-up bet holds before M2 is planned.
-</content>
