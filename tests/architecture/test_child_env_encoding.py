@@ -368,10 +368,29 @@ def test_the_positional_environment_slot_is_where_this_gate_thinks_it_is() -> No
         ENV_POSITION
     )
 
-    passed = ast.parse("subprocess.run(a,b,c,d,e,f,g,h,i,j,raw_env)\n")
-    spawn = next(n for n in ast.walk(passed) if isinstance(n, ast.Call))
-    assert len(spawn.args) > ENV_POSITION
-    assert not Resolver(passed).is_encoder(spawn.args[ENV_POSITION])
+    # A positive and a negative, not one of each shape. Asserting only that a
+    # raw name is refused would pass against a wholly broken `is_encoder`: the
+    # synthetic tree imports nothing, so `encoders` is empty and every node is
+    # refused. The encoded form has to be *accepted* for the pair to mean
+    # anything — self-review caught that assertion proving nothing.
+    raw = ast.parse("subprocess.run(a,b,c,d,e,f,g,h,i,j,raw_env)\n")
+    encoded = ast.parse(
+        "from devops_ai.secrets import encode_env\n"
+        "subprocess.run(a,b,c,d,e,f,g,h,i,j,encode_env(raw_env))\n"
+    )
+
+    def env_slot(tree: ast.AST) -> ast.expr:
+        spawn = next(
+            n for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and len(n.args) > ENV_POSITION
+        )
+        return spawn.args[ENV_POSITION]
+
+    assert not Resolver(raw).is_encoder(env_slot(raw))
+    assert Resolver(encoded).is_encoder(env_slot(encoded)), (
+        "the encoded positional form must be accepted, or the negative above "
+        "proves nothing"
+    )
 
 
 def test_no_module_can_be_made_unimportable_by_its_own_docstring() -> None:
@@ -388,7 +407,10 @@ def test_no_module_can_be_made_unimportable_by_its_own_docstring() -> None:
     the next one is written by someone documenting the same rule.
     """
     offenders: list[str] = []
-    for path in source_files():
+    # `src/` and `tests/` both: a docstring like this one is most likely to be
+    # written by whoever is documenting the rule, and that is as often a test.
+    # The gate's name says "no module", so it has to mean every module here.
+    for path in sorted(SRC.rglob("*.py")) + sorted((ROOT / "tests").rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
         for node in ast.walk(tree):
             if not isinstance(
