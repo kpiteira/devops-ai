@@ -273,12 +273,13 @@ cd ~/Documents/dev/devops-ai && uv tool install -e . --reinstall
 and an exported variable always wins over the file. A `KEY=value` file may use `#`
 comment lines, blank lines, an `export ` prefix, and single or double quotes.
 
-Each vault-backed scheme needs only the tool you already sign in with: `op signin`
+The two CLI-backed schemes need only the tool you already sign in with: `op signin`
 for `op://`, and `az login` for `akv://` — no Azure SDK, no service principal, no
-extra configuration. The provider adds nothing to your `az` session and shells out
-to `az` with the environment it was given, so whichever way that session was
-established — including `az login --identity` on a host with a managed identity —
-is what reads the secret.
+extra configuration. The `akv://` provider adds nothing to your `az` session and
+shells out to `az` with the environment it was given, so whichever way that session
+was established — including `az login --identity` on a host with a managed identity —
+is what reads the secret. `bao://` needs no CLI at all: it takes an address and a
+token from the environment, described in its own section below.
 
 Resolution happens on the host, with your credentials — your `op` grant, your `az`
 session, your Vault token. A command started by `ksecret run` receives plain values in
@@ -356,9 +357,15 @@ terminal output.
 ### In a kinfra sandbox
 
 `[sandbox.secrets]` in `.devops-ai/infra.toml` goes through the same resolver
-`ksecret` uses, so every reference above works there. A scheme no provider claims is
-still a literal (see the first row) and the URI itself is injected as the value;
+`ksecret` uses, so every reference above resolves there. A scheme no provider claims
+is still a literal (see the first row) and the URI itself is injected as the value;
 `ksecret check` labels it `literal`, which is how you tell a typo from a reference.
+
+One limitation is the slot file rather than the resolver. `.env.secrets` is a
+`KEY=value` file, so a resolved value containing a newline — a PEM private key, most
+often — fails the write and stops `kinfra impl` rather than being silently mangled.
+`ksecret read` and `ksecret run` carry such values intact; only the sandbox path is
+affected. Tracked as #50 and #52.
 
 ```toml
 [sandbox.secrets]
