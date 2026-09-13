@@ -183,3 +183,11 @@ two skills shrink to the judgement and the guardrails they exist for.
 ## Amendments
 
 <!-- Append-only after sign-off. -->
+
+- [x] 2026-09-13 (M1) decision-change: `kreview status` gains a `ci-failing` verdict,
+  last in the order, exit 3 — a red check on the head stops the run instead of being a
+  fact the model reads past. Raised by Copilot on PR #66 (twice; the second time as a
+  systemic finding on pinned Surface, which stopped the babysit). Graded in M2's scratch
+  repository together with `draft` and `scope-empty` (M1 brief D15, M2 Blocking).
+  *Rejected:* keeping CI red as a fact plus the skill's "fix CI first" sentence.
+  Decided and acknowledged by Karl 2026-09-13.

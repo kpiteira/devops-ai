@@ -266,6 +266,9 @@ skills' contents, also without running a command.
 | J5, J7 | `::test_apply_next_chains_into_the_next_packet` | `apply --next --wait 120` with round 1's window pinned by `--until` and a comment landing after it: `next` holds the following packet with the new finding and the round-1 ledger; the state has 1 recorded round (round 2 is open, not yet applied) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J9 | `::test_report_renders_and_posts_from_state` | after a stop: the comment carries the Verdict, Rounds row, *Why the loop stopped*, paid rounds, and `status: stopped` in the block; TL;DR verbatim | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J8 | `::test_reentry_is_advised_and_gated` | after the report: `status` → `stopped`, `reentry` is `selfreview` after an unreviewed push; `apply` → exit 5; `apply --reenter` → run 2, `running`, and the next packet shows the budget reset (`used_this_run` 1, not 2) with run 1's dispositions still in `ledger` (A9) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J1 (M1) | `::test_status_stops_on_red_ci` | a PR whose branch carries a workflow that exits 1: once the check settles, `ci.status` `failing`, a failing entry in `ci.checks`, `verdict` `stop: ci-failing`, exit 3 — from a clone on the branch, so `checkout-mismatch` cannot mask it | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J1 (M1) | `::test_status_stops_on_draft` | a draft PR: `pr.draft` true, `verdict` `stop: draft`, exit 3 | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J1 (M1) | `::test_status_stops_on_empty_scope` | a PR whose `## Review scope` heading has nothing under it: `scope` `{empty, ""}`, `verdict` `stop: scope-empty`, exit 3 | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J10 | `::test_skills_contain_no_gh_or_git_commands` | in neither skill does any fenced line or inline code span begin with `gh`, `git`, `awk`, `jq`, or `curl` — the generic form the Surface pins, not a list of spellings; `kbabysit` names all four subcommands and keeps its frontmatter pin; `kobserve` names `kreview status` | fails on main, and without running a command: both skills are full of `gh` |
 
 Plus the standing gates: `make check` exits 0.
@@ -295,6 +298,9 @@ Plus the standing gates: `make check` exits 0.
   the authenticated `gh` user must be able to push branches, open and close PRs, and
   create and close issues there; Copilot automatic review is off there, so only the
   one paid test triggers a review. `KREVIEW_ACCEPTANCE_PAID=1` enables it.
+- GitHub Actions is enabled in the scratch repository (the default for a new
+  repository); the red-CI test pushes a one-job workflow that exits 1 onto its own PR
+  branch, and the check settles in about a minute.
 - The tests create branches `kreview-acc/<hex>` and issues titled `kreview-acceptance
   …` in the scratch repository and close them; leftovers from an aborted run are
   harmless and may be deleted by hand.

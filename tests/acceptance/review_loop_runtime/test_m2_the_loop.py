@@ -924,6 +924,56 @@ def test_apply_next_chains_into_the_next_packet(
     assert s["babysit"]["status"] == "running"
 
 
+# ------------------------------------------- J1 (M1 verdict order) graded here
+
+
+def _status_until_ci_settles(pr: ScratchPR, deadline_s: int = 240) -> dict:
+    """Poll `status` until the head's CI is no longer pending (Actions takes ~1 min)."""
+    started = time.monotonic()
+    while True:
+        r = _kr(pr, "status", str(pr.number), "--json")
+        assert r.code in (0, 3), (r.out, r.err)
+        s = r.json()
+        if s["ci"]["status"] != "pending" or time.monotonic() - started > deadline_s:
+            return s
+        time.sleep(15)
+
+
+def test_status_stops_on_red_ci(scratch_factory) -> None:
+    """A red check on the head is a stop, not a fact the model may read past.
+
+    Karl, 2026-09-13 (PR #66 DISCUSS): CI not passing is the kind of debt that creeps;
+    the verdict carries it. `checkout-mismatch` outranks it — this test runs from a
+    clone on the PR branch, so the checkout matches and only CI decides.
+    """
+    pr = scratch_factory(failing_workflow=True)
+    s = _status_until_ci_settles(pr)
+    assert s["ci"]["status"] == "failing", s["ci"]
+    assert any(c["status"] == "failing" for c in s["ci"]["checks"])
+    assert s["verdict"] == "stop: ci-failing"
+    assert s["scope"]["status"] == "present"
+    r = _kr(pr, "status", str(pr.number), "--json")
+    assert r.code == 3
+
+
+def test_status_stops_on_draft(scratch_factory) -> None:
+    pr = scratch_factory(draft=True)
+    r = _kr(pr, "status", str(pr.number), "--json")
+    assert r.code == 3, (r.out, r.err)
+    s = r.json()
+    assert s["pr"]["draft"] is True
+    assert s["verdict"] == "stop: draft"
+
+
+def test_status_stops_on_empty_scope(scratch_factory) -> None:
+    pr = scratch_factory(scope="")
+    r = _kr(pr, "status", str(pr.number), "--json")
+    assert r.code == 3, (r.out, r.err)
+    s = r.json()
+    assert s["scope"] == {"status": "empty", "text": ""}
+    assert s["verdict"] == "stop: scope-empty"
+
+
 # ------------------------------------------------------------ J9/J8: report, re-entry
 
 

@@ -56,7 +56,7 @@ JSON form, every key present:
 | `babysit` | `{report_present, comment_id, status: none\|running\|stopped, run, rounds, paid_rounds_this_run}` — from the issue comment whose body starts with `## Babysit report`; `status`/`run`/`rounds`/`paid_rounds_this_run` come from the state block M2 introduces and are `none`/`0`/`0`/`null` when the comment carries none |
 | `reentry` | `none` (no report, or a report with nothing newer than it), `paid` (a review, thread, or issue comment is newer than the report), `selfreview` (a report, commits newer than it, and nothing else newer than it) |
 | `kselfreview_range` | `"<last_reviewed_sha>..<head_sha>"`, `null` without a reviewed sha |
-| `verdict` | `"ready"`, or `"stop: <reason>"` with the first reason that holds in this order: `merged`, `closed`, `draft`, `scope-missing`, `scope-empty`, `checkout-mismatch` |
+| `verdict` | `"ready"`, or `"stop: <reason>"` with the first reason that holds in this order: `merged`, `closed`, `draft`, `scope-missing`, `scope-empty`, `checkout-mismatch`, `ci-failing` (`ci.status` is `failing` for `head_sha`; `pending` is not a stop — the round's wait reports it) |
 
 Exit code 0 when `ready`, 3 when `stop:`, 1 on any API or network error (one line on
 stderr naming the failure, nothing on stdout). Text form: one `key: value` line per key
@@ -194,13 +194,14 @@ Plus the standing gates: `make check` exits 0.
 
 **Graded here, and not graded here.** Of the verdict order, `merged`, `closed`,
 `scope-missing`, and two precedences — `merged` over `checkout-mismatch`, `closed` over
-`scope-missing` — are graded above. `draft` and `scope-empty` are **not**: each needs a
-PR in that state, and this repository has never had a draft PR (measured 2026-09-13:
-`gh pr list --state all` reports none) nor one whose `## Review scope` heading is empty.
-M1's fixtures are immutable public PRs by design; a fixture in an arbitrary state is the
-scratch repository M2 introduces (A5 cuts the milestones that way). Recorded rather than
-quietly absent, so the sign-off sees the residual: both are gradable in M2's scratch
-repository if the human wants them blocking there.
+`scope-missing` — are graded above. `draft`, `scope-empty`, and `ci-failing` are **not**
+graded in M1: each needs a PR in that state, and this repository's history has no draft
+PR, no PR with an empty `## Review scope` heading, and no PR whose head had red CI
+(measured 2026-09-13). M1's fixtures are immutable public PRs by design; a PR in an
+arbitrary state is what the scratch repository M2 introduces, and M2's Blocking table
+carries the three tests (`test_status_stops_on_red_ci`, `_on_draft`,
+`_on_empty_scope`). The verdict is M1's Surface; its last three reasons are graded
+one milestone later, which the sign-off accepted.
 
 ## Advisory
 
@@ -269,6 +270,14 @@ repository if the human wants them blocking there.
   overview and file summaries are the reviewer's mechanics, and a round's tokens go to
   findings. *Rejected:* full bodies — the suppressed entries and footer would appear
   twice.
+- **D15** — Red CI is a stop verdict (`ci-failing`), last in the order, exit 3 like
+  every stop: the run does not start on a head whose checks failed, and re-running
+  `status` after the fix is the way back in. Karl, 2026-09-13 (PR #66 DISCUSS): "CI not
+  passing is a real problem, the kind of tech debt that creeps." *Rejected:* keeping CI
+  red as a fact in `ci` plus the skill's "fix CI first" sentence (the planner's
+  recommendation) — every other preflight rule became mechanical and this one would have
+  stayed prose. `pending` is deliberately not a stop: a run that starts while checks are
+  still running sees them in the round packet.
 - **D11** — Repeat candidates are computed by path and ±5 lines only; confirming a
   repeat is the model's tag (M2 `repeat_of`). *Rejected:* text similarity — a judgement
   dressed as a metric.

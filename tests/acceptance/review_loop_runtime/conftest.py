@@ -22,7 +22,7 @@ import json
 import os
 import secrets as _secrets
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -256,11 +256,34 @@ def _scratch_repo() -> str:
     return repo
 
 
-@pytest.fixture()
-def scratch(tmp_path: Path) -> Iterator[ScratchPR]:
-    """A fresh scratch-repository PR: a twenty-line file and a review scope."""
+FAILING_WORKFLOW = """\
+name: kreview-acceptance-fail
+on: [pull_request]
+jobs:
+  fail:
+    runs-on: ubuntu-latest
+    steps:
+      - run: exit 1
+"""
+
+DEFAULT_SCOPE = "- the file `{path}` exists with twenty numbered lines\n"
+
+
+def open_scratch_pr(
+    tmp_path: Path,
+    *,
+    draft: bool = False,
+    scope: str | None = DEFAULT_SCOPE,
+    failing_workflow: bool = False,
+) -> ScratchPR:
+    """Open a scratch-repository PR: a twenty-line file and, by default, a review scope.
+
+    `scope=None` omits the `## Review scope` heading; `scope=""` writes the heading
+    with nothing under it. `failing_workflow=True` commits a workflow on the PR branch
+    whose only job exits 1, so the PR's head gets a failing check.
+    """
     repo = _scratch_repo()
-    clone = tmp_path / "scratch"
+    clone = tmp_path / f"scratch-{_secrets.token_hex(2)}"
     gh("repo", "clone", repo, str(clone), "--", "-q")
     base = git("rev-parse", "--abbrev-ref", "HEAD", cwd=clone)
     tag = _secrets.token_hex(4)
@@ -270,14 +293,17 @@ def scratch(tmp_path: Path) -> Iterator[ScratchPR]:
     (clone / "acc").mkdir(exist_ok=True)
     (clone / path).write_text("".join(f"line {i}\n" for i in range(1, 21)))
     git("add", path, cwd=clone)
+    if failing_workflow:
+        wf = clone / ".github" / "workflows" / "kreview-acceptance-fail.yml"
+        wf.parent.mkdir(parents=True, exist_ok=True)
+        wf.write_text(FAILING_WORKFLOW)
+        git("add", str(wf.relative_to(clone)), cwd=clone)
     git("commit", "-q", "-m", f"acceptance: {tag}", cwd=clone)
     git("push", "-q", "-u", "origin", branch, cwd=clone)
-    body = (
-        "Scratch PR opened by the review-loop-runtime acceptance tests.\n\n"
-        "## Review scope\n\n"
-        f"- the file `{path}` exists with twenty numbered lines\n"
-    )
-    url = gh(
+    body = "Scratch PR opened by the review-loop-runtime acceptance tests.\n"
+    if scope is not None:
+        body += "\n## Review scope\n\n" + scope.format(path=path)
+    args = [
         "pr",
         "create",
         "--repo",
@@ -290,25 +316,55 @@ def scratch(tmp_path: Path) -> Iterator[ScratchPR]:
         f"kreview-acceptance {tag}",
         "--body",
         body,
-    ).strip()
+    ]
+    if draft:
+        args.append("--draft")
+    url = gh(*args).strip()
     number = int(url.rstrip("/").rsplit("/", 1)[-1])
-    pr = ScratchPR(
+    return ScratchPR(
         repo=repo, number=number, clone=clone, branch=branch, path=path, tag=tag
     )
-    try:
-        yield pr
-    finally:
+
+
+def close_scratch_pr(pr: ScratchPR) -> None:
+    subprocess.run(
+        ["gh", "pr", "close", str(pr.number), "--repo", pr.repo, "--delete-branch"],
+        capture_output=True,
+        text=True,
+    )
+    for issue in pr.find_issues():
         subprocess.run(
-            ["gh", "pr", "close", str(number), "--repo", repo, "--delete-branch"],
+            ["gh", "issue", "close", str(issue["number"]), "--repo", pr.repo],
             capture_output=True,
             text=True,
         )
-        for issue in pr.find_issues():
-            subprocess.run(
-                ["gh", "issue", "close", str(issue["number"]), "--repo", repo],
-                capture_output=True,
-                text=True,
-            )
+
+
+@pytest.fixture()
+def scratch(tmp_path: Path) -> Iterator[ScratchPR]:
+    """A fresh scratch-repository PR: a twenty-line file and a review scope."""
+    pr = open_scratch_pr(tmp_path)
+    try:
+        yield pr
+    finally:
+        close_scratch_pr(pr)
+
+
+@pytest.fixture()
+def scratch_factory(tmp_path: Path) -> Iterator[Callable[..., ScratchPR]]:
+    """Open scratch PRs in other states (draft, scope-less, red CI); closed after."""
+    opened: list[ScratchPR] = []
+
+    def _open(**options: Any) -> ScratchPR:
+        pr = open_scratch_pr(tmp_path, **options)
+        opened.append(pr)
+        return pr
+
+    try:
+        yield _open
+    finally:
+        for pr in opened:
+            close_scratch_pr(pr)
 
 
 def dispositions_file(tmp_path: Path, *items: dict[str, Any], note: str = "") -> Path:
