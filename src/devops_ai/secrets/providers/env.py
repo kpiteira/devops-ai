@@ -76,3 +76,20 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
             f"{fallback}. Export it, or add it to that file."
         )
     return values[name]
+
+
+def write(ref: str, value: str, ctx: ResolveContext) -> str:
+    """Refuse: this provider reads a place `ksecret` has no way to put a value.
+
+    Not an unimplemented case. A process cannot set a variable in the shell that
+    started it, so the only environment `ksecret` could write is the one it is
+    about to exit — and the `.env` fallback beside it is somebody else's file,
+    reached by this scheme only as a last resort for *reading*. A write has to
+    name the file it means, which a file reference does.
+    """
+    raise ProviderError(
+        f"{ref} cannot be written: the host environment is read-only. A "
+        f"process cannot set a variable in the shell that started it. To store "
+        f"the value in a file, name that file in the reference; to store it in "
+        f"a vault, use that vault's scheme."
+    )

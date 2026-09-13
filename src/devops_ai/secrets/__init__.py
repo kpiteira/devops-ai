@@ -29,6 +29,7 @@ from .resolver import (
     resolve_all,
     schemes,
 )
+from .writer import write
 
 __all__ = [
     "ERROR",
@@ -50,4 +51,5 @@ __all__ = [
     "resolve",
     "resolve_all",
     "schemes",
+    "write",
 ]

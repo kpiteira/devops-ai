@@ -1,8 +1,10 @@
 """ksecret CLI — resolve secret references, and run commands with them injected.
 
-Three verbs, one resolver. `read` answers about a single reference and prints its
-value only when asked to. `run` puts resolved values in a child's environment and
-writes nothing to disk. `check` reports what resolves without ever showing a value.
+Four verbs, one set of providers. `read` answers about a single reference and
+prints its value only when asked to. `run` puts resolved values in a child's
+environment and writes nothing to disk. `check` reports what resolves without
+ever showing a value. `write` takes a value on stdin — never as an argument,
+where the process table would carry it — and stores it at a reference.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from devops_ai.secrets import (
     ERROR,
     CheckResult,
     EnvironmentEncodingError,
+    ProviderError,
     ResolveContext,
     SecretResolutionError,
     context_for,
@@ -29,6 +32,9 @@ from devops_ai.secrets import (
 )
 from devops_ai.secrets import (
     check as check_ref,
+)
+from devops_ai.secrets import (
+    write as write_secret,
 )
 from devops_ai.worktree import main_repo_root
 
@@ -66,6 +72,58 @@ def read(
     else:
         _emit(f"ok {_label(ref)}\n")
     raise typer.Exit(0)
+
+
+@app.command()
+def write(
+    ref: str = typer.Argument(help="Secret reference to store the value at"),
+) -> None:
+    """Store the value on stdin at a reference; print the canonical reference."""
+    try:
+        value = _stdin_value()
+    except ValueError as exc:
+        typer.echo(f"ksecret write: {exc}", err=True)
+        raise typer.Exit(1) from None
+
+    try:
+        canonical = write_secret(ref, value, ResolveContext())
+    except ProviderError as exc:
+        typer.echo(f"ksecret write: {exc}", err=True)
+        raise typer.Exit(1) from None
+
+    # The reference, and only ever the reference: for `op://` it is not the one
+    # that was passed in, and it is what a caller should store from here on.
+    _emit(f"{canonical}\n")
+    raise typer.Exit(0)
+
+
+def _stdin_value() -> str:
+    """The value to store: stdin's bytes as UTF-8, less one trailing newline.
+
+    Read as bytes rather than through `sys.stdin`, whose decoder follows the
+    locale — under the `LC_ALL=C` of a container or a cron job, a text read
+    would fail on a non-ASCII value and say which character it choked on. One
+    trailing newline goes, because `printf '%s\\n'` and every shell pipeline
+    put one there; a second one is part of the value, and providers that cannot
+    store a line break say so themselves.
+
+    Stripping before the decode is safe whatever the bytes are: UTF-8 is
+    self-synchronising, so a trailing `0A` is a newline and never the tail of
+    some other character.
+    """
+    stream = getattr(sys.stdin, "buffer", None)
+    raw = stream.read() if stream is not None else sys.stdin.read().encode("utf-8")
+    if raw.endswith(b"\n"):
+        raw = raw[:-1]
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        # Nothing of the input in the sentence — the exception being replaced
+        # quotes the bytes it choked on, and those are part of the secret.
+        raise ValueError(
+            "the value on stdin is not valid UTF-8 text. ksecret stores text; "
+            "encode a binary secret (base64, say) before writing it."
+        ) from None
 
 
 @app.command(
