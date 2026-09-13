@@ -416,6 +416,42 @@ class TestAzureCliFailures:
         assert "Key Vault Secrets User" in message
         assert "not found" not in message.lower()
 
+    def test_a_vault_named_like_the_login_prompt_is_still_unreachable(
+        self, tmp_path: Path
+    ) -> None:
+        """The uncoded path echoes names too — the assumption that broke this.
+
+        A DNS failure carries no Azure error code *and* quotes the host, so
+        "an echoed name always arrives with a code" was false exactly here. A
+        logged-in user was told to log in, and the real failure vanished.
+        """
+        vault = "az login"
+        fake_az(
+            tmp_path / "bin",
+            code=1,
+            stderr=azure_error(
+                f"HTTPSConnection(host='{vault}.vault.azure.net', port=443): "
+                f"Failed to resolve '{vault}.vault.azure.net'"
+            ),
+        )
+        with pytest.raises(SecretResolutionError) as caught:
+            resolve("K", f"akv://{vault}/a-secret", context(tmp_path))
+        message = caught.value.message
+        assert "could not be reached" in message
+        assert "is not logged in" not in message
+
+    def test_the_real_login_message_is_still_recognised(
+        self, tmp_path: Path
+    ) -> None:
+        """Anchoring must not cost the diagnosis it exists for (verified text)."""
+        fake_az(
+            tmp_path / "bin",
+            code=1,
+            stderr=azure_error("Please run 'az login' to setup account."),
+        )
+        with pytest.raises(SecretResolutionError, match="Run: az login"):
+            resolve("K", REF, context(tmp_path))
+
     def test_an_unreachable_vault_points_at_the_vault_name(
         self, tmp_path: Path
     ) -> None:

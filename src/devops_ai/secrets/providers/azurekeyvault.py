@@ -214,12 +214,17 @@ def _diagnose(
             f"current version, or take an id from: "
             + _az_command("list-versions", "--vault-name", vault, "--name", secret)
         )
-    # An ERROR: line with no code is az speaking for itself rather than relaying
-    # a Key Vault response, which is exactly what "not logged in" is. Requiring
-    # that keeps an echoed name — which always arrives *with* a code — out.
-    if message_starts("please run 'az login'") or (
-        not codes and any("az login" in m.lower() for m in messages)
-    ):
+    # Anchored at the start of the message, which is the one position an echoed
+    # name cannot occupy: az names the rejected input at the *end* of an
+    # invalid-name message and inside a URL elsewhere. A looser scan here read a
+    # vault legitimately reachable-sounding — `akv://az login/s` — as a login
+    # prompt, because its DNS failure echoes the name and carries no code, so
+    # "an echo always arrives with a code" was simply wrong for that path.
+    #
+    # An `az login` message that does not start this way (a token-expiry
+    # AADSTS…, say) now falls through to the generic branch, which relays az's
+    # own words — so the advice still reaches the reader, just untailored.
+    if message_starts("please run 'az login'"):
         return f"Azure CLI is not logged in, so {ref} cannot be read. Run: az login"
     if coded("Forbidden"):
         # This is the branch a disabled secret falls into if Azure ever rewords
