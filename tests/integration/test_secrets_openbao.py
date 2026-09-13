@@ -27,6 +27,8 @@ from devops_ai.secrets import ResolveContext, SecretResolutionError, resolve
 
 VALUE = "the-value"
 SIBLING = "the-sibling-value"
+# Every status `_status_error` claims as a redirect.
+REDIRECT_CODES = (301, 302, 303, 307, 308)
 
 
 def kv2(**data: object) -> tuple[int, str]:
@@ -417,8 +419,9 @@ class TestRedirects:
         assert "could not be followed" in message, case
         assert "different host" not in message, case
 
+    @pytest.mark.parametrize("code", REDIRECT_CODES)
     def test_an_upgrade_to_another_scheme_is_not_called_a_different_host(
-        self, bao: FakeBao
+        self, bao: FakeBao, code: int
     ) -> None:
         """The canonical http-to-https redirect is the same host, not another.
 
@@ -427,8 +430,11 @@ class TestRedirects:
         that — but the message must say what happened. Measured before the
         split: an `https://` Location on the same host and port came back as
         "redirected to a different host".
+
+        Every status the provider claims is exercised, so a code dropped from
+        that mapping loses its sentence here rather than in someone's terminal.
         """
-        bao.answer = lambda path: (301, "")
+        bao.answer = lambda path: (code, "")
         host = bao.addr.split("//", 1)[1]
         bao.location = f"https://{host}/v1/kv/data/a"
 
@@ -440,11 +446,20 @@ class TestRedirects:
         assert "different host" not in message
         assert bao.addr in message, "the address the token did go to is named"
 
-    def test_a_redirect_on_the_same_server_is_followed(self, bao: FakeBao) -> None:
-        """A server cleaning up its own path must still resolve."""
+    @pytest.mark.parametrize("code", REDIRECT_CODES)
+    def test_a_redirect_on_the_same_server_is_followed(
+        self, bao: FakeBao, code: int
+    ) -> None:
+        """A server cleaning up its own path must still resolve.
+
+        Every claimed status, 308 included: `HTTPRedirectHandler.http_error_308`
+        is an alias of `http_error_302` on both supported Pythons (3.11.15 and
+        3.12.13 measured), so it does reach `redirect_request` — this pins that
+        rather than leaving it as something someone once checked.
+        """
         def answer(path: str) -> tuple[int, str | bytes]:
             if path == "/v1/kv/data/a":
-                return 301, ""
+                return code, ""
             return kv2(key=VALUE)
 
         bao.answer = answer
