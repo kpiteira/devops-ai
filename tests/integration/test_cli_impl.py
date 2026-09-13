@@ -61,7 +61,9 @@ class TestImplWithoutConfig:
 
 
 class TestImplWithConfig:
-    def test_allocates_slot(self, tmp_path: Path) -> None:
+    def test_allocates_slot(
+        self, tmp_path: Path, docker_running: None
+    ) -> None:
         """With sandbox config → slot claimed in registry."""
         _setup_git_repo(tmp_path)
         _setup_milestone(tmp_path, "my-feature", "M1")
@@ -104,7 +106,9 @@ class TestImplWithConfig:
 
 
 class TestImplDockerFailure:
-    def test_releases_slot_keeps_worktree(self, tmp_path: Path) -> None:
+    def test_releases_slot_keeps_worktree(
+        self, tmp_path: Path, docker_running: None
+    ) -> None:
         """Docker failure → slot released, worktree kept."""
         _setup_git_repo(tmp_path)
         _setup_milestone(tmp_path, "my-feature", "M1")
