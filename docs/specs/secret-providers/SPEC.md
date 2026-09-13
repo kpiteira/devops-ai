@@ -182,3 +182,27 @@ briefs and tests reference them. -->
   secrets prompt (verified on main: the only place a scheme is named is the
   `--check`/dry-run hint text). Raised by the M1 executor in PR #32; the hint now
   names `dotenv://`. Nothing built changed.
+- [x] 2026-09-12 (M1) decision change: a bare `read` of a **literal** prints
+  `ok (literal)`, not `ok <ref>` as the M1 Surface (J1) and the printing decision
+  state, because a literal reference *is* its value and echoing it back leaks it.
+  Real references and dotenv keys still confirm as themselves; `check` shows
+  `literal` in the key column for the same reason. Raised by the M1 executor in
+  PR #32 (Copilot round 1). Supersedes the `ok <ref>` wording for the literal case.
+  Acknowledged by Karl 2026-09-12.
+- [x] 2026-09-12 (M1) decision change: `kinfra` layers declared literal
+  `[sandbox.secrets]` entries into the resolver context before resolving sibling
+  references, matching `ksecret run`'s documented literals-first semantics, through a
+  single shared `secrets.layered_env()` used by every mapping resolver. This refines
+  the invariant "every existing `infra.toml` keeps resolving identically": resolution
+  differs from before only where a declared literal entry's name collides with a
+  variable a provider reads (e.g. a declared `OP_ACCOUNT` now reaches a sibling
+  `op://` reference). For the collision the feature exists to serve this is the fix;
+  `ksecret run` has carried the same exposure since M1 by design. Raised by the M1
+  executor in PR #32. Acknowledged by Karl 2026-09-12.
+- Deferred to feature close (M1): the `$NAME` shorthand claims any `$`-prefixed value
+  as an environment reference (unchanged from the pre-feature resolver), so a literal
+  like a bcrypt hash `$2b$...` in `[sandbox.secrets]` errors rather than passing
+  through per A8; restricting the claim to valid variable-name syntax would instead
+  turn typos like `$MY-VAR` into silent self-resolving literals. Karl chose to keep
+  the current broad behaviour for M1 and revisit the grammar at feature close
+  (2026-09-12). No change in this milestone.
