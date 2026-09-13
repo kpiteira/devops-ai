@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from devops_ai.cli import ksecret
 from devops_ai.cli.ksecret import app
 
 runner = CliRunner()
@@ -223,6 +224,41 @@ class TestRunRefuses:
         result = runner.invoke(app, ["run", "--", str(target)])
         assert result.exit_code == 127
         assert "cannot execute" in result.output
+
+    def test_a_value_with_no_utf8_encoding_is_exit_1_not_a_traceback(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The `EnvironmentEncodingError` catch, exercised through the CLI.
+
+        `tests/unit/test_secrets_environ.py` pins that `encode_env` *raises*;
+        nothing pinned what `run` does with it. Deleting the catch left all 558
+        unit and architecture tests green while the command printed a traceback
+        — measured, which is why this exists.
+
+        The value is injected at `resolve_all` rather than written into a file
+        because no input channel can carry a lone surrogate: a file's bytes and
+        `sys.argv` alike are decoded with `surrogateescape`, which lands in
+        U+DC80..U+DCFF, the range that encodes back cleanly. Only a text format
+        a provider parses can manufacture U+D800, and `resolver` now refuses
+        that for every provider but `env://`. So the real `encode_env` and the
+        real catch both run here; only the source that cannot be reached is
+        stood in for.
+        """
+        monkeypatch.setattr(
+            ksecret, "resolve_all", lambda refs, ctx: ({"TOKEN": "s3cr3t-\ud800"}, [])
+        )
+        (project / "refs.env").write_text("TOKEN=dotenv://.env#DB_PASSWORD\n")
+        result = runner.invoke(app, ["run", "--env-file", "refs.env", "--", "true"])
+
+        assert result.exit_code == 1, result.output
+        assert "ksecret run:" in result.output
+        assert "unpaired surrogate" in result.output
+        assert "TOKEN" in result.output, "the refusal has to name the variable"
+        # Never the value, never the escape, never a chained traceback under it.
+        assert "s3cr3t" not in result.output
+        assert "d800" not in result.output.lower()
+        assert "Traceback" not in result.output
+        assert result.exception is None or isinstance(result.exception, SystemExit)
 
 
 class TestALiteralIsNeverEchoedWithoutPrint:

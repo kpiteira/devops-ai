@@ -247,8 +247,17 @@ briefs and tests reference them. -->
   on as different bytes, and never quoted in the refusal. One shared `secrets.encode_env()`
   builds the POSIX bytes environment for all
   three spawn sites (`ksecret run`, the `op://` and `akv://` providers), encoding with
-  `surrogateescape` so a value inherited from `os.environ` round-trips, and naming only
-  the variable for the one input that still cannot encode. Parsing a text format is what
+  `surrogateescape` so a byte the parent's locale could *not* decode — the one
+  `os.environ` therefore holds as a surrogate — reaches the child unchanged, and naming
+  only the variable for the one input that still cannot encode. That round-trip is
+  narrower than "an inherited value passes through byte for byte", and the difference is
+  measured rather than reasoned: under a *decodable* non-UTF-8 locale (ISO-8859-1, where
+  byte `0xE9` is held as `é` and not as a surrogate) the child now receives UTF-8
+  `C3 A9` where before #58 it received `E9`. That is the promise above being kept — `C3
+  A9` is the UTF-8 of the character `os.environ` holds — but it is a behaviour change for
+  inherited variables under such a locale. Whether `env://` should instead preserve the
+  original bytes, or refuse them by name, is a one-line decision left open for Karl on
+  PR #62 and does not change anything above. Parsing a text format is what
   manufactures such a value — `json.loads` turns a `\uD800` escape into a lone surrogate
   standing for no byte, and JSON is only today's way of doing it — so the rule is on what
   a provider *returns*, not on how it got there: `resolver` refuses any resolved value
