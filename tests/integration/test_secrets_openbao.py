@@ -415,6 +415,29 @@ class TestRedirects:
         assert "could not be followed" in message, case
         assert "different host" not in message, case
 
+    def test_an_upgrade_to_another_scheme_is_not_called_a_different_host(
+        self, bao: FakeBao
+    ) -> None:
+        """The canonical http-to-https redirect is the same host, not another.
+
+        It is still refused — the token went out over the configured scheme
+        before this answer arrived, and following the redirect would not undo
+        that — but the message must say what happened. Measured before the
+        split: an `https://` Location on the same host and port came back as
+        "redirected to a different host".
+        """
+        bao.answer = lambda path: (301, "")
+        host = bao.addr.split("//", 1)[1]
+        bao.location = f"https://{host}/v1/kv/data/a"
+
+        with pytest.raises(SecretResolutionError) as raised:
+            read("bao://kv/a#key", BAO_ADDR=bao.addr, BAO_TOKEN="t")
+
+        message = str(raised.value)
+        assert "another scheme" in message
+        assert "different host" not in message
+        assert bao.addr in message, "the address the token did go to is named"
+
     def test_a_redirect_on_the_same_server_is_followed(self, bao: FakeBao) -> None:
         """A server cleaning up its own path must still resolve."""
         def answer(path: str) -> tuple[int, str | bytes]:

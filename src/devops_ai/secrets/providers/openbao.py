@@ -38,6 +38,10 @@ TOKEN_FILE = ".vault-token"
 # otherwise read a local path and hand it back as a secret.
 NETWORK_URL_SCHEMES = frozenset({"http", "https"})
 TRAVERSAL = frozenset({".", ".."})
+# Which kind of hop was refused; a bare 30x also means "no location" and "a
+# loop", and neither of those is a hop at all.
+REFUSED_HOST = "host"
+REFUSED_SCHEME = "scheme"
 TIMEOUT = 30
 
 
@@ -248,28 +252,38 @@ class _SameServerRedirects(urllib.request.HTTPRedirectHandler):
     """
 
     def __init__(self) -> None:
-        # Whether a hop was refused, so the status error can say which of the
-        # three things a bare 30x means. A redirect also surfaces as a 30x when
-        # it carries no `Location` and when it loops, and neither of those is a
-        # different host.
-        self.refused_a_hop = False
+        self.refused: str | None = None
 
     def redirect_request(  # type: ignore[no-untyped-def]
         self, req, fp, code, msg, headers, newurl
     ):
-        if _origin(newurl) != _origin(req.full_url):
-            self.refused_a_hop = True
+        here, there = _origin(req.full_url), _origin(newurl)
+        if here.authority != there.authority:
+            self.refused = REFUSED_HOST
+            return None
+        if here.scheme != there.scheme:
+            # Same host, so this is the canonical http-to-https upgrade. It is
+            # still not followed: the token went out over the scheme that was
+            # configured *before* this answer arrived, and quietly completing
+            # the request would hide that it did.
+            self.refused = REFUSED_SCHEME
             return None
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def _origin(url: str) -> tuple[str, str]:
-    """Scheme and authority — what decides whether the token may travel."""
+class Origin(NamedTuple):
+    """What decides whether the token may travel, and how it may not."""
+
+    scheme: str
+    authority: str
+
+
+def _origin(url: str) -> Origin:
     try:
         parts = urllib.parse.urlsplit(url)
     except ValueError:
-        return ("", url)
-    return (parts.scheme.lower(), parts.netloc.lower())
+        return Origin("", url)
+    return Origin(parts.scheme.lower(), parts.netloc.lower())
 
 
 def _read_secret(
@@ -307,7 +321,7 @@ def _read_secret(
         # every one of them.
         exc.close()
         raise _status_error(
-            exc.code, ref, mount, path, server, redirects.refused_a_hop
+            exc.code, ref, mount, path, server, redirects.refused
         ) from None
     except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
         # HTTPException is not an OSError: a truncated body raises
@@ -345,7 +359,7 @@ def _status_error(
     mount: str,
     path: str,
     server: Server,
-    refused_a_hop: bool = False,
+    refused: str | None = None,
 ) -> ProviderError:
     """What an HTTP status means, without reading the body back to the user.
 
@@ -370,14 +384,22 @@ def _status_error(
             f"cannot answer for {ref} yet."
         )
     if code in (301, 302, 303, 307, 308):
-        if refused_a_hop:
+        if refused == REFUSED_HOST:
             return ProviderError(
                 f"The server redirected {ref} to a different host (HTTP "
                 f"{code}), which a token must not follow. Point "
                 f"{server.variable} at the server that holds the secret."
             )
-        # Same host, so the token was never at stake: urllib stopped for its
-        # own reasons — no `Location` to follow, or a loop of them.
+        if refused == REFUSED_SCHEME:
+            return ProviderError(
+                f"The server redirected {ref} to the same host on another "
+                f"scheme (HTTP {code}). The token has already gone to "
+                f"{server.base} as {server.variable} spells it, and following "
+                f"the redirect would not undo that — set {server.variable} to "
+                f"the address the server actually serves."
+            )
+        # Nothing was refused, so the token was never at stake: urllib stopped
+        # for its own reasons — no `Location` to follow, or a loop of them.
         return ProviderError(
             f"The server answered {ref} with a redirect (HTTP {code}) that "
             f"could not be followed: it carried no location, or looped. The "
