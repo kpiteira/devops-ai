@@ -11,7 +11,7 @@ with `encode_env`.
 
 *Upstream* — `encode_env` encodes with `surrogateescape`, which is right for the
 inherited values `env://` resolves to and wrong for a surrogate that stands for
-no byte. Only `json.loads` can manufacture one (every other string here came
+no byte. Only parsing JSON can manufacture one (every other string here came
 from a strict UTF-8 decode), so every provider that parses JSON must put its
 value through `_text.utf8_text`.
 
@@ -38,6 +38,12 @@ PROVIDERS = SRC / "secrets" / "providers"
 
 ENCODE_ENV = "encode_env"
 UTF8_TEXT = "utf8_text"
+# Every spelling that turns a `\uD800` escape into a lone surrogate. `loads`
+# alone would be a gate you walk around by parsing from the stream instead —
+# the same evasion by spelling that import aliases were below. `.decode()` is
+# deliberately not here: it is `bytes.decode` far more often than
+# `JSONDecoder.decode`, so the class name is watched instead of the method.
+JSON_PARSERS = {"loads", "load", "JSONDecoder"}
 # `subprocess` spawns that accept an environment.
 SUBPROCESS_SPAWNS = {"run", "Popen", "call", "check_call", "check_output"}
 # `os` spawns that take one positionally. None are used today; the gate is what
@@ -100,17 +106,21 @@ class Resolver:
         return None
 
 
-def _calls_named(tree: ast.AST, name: str) -> bool:
-    """True if `name(...)` is called anywhere, however it was imported."""
+def _calls_any_of(tree: ast.AST, names: set[str]) -> bool:
+    """True if any of `names` is called anywhere, however it was imported."""
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         func = node.func
-        if isinstance(func, ast.Name) and func.id == name:
+        if isinstance(func, ast.Name) and func.id in names:
             return True
-        if isinstance(func, ast.Attribute) and func.attr == name:
+        if isinstance(func, ast.Attribute) and func.attr in names:
             return True
     return False
+
+
+def parses_json(path: Path) -> bool:
+    return _calls_any_of(ast.parse(path.read_text(), str(path)), JSON_PARSERS)
 
 
 def _is_call_to(node: ast.expr, name: str) -> bool:
@@ -182,10 +192,11 @@ def test_every_provider_that_parses_json_refuses_lone_surrogates() -> None:
     """
     offenders = []
     for path in provider_modules():
-        tree = ast.parse(path.read_text(), str(path))
-        if not _calls_named(tree, "loads"):
+        if not parses_json(path):
             continue
-        if not _calls_named(tree, UTF8_TEXT):
+        if not _calls_any_of(
+            ast.parse(path.read_text(), str(path)), {UTF8_TEXT}
+        ):
             offenders.append(
                 f"{path.relative_to(ROOT)} parses JSON but never calls "
                 f"{UTF8_TEXT}(): a `\\uD800` escape would reach the child as a "
@@ -211,13 +222,15 @@ def test_the_gate_sees_the_sites_it_is_meant_to_guard() -> None:
         f"(ksecret run, op://, akv://), the walk found {guarded}"
     )
 
-    json_providers = [
-        p.name for p in provider_modules()
-        if _calls_named(ast.parse(p.read_text(), str(p)), "loads")
-    ]
-    assert sorted(json_providers) == ["azurekeyvault.py", "openbao.py"], (
-        f"expected the two JSON-speaking providers, the walk found "
-        f"{sorted(json_providers)}"
+    # A superset, never an equality: pinning the exact list would turn the
+    # legitimate addition of a third JSON provider into a red that reads as
+    # "the walk is broken". The rule above is what a new provider has to
+    # satisfy; this only proves the walk still reaches the known two.
+    json_providers = {p.name for p in provider_modules() if parses_json(p)}
+    missing = {"azurekeyvault.py", "openbao.py"} - json_providers
+    assert not missing, (
+        f"the walk no longer sees {sorted(missing)} as JSON-speaking, so the "
+        f"rule above would pass them without checking anything"
     )
 
 

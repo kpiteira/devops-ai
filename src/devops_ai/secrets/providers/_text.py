@@ -15,8 +15,8 @@ belongs at the boundary that still knows which kind it has.
 
 Underscore-prefixed: shared code inside the providers package, not a provider.
 `tests/architecture/test_secret_providers.py` reads the prefix that way, and
-`test_child_env_encoding.py` requires every `json.loads` provider to come
-through here.
+`test_child_env_encoding.py` requires every JSON-parsing provider to come
+through here — whichever spelling it parses with.
 """
 
 from __future__ import annotations
