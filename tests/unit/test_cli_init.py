@@ -885,6 +885,15 @@ class TestCheckMode:
         assert code == 0
         output = "\n".join(echo_calls)
         assert "APP_SECRET" in output
+        # The suggestion is the point of --check, and every scheme it names is
+        # part of J5's "the upgrade path is a reference edit". Asserting only
+        # that the variable appears would pass with the whole [sandbox.secrets]
+        # block gone — the name is already in the gaps list above it.
+        assert (
+            '  APP_SECRET = "$APP_SECRET"'
+            "   # or dotenv://.env#APP_SECRET, op://vault/item/field"
+        ) in output
+        assert "[sandbox.secrets]" in output
 
     def test_check_no_gaps_reports_ok(
         self, tmp_path: Path

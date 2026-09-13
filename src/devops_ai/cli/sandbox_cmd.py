@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 from enum import Enum
 from pathlib import Path
 
@@ -15,6 +14,7 @@ from devops_ai.provision import (
     generate_secrets_file,
     provision_files,
     resolve_all_secrets,
+    secure_secrets_file,
 )
 from devops_ai.registry import (
     DEFAULT_REGISTRY_PATH,
@@ -27,29 +27,11 @@ from devops_ai.sandbox import (
     run_health_gate,
     start_sandbox,
 )
+from devops_ai.worktree import main_repo_root
 
 logger = logging.getLogger(__name__)
 
 REGISTRY_PATH = DEFAULT_REGISTRY_PATH
-
-
-def _find_main_repo_root(worktree_path: Path) -> Path | None:
-    """Find the main repo root from a worktree via git."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=worktree_path,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            # --git-common-dir returns the .git dir of the main worktree
-            git_dir = Path(result.stdout.strip())
-            return git_dir.parent
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    return None
 
 
 class SecretsPlan(Enum):
@@ -66,7 +48,7 @@ def _materialised_names(secrets_file: Path) -> set[str] | None:
     Names only — never values.
     """
     try:
-        text = secrets_file.read_text()
+        text = secrets_file.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
     names: set[str] = set()
@@ -151,7 +133,7 @@ def _sandbox_up(
         return 1, "No infra.toml found in .devops-ai/."
 
     # Find main repo root for file provisioning
-    main_repo = _find_main_repo_root(wt_path)
+    main_repo = main_repo_root(wt_path)
     if main_repo is None:
         return 1, "Cannot determine main repository root."
 
@@ -171,8 +153,14 @@ def _sandbox_up(
     secrets_plan = plan_secrets(
         config.secrets, slot_dir, refresh=refresh_secrets
     )
+    # Before anything that can fail or read it: a file written before the mode
+    # was enforced must not stay world-readable through startup, nor be left
+    # that way by a resolution error returning below, nor by a failed start.
+    secure_secrets_file(slot_dir)
     if secrets_plan is SecretsPlan.RESOLVE:
-        resolved_secrets, secret_errors = resolve_all_secrets(config.secrets)
+        resolved_secrets, secret_errors = resolve_all_secrets(
+            config.secrets, main_repo
+        )
 
     all_errors: list[SecretResolutionError | FileProvisionError] = (
         file_errors + secret_errors  # type: ignore[operator]

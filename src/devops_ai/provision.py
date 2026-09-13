@@ -1,24 +1,42 @@
-"""Provision module — secret resolution and file provisioning for sandboxes."""
+"""Provision module — secret resolution and file provisioning for sandboxes.
+
+Secret resolution itself lives in `devops_ai.secrets`, shared with the `ksecret`
+CLI: kinfra resolves through the same providers, so every scheme a provider adds
+reaches `[sandbox.secrets]` with no wiring here. This module keeps kinfra's side
+of it — the main-repo base directory, and the slot's secrets file.
+"""
 
 from __future__ import annotations
 
 import logging
-import os
 import shutil
-import subprocess
+from collections.abc import Mapping
 from pathlib import Path
+
+from devops_ai.secrets import (
+    ResolveContext,
+    SecretResolutionError,
+    layered_env,
+    provider_for,
+    resolve,
+    resolve_all,
+)
 
 logger = logging.getLogger(__name__)
 
+SECRETS_FILE_NAME = ".env.secrets"
+SECRETS_FILE_MODE = 0o600
 
-class SecretResolutionError(Exception):
-    """Secret resolution failure with actionable guidance."""
-
-    def __init__(self, var_name: str, ref: str, message: str) -> None:
-        self.var_name = var_name
-        self.ref = ref
-        self.message = message
-        super().__init__(message)
+__all__ = [
+    "FileProvisionError",
+    "describe_secret_source",
+    "secure_secrets_file",
+    "SecretResolutionError",
+    "generate_secrets_file",
+    "provision_files",
+    "resolve_all_secrets",
+    "resolve_secret",
+]
 
 
 class FileProvisionError(Exception):
@@ -31,113 +49,70 @@ class FileProvisionError(Exception):
         super().__init__(message)
 
 
+def secure_secrets_file(slot_dir: Path) -> Path | None:
+    """Tighten an existing .env.secrets to owner-only. Returns it, or None.
+
+    The reuse path (`plan_secrets` -> REUSE) hands an already-materialised file
+    straight to compose without regenerating it, so a file written before the
+    mode was enforced would keep its old permissions for the life of the slot.
+    The invariant is that this file *is* 0600, not that it is 0600 when freshly
+    written.
+    """
+    path = slot_dir / SECRETS_FILE_NAME
+    if not path.is_file():
+        return None
+    path.chmod(SECRETS_FILE_MODE)
+    return path
+
+
 def describe_secret_source(ref: str) -> str:
     """A display-safe description of where a secret comes from.
 
-    ``op://`` and ``$VAR`` references are references, not values, and safe to
-    show; anything else is a literal value and is never echoed.
+    A reference names a provider and is safe to show; a literal is its own
+    value, so it is never echoed. Which is which comes from the providers, not
+    from a list of schemes here, so every scheme a provider claims — today's and
+    the ones M2 and M3 add — is shown rather than mistaken for a literal.
     """
-    if ref.startswith("op://") or ref.startswith("$"):
-        return ref
-    return "(literal, not shown)"
+    return ref if provider_for(ref) is not None else "(literal, not shown)"
 
 
-def resolve_secret(var_name: str, ref: str) -> str:
+def resolve_secret(var_name: str, ref: str, base_dir: Path | None = None) -> str:
     """Resolve a single secret reference to its value.
 
-    Raises SecretResolutionError with a user-actionable message.
+    `base_dir` is the main repository root: gitignored files live there, not in
+    the worktree. Raises SecretResolutionError with a user-actionable message.
     """
-    if ref.startswith("op://"):
-        return _resolve_op(var_name, ref)
-    if ref.startswith("$"):
-        return _resolve_env(var_name, ref)
-    # Literal value
-    return ref
-
-
-def _resolve_env(var_name: str, ref: str) -> str:
-    """Resolve a $VAR reference from host environment."""
-    env_name = ref[1:]
-    try:
-        return os.environ[env_name]
-    except KeyError:
-        raise SecretResolutionError(
-            var_name=var_name,
-            ref=ref,
-            message=(
-                f"{var_name}: Environment variable {env_name} not set. "
-                f"Export it or change to a different source in infra.toml."
-            ),
-        ) from None
-
-
-def _resolve_op(var_name: str, ref: str) -> str:
-    """Resolve an op:// reference via 1Password CLI."""
-    if shutil.which("op") is None:
-        raise SecretResolutionError(
-            var_name=var_name,
-            ref=ref,
-            message=(
-                f"{var_name}: 1Password CLI (op) not found. "
-                f"Install: brew install 1password-cli "
-                f"— or use $VAR references instead."
-            ),
-        )
-
-    try:
-        result = subprocess.run(
-            ["op", "read", "--no-newline", ref],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except subprocess.TimeoutExpired:
-        raise SecretResolutionError(
-            var_name=var_name,
-            ref=ref,
-            message=f"{var_name}: 1Password CLI timed out. Try: eval $(op signin)",
-        ) from None
-
-    if result.returncode != 0:
-        stderr = result.stderr.lower()
-        if "sign" in stderr or "auth" in stderr:
-            raise SecretResolutionError(
-                var_name=var_name,
-                ref=ref,
-                message=(
-                    f"{var_name}: 1Password not authenticated. "
-                    f"Run: eval $(op signin)"
-                ),
-            )
-        raise SecretResolutionError(
-            var_name=var_name,
-            ref=ref,
-            message=(
-                f"{var_name}: Secret not found in 1Password: {ref}. "
-                f"Check the reference in infra.toml."
-            ),
-        )
-
-    return result.stdout
+    return resolve(var_name, ref, _context(base_dir))
 
 
 def resolve_all_secrets(
     secrets: dict[str, str],
+    base_dir: Path | None = None,
 ) -> tuple[dict[str, str], list[SecretResolutionError]]:
     """Resolve all secrets. Returns (resolved_dict, errors).
 
     Attempts ALL — does not stop at first failure.
     """
-    resolved: dict[str, str] = {}
-    errors: list[SecretResolutionError] = []
+    ordered = {name: secrets[name] for name in sorted(secrets)}
+    return resolve_all(ordered, _context(base_dir, ordered))
 
-    for var_name, ref in sorted(secrets.items()):
-        try:
-            resolved[var_name] = resolve_secret(var_name, ref)
-        except SecretResolutionError as e:
-            errors.append(e)
 
-    return resolved, errors
+def _context(
+    base_dir: Path | None, siblings: Mapping[str, str] | None = None
+) -> ResolveContext:
+    """The environment `[sandbox.secrets]` resolves in.
+
+    Literal entries are laid over the process environment before any reference
+    is resolved, so a declared `OP_ACCOUNT` reaches the 1Password process a
+    sibling reference spawns — the same ordering `ksecret run` gives an env
+    file, which is what the brief means by kinfra using the same resolver.
+    Sorting makes this order-independent: the two passes, not the key order,
+    decide what a provider sees.
+    """
+    env = layered_env(siblings or {})
+    if base_dir is None:
+        return ResolveContext(env=env)
+    return ResolveContext(base_dir=base_dir, env=env)
 
 
 def provision_files(
@@ -215,7 +190,7 @@ def generate_secrets_file(
     resolved_secrets: dict[str, str],
     slot_dir: Path,
 ) -> Path:
-    """Write .env.secrets to slot directory. Returns path.
+    """Write .env.secrets to slot directory, mode 0600. Returns path.
 
     Raises ValueError if any key or value contains newlines or null bytes.
     """
@@ -229,6 +204,8 @@ def generate_secrets_file(
     lines = [
         f"{key}={value}" for key, value in sorted(resolved_secrets.items())
     ]
-    path = slot_dir / ".env.secrets"
-    path.write_text("\n".join(lines) + "\n")
+    path = slot_dir / SECRETS_FILE_NAME
+    path.touch(mode=SECRETS_FILE_MODE, exist_ok=True)
+    path.chmod(SECRETS_FILE_MODE)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path

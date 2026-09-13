@@ -691,7 +691,8 @@ def _format_check_output(plan: InitPlan) -> str:
             for ec in plan.env_var_candidates:
                 lines.append(
                     f'  {ec.name} = "${ec.name}"'
-                    f"   # or op://vault/item/field"
+                    f"   # or dotenv://.env#{ec.name},"
+                    f" op://vault/item/field"
                 )
         if plan.file_mount_candidates:
             lines.append("")

@@ -66,6 +66,7 @@ kinfra done auth-M1              # Clean up everything
 - [Getting Started](#getting-started)
 - [Skills Reference](#skills-reference)
 - [kinfra CLI Reference](#kinfra-cli-reference)
+- [Secrets](#secrets)
 - [Configuration](#configuration)
 - [How It Works](#how-it-works)
 - [Project Structure](#project-structure)
@@ -225,6 +226,100 @@ The `/kinfra-onboard` skill provides intelligent, phased onboarding:
 | `tests/unit/conftest.py` | Blocks `socket.connect` in unit tests (Python only) | — |
 
 Existing files are never overwritten. Use `--no-quality` to skip quality artifact generation.
+
+## Secrets
+
+`ksecret` resolves secret *references* through pluggable providers. A script, a
+Makefile or a compose file names a reference; when the secret later moves from a `.env`
+file to a vault, only the reference string changes — never the code that consumes it.
+
+```bash
+ksecret read op://Private/deploy-key/password   # confirms it resolves, prints nothing
+ksecret read --print '$DATABASE_URL'            # printing a value is always explicit
+ksecret run --env-file .env.prod -- docker compose up -d
+ksecret check --env-file .env.prod              # ok / literal / error — never a value
+ksecret check --infra                           # the current project's sandbox secrets
+```
+
+`ksecret run` reads each `--env-file` in two passes: literal lines go into the
+environment first, then references resolve against it — so a `KEY=op://…` line can use
+an `OP_ACCOUNT=…` line declared beside it. `[sandbox.secrets]` behaves identically.
+
+`ksecret` itself never prints a value unless you pass `--print` — not in confirmations,
+not in error messages — so an agent can establish that a project's secrets resolve
+without putting any of them in its transcript. What a command run under `ksecret run`
+does with the values it is handed is that command's own business.
+
+`ksecret` is a second console script of the same package, so an existing install does
+not have it yet. After pulling a version that adds it, reinstall once (re-running
+`./install.sh` does the same job):
+
+```bash
+cd ~/Documents/dev/devops-ai && uv tool install -e . --reinstall
+```
+
+### Reference grammar
+
+| Reference | Resolves to |
+|-----------|-------------|
+| `plain text` | itself — a literal. An unregistered scheme (`postgres://user:pw@db/app`) is a literal too, so connection strings keep working |
+| `env://NAME` (shorthand `$NAME`) | exported variable `NAME`; if it is not exported, key `NAME` in `./.env` |
+| `dotenv://<path>#<KEY>` | key `KEY` in the `KEY=value` file at `path` |
+| `op://<vault>/<item>/<field>` | a 1Password item field, read with your own `op` grant |
+| `bao://<mount>/<path>#<key>` | an OpenBao / HashiCorp Vault KV v2 key *(coming)* |
+| `akv://<vault>/<secret>` | an Azure Key Vault secret *(coming)* |
+
+`env://NAME` is the canonical form and `$NAME` the shorthand; both fall back to `./.env`,
+and an exported variable always wins over the file. A `KEY=value` file may use `#`
+comment lines, blank lines, an `export ` prefix, and single or double quotes.
+
+Resolution happens on the host, with your credentials — your `op` grant, your `az`
+session, your Vault token. A command started by `ksecret run` receives plain values in
+its environment and never talks to a vault itself.
+
+### Which reference to use
+
+We recommend the vault-backed schemes for anything that is genuinely secret, and treat
+the plain-text ones as the on-ramp rather than the destination:
+
+1. **`op://`, `bao://`, `akv://`** — the secret lives in a vault, is shared with a team
+   or a machine identity, and is auditable and rotatable. Prefer these.
+2. **`dotenv://`** — the secret lives in one gitignored file on one machine. Fine to
+   adopt kinfra with, and a one-line edit away from a vault reference later.
+3. **`env://` / `$VAR`** — the value is already in the environment (CI, a
+   vault-agent-rendered env file, a platform-injected credential).
+4. **A bare literal** — only for things that are not secret: an account name, a
+   local-development password, a connection string to a throwaway container.
+
+The CLI never warns about plain text — the recommendation lives here, not in your
+terminal output.
+
+### In a kinfra sandbox
+
+`[sandbox.secrets]` in `.devops-ai/infra.toml` goes through the same resolver
+`ksecret` uses, so every **implemented** reference above works there. The two marked
+*(coming)* do not yet: until their provider ships, `bao://…` and `akv://…` are
+unclaimed schemes, which means they are treated as literals (see the first row) and
+the URI itself is injected as the value. `ksecret check` labels them `literal` — that
+is how you tell.
+
+```toml
+[sandbox.secrets]
+DATABASE_URL = "dotenv://.env#DATABASE_URL"
+API_KEY = "op://dev-vault/myapp/api-key"
+OP_ACCOUNT = "my-team.1password.com"
+```
+
+Literal entries — `OP_ACCOUNT` here — are placed in the environment **before** any
+reference is resolved, the same ordering `ksecret run` gives an env file. That is what
+lets the `op://` line above find the right account without it being exported in your
+shell; a value you *have* exported is the fallback, not the override. The order of the
+lines does not matter — the two passes decide, not the file.
+
+Relative paths and the `./.env` fallback resolve against the **main repository root**,
+not the worktree — gitignored files live there. Resolved values are written to
+`.env.secrets` (mode 0600) in the slot directory and passed to Docker Compose as a
+second `--env-file`.
 
 ## Configuration
 
