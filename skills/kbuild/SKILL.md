@@ -138,6 +138,8 @@ never a long-lived feature branch:
   and no budget behind it. Measured 2026-09-13: two executors took relayed dispositions
   and re-requested on instruction for 20 paid Copilot rounds after both loops had already
   stopped correctly (#61).
-- Set the Decomposition row to `PR` with the PR link in its Evidence column, then
-  `delivered` when merged. Nothing else to write: no handoff files, no completion
-  report — the spec row, the PR, and git are the record.
+- Set the Decomposition row to `PR` with the PR link in its Evidence column. That is
+  where your write ends: the observer sets `delivered (PR #N)` at verify, on the PR
+  branch, so the merge carries it — you never write `delivered` yourself, and on a repo
+  whose main requires a pull request you could not anyway. Nothing else to write: no
+  handoff files, no completion report — the spec row, the PR, and git are the record.

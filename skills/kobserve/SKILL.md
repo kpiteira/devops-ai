@@ -1,6 +1,6 @@
 ---
 name: kobserve
-description: The observer seat of the v2 contract — launch an executor session for a milestone, verify a delivered milestone PR before the human merges (independent blocking re-run, the "For the human" gate), and land it (spec row on main, teardown). Use when a signed feature needs its executors launched, a milestone PR needs verifying, or a merged milestone needs landing.
+description: The observer seat of the v2 contract — launch an executor session for a milestone, verify a delivered milestone PR before the human merges (independent blocking re-run, the "For the human" gate, the spec row committed onto the PR branch so the merge carries it), and land it (confirm the row landed, teardown). Use when a signed feature needs its executors launched, a milestone PR needs verifying, or a merged milestone needs landing.
 argument-hint: "launch <feature>/M<N> | verify <pr-number> | land <pr-number>"
 metadata:
   version: "0.2.0"
@@ -65,31 +65,79 @@ whose dependencies are `delivered`.
 3. **Verify the session started on the executor tier** (status bar), then leave it
    alone. A parked question from an executor is a defect to fix in tooling or brief,
    not a reason to sit with it — note it for the planner.
-4. **Never share a checkout with a child.** The observer touches the project's main
-   checkout only through a temporary, detached worktree it creates and removes — git
+4. **Never share a checkout with a child.** The observer touches the project's
+   repository only through a temporary, detached worktree it creates and removes — git
    refuses a second worktree on a branch that is already checked out, so detach and
-   push explicitly:
-   ```bash
-   SCRATCH=$(mktemp -d)
-   git -C <repo> fetch origin main
-   git -C <repo> worktree add --detach "$SCRATCH/main-bookkeeping" origin/main
-   # …edit, commit…
-   pushed=false
-   for attempt in 1 2 3; do
-     if git -C "$SCRATCH/main-bookkeeping" push origin HEAD:main; then pushed=true; break; fi
-     git -C "$SCRATCH/main-bookkeeping" fetch origin main \
-       && git -C "$SCRATCH/main-bookkeeping" rebase origin/main || break
-   done
-   if [ "$pushed" = true ]; then
-     git -C <repo> worktree remove "$SCRATCH/main-bookkeeping"
-   else
-     echo "bookkeeping NOT pushed — worktree kept at $SCRATCH/main-bookkeeping"; exit 1
-   fi
-   ```
-   Parallel milestones mean parallel observers: a non-fast-forward push is
-   expected, hence the fetch-rebase-retry. The worktree is removed only after the
-   push landed; on a conflict or a dead network it stays, with the commit in it,
-   and nothing is torn down.
+   push explicitly. **Where main rejects direct pushes** — a branch ruleset requiring a
+   pull request, as devops-ai has since 2026-09-14 (#28: PR required, `check` and
+   `integration` required, no bypass) — bookkeeping lands one of two ways. This skill is
+   installed globally across projects, so read that as a condition to check, not as a
+   fact about every repo: where main is unprotected, a direct push from the same detached
+   worktree is still the simplest route and the two below are the fallback.
+
+     ```bash
+     gh api "repos/$REPO/rules/branches/main" --jq '.[].type' | grep -qx pull_request
+     ```
+     That endpoint reports the rules actually **in force** on the branch, org-level
+     rulesets included; a `pull_request` entry is this condition. Do not read
+     `repos/$REPO/rulesets` for it — it lists the repo's own rulesets whatever their
+     enforcement or target (devops-ai's has three, one `disabled`) and no org rules, so
+     both its empty and its non-empty answers mean several things at once. Trying the
+     push is the other unambiguous probe.
+   - **On the milestone PR itself, before the human merges it** — the default. The
+     spec's Decomposition row (`delivered (PR #N)`) and any fact-correction amendment
+     are one commit on the PR branch, pushed from a detached worktree at the branch
+     tip; the merge carries them, so the row is true exactly when the commit that
+     holds it is on main. No second PR, no second Copilot review.
+     ```bash
+     SCRATCH=$(mktemp -d)
+     git -C <repo> fetch origin <pr-branch>
+     git -C <repo> worktree add --detach "$SCRATCH/pr-bookkeeping" origin/<pr-branch>
+     # …edit, commit…
+     pushed=false
+     for attempt in 1 2; do
+       if git -C "$SCRATCH/pr-bookkeeping" push origin HEAD:<pr-branch>; then pushed=true; break; fi
+       git -C "$SCRATCH/pr-bookkeeping" fetch origin <pr-branch> \
+         && git -C "$SCRATCH/pr-bookkeeping" rebase FETCH_HEAD || break
+     done
+     if [ "$pushed" = true ]; then
+       git -C <repo> worktree remove "$SCRATCH/pr-bookkeeping"
+     else
+       echo "bookkeeping NOT pushed — worktree kept at $SCRATCH/pr-bookkeeping"; exit 1
+     fi
+     ```
+     A non-fast-forward here means the executor pushed again — its loop re-entered, which
+     is what the one retry is for; if the branch moves again the retry is spent, the
+     worktree stays with the commit in it, and you wait for the loop to stop before
+     re-running. The executor's checkout is then behind its own branch; its next push
+     fetches.
+   - **On a branch and PR of its own** when nothing is open to ride on (an amendment
+     the human acknowledged after the merge, a roadmap line). Every PR to main draws
+     an automatic Copilot review, so batch such edits rather than opening one per line.
+     ```bash
+     SCRATCH=$(mktemp -d)
+     git -C <repo> fetch origin main
+     git -C <repo> worktree add --detach "$SCRATCH/bookkeeping" origin/main
+     # …edit, commit…
+     if ! git -C "$SCRATCH/bookkeeping" push origin HEAD:refs/heads/bookkeeping/<slug>; then
+       echo "bookkeeping NOT pushed — worktree kept at $SCRATCH/bookkeeping"; exit 1
+     fi
+     gh pr create --repo <owner/repo> --base main --head bookkeeping/<slug> \
+       --title "spec(<feature>): <what>" \
+       --body-file <file carrying a "## Review scope" section: the one bookkeeping outcome> \
+       || { echo "pushed, but no PR — worktree kept at $SCRATCH/bookkeeping"; exit 1; }
+     git -C <repo> worktree remove "$SCRATCH/bookkeeping"
+     ```
+     Fetch first: this route runs *after* a merge, so a stale `origin/main` would branch
+     from an older spec and reopen what the merge just closed. `gh pr create` reads the
+     repo from *its own* cwd, not from `git -C <repo>`, so `--repo` and `--base` are
+     spelled out — the rest of the block never changes the observer's directory, and an
+     unscoped create would target whatever repo it happens to be standing in. The push
+     and the create fail separately: a branch pushed with no PR is not done, so the
+     worktree stays for that case too.
+     The human merges it when the repo's required checks are green, like any PR.
+   The worktree is removed only after the push landed; on a conflict or a dead
+   network it stays, with the commit in it, and nothing is torn down.
    The pilot's observer once switched the checkout a triage planner was working in;
    staged edits rode along.
 
@@ -133,7 +181,10 @@ which is the relay failure under a politer name.
    of the PR head, or a sandbox you provision — run the brief's `blocking:` command
    and compare with the PR body's pasted output: same head, same count. Until the CI
    wiring in the evolutions backlog lands, this is what "verifiable by a stranger"
-   means in practice. Record the command and output in a PR comment.
+   means in practice. Record the command and output in a PR comment. **Order:** step 3
+   decides the bookkeeping commit and step 4 explains why it has to precede this one, so
+   the sequence you actually run is 2 → 3 → 1 → 4. The comparison is only worth anything
+   at the head that gets merged, and step 3's commit is what makes that head final.
 2. **Guard.** If the project's contract-integrity guard did not run (not deployed, or
    the PR predates it), run it by hand: the *script* comes from the base commit, the
    *diff* it judges is `<base>...HEAD`, so run it in a checkout of the PR head:
@@ -150,23 +201,30 @@ which is the relay failure under a politer name.
    alone*: sanity-read, note anything that looks like a product semantic misfiled.
    *Facts I corrected*: verify each against main; if one changed what was built, it is
    a divergence — stop and hand to `/kspec triage`; otherwise append each as a
-   pre-checked fact-correction amendment to the spec on `main` (the bookkeeping
-   worktree above) now, so the signed spec is true before the merge, not after.
+   pre-checked fact-correction amendment to the spec **on the PR branch** (the
+   bookkeeping route above), in the same commit that sets the Decomposition row to
+   `delivered (PR #N)` — the merge makes both true at once.
    *For the human*: put every item to
    the human **before merge**, options-first — fix now (a `replan` for this milestone)
    or defer to the feature close — and never argue the executor's case. Record his
    answers in the PR thread. The pilot's "silence is a miss" reached him three exchanges
    after merge because nobody owned this step.
 4. **Report:** merge-ready, with the re-run evidence and his answers — or blocked, with
-   the reason. He merges.
+   the reason. He merges. **Merge-ready names the head it is true of**, and step 3's
+   bookkeeping commit moves the head — so the `In:` condition's green CI and a step 1
+   re-run taken before it both describe a head that is no longer the one being merged.
+   Required statuses are evaluated per head and re-run on the new one: wait for them.
+   Do not reason about whether the commit could have changed the re-run's result — make
+   the bookkeeping commit *first* and run step 1 once, at the head you will report. One
+   run, no judgement call, and the evidence matches the head by construction.
 
 ## land
 
 **In:** the human merged the PR.
 
-1. Through the bookkeeping worktree, set the spec's Decomposition row to `delivered`
-   with the merge commit in Evidence (unless the executor's PR already did), commit,
-   push.
+1. Confirm the Decomposition row landed with the merge (`delivered (PR #N)`, pushed
+   to the PR branch at verify). If it did not, it goes on a bookkeeping branch and PR
+   (the second route in `launch` step 4), batched with anything else pending.
 2. Tear down: `kinfra done <feature>-M<N>` (stops containers, removes the slot's
    volumes, releases the slot, removes the agent-deck session, removes the worktree).
 3. If a dependent milestone is now unblocked and no amendment is pending, `launch` it.
