@@ -296,8 +296,10 @@ briefs and tests reference them. -->
   hash cannot be declared in `[sandbox.secrets]` at all), and claiming only exact
   names (`$MY-VAR` and `${HOME}` would become silent self-resolving literals). `{` is
   claimed rather than left a literal because `${HOME}` is the likeliest misspelling of
-  a real reference — the planner's choice within Karl's decision, for his review on
-  the close PR. Acknowledged by Karl 2026-09-14 (option c). Changes the M1 Surface
+  a real reference. **Karl acknowledged option (c) on 2026-09-14; (c) as put to him
+  began the claim at a letter or underscore, so the `{` is the planner's addition and
+  is pending his word on the close PR (#82).** If he declines it, `${…}` becomes a
+  literal: this row, one brief row and one test line. Changes the M1 Surface
   (`$NAME` row) and M1's blocking tests: `test_dollar_shorthand_claims_only_names` is
   new and J4's sandbox test declares a `$2b$…` literal; both measured failing on main
   `6edc786` for the right reason. Lands as a small PR after the close PR — issue #80 —

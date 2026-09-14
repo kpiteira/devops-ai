@@ -153,9 +153,15 @@ def test_dollar_shorthand_claims_only_names(project: Path) -> None:
     assert all("not a valid variable name" in line for line in lines[:3]), r.out
     assert "braces" in lines[3], r.out
     assert "not set" not in r.out, "a malformed name must not be looked up"
+    # A refusal names what it refused: `Malformed reference <ref>` is the pinned
+    # message, and with several refs on one line a reason alone says nothing about
+    # which of them is wrong.
+    for ref, line in zip(malformed, lines, strict=True):
+        assert ref in line, f"{line!r} does not name {ref!r}"
     r = ksecret("read", "$MY-VAR", cwd=project, env=env)
     assert r.code == 1 and r.out == ""
     assert "not a valid variable name" in r.err
+    assert "Malformed reference $MY-VAR" in r.err
 
     # Names that start with an underscore, and carry digits, still resolve.
     r = ksecret("read", "--print", "$_KSECRET_T_UNDER", cwd=project, env=env)
