@@ -234,7 +234,12 @@ def test_observer_skill_exists_with_its_launch_guards() -> None:
     for phrase in ("**newest section**", "**Verdict:** ✅ merge-ready",
                    "**Why the loop stopped:**", "verbatim"):
         assert phrase in gate, f"`verify` `In:` gate must carry {phrase!r}"
-    relay = verify[verify.index("4. **Report:**"):]   # what the seat must say
+    # Keyed on the step's name, not its number: inserting a step ahead of it would
+    # renumber `4.` and kill the test with a bare ValueError, so its red would have
+    # meant "renumbered" as often as "the relay obligation is gone". `**Report:**`
+    # occurs once in `verify`, so this red means exactly one thing.
+    assert "**Report:**" in verify, "`## verify` must keep its report step"
+    relay = verify[verify.index("**Report:**"):]      # what the seat must say
     for phrase in ("**Why the loop stopped:**", "verbatim"):
         assert phrase in relay, f"`verify` step 4 must carry {phrase!r}"
 
