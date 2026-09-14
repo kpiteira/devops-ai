@@ -67,10 +67,10 @@ two skills shrink to the judgement and the guardrails they exist for.
   those are the words Karl signed.
 - `kbabysit` runs on an Opus-grade model. Per the 2026-09-14 (M2) amendment below this
   is no longer a frontmatter pin: the loop runs in the Opus agent-deck session that
-  invokes it, and preflight states the model and stops on the wrong one. M2 retargets
-  `tests/architecture/test_v2_contract.py::test_babysit_loop_is_pinned_to_a_forked_opus_subagent`
-  onto that check — it asserts the fork today, so M2 turns `make check` red if it does
-  not move the gate with the mechanism.
+  invokes it, and preflight states the model and stops on the wrong one. The gate in
+  `tests/architecture/test_v2_contract.py` still asserts the old pin and is in
+  `make check`, so M2 moves it with the mechanism — the obligation is pinned in the M2
+  brief, which is where the executor reads it.
 
 ## Non-goals
 
@@ -199,13 +199,4 @@ two skills shrink to the judgement and the guardrails they exist for.
   repository together with `draft` and `scope-empty` (M1 brief D15, M2 Blocking).
   *Rejected:* keeping CI red as a fact plus the skill's "fix CI first" sentence.
   Decided and acknowledged by Karl 2026-09-13.
-- [x] 2026-09-14 (M2) decision-change: `kbabysit` drops `context: fork` and `model:`
-  from its frontmatter; the loop runs in the Opus agent-deck session that invokes it,
-  and preflight states the model and stops on the wrong one. J10's grader asserts the
-  absence of the fork and the presence of the check instead of the pin, and M2 retargets
-  `tests/architecture/test_v2_contract.py::test_babysit_loop_is_pinned_to_a_forked_opus_subagent`
-  — which asserts the fork today and is in `make check` — onto the preflight check, so
-  the gate moves with the mechanism rather than going red behind it.
-  *Rejected:* keeping the fork — it hid every round in a sidechain transcript (measured
-  on #72 and #66). Decided by Karl 2026-09-14 ("drop the fork"), acknowledged the same
-  moment.
+- [x] 2026-09-14 (M2) decision-change: `kbabysit` drops `context: fork` + `model:` from its frontmatter; the loop runs in the Opus agent-deck session that invokes it, and preflight states the model and stops on the wrong one. J10's grader asserts the absence of the fork and the presence of the check instead of the pin. *Rejected:* keeping the fork — it hid every round in a sidechain transcript (measured on #72 and #66). Decided by Karl 2026-09-14 ("drop the fork"), acknowledged the same moment.

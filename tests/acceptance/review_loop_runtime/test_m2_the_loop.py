@@ -313,7 +313,13 @@ def test_apply_files_one_issue_per_class(scratch: ScratchPR, tmp_path: Path) -> 
     # finding of the class in round order wins. `in titles.values()` accepted either,
     # so the selection rule was observable in neither the Surface nor the grader, and
     # two conforming implementations could disagree about the issue's name.
-    assert issues[0]["title"] == titles[c1]
+    #
+    # Read off the packet's own order rather than hardcoding c1: c1 is also the lowest
+    # line and first in the dispositions file, so `== titles[c1]` would pass equally
+    # for an implementation ordering by line or by disposition — the same "the test
+    # cannot tell which rule is implemented" defect this assertion replaced.
+    first_in_round = next(f["id"] for f in p["findings"])
+    assert issues[0]["title"] == titles[c1 if first_in_round == f"t{c1}" else c2]
     body = issues[0]["body"]
     assert "line 5 has no trailing metadata" in body
     assert "line 12 has no trailing metadata either" in body
