@@ -22,6 +22,15 @@ def normalized(text: str) -> str:
     return " ".join(text.replace(">", " ").replace("*", " ").split())
 
 
+def section(text: str, heading: str) -> str:
+    """The body of one `## <heading>` section, up to the next `## ` heading."""
+    marker = f"\n## {heading}\n"
+    assert marker in text, f"no `## {heading}` section"
+    rest = text[text.index(marker) + 1 :]
+    end = rest.find("\n## ", 1)
+    return rest if end == -1 else rest[:end]
+
+
 def test_task_pipeline_stays_removed() -> None:
     for gone in ("skills/kplan", "skills/kloop", "skills/kdesign",
                  "rules/tdd.md", "rules/handoffs.md", "templates/acp.md"):
@@ -200,6 +209,16 @@ def test_observer_skill_exists_with_its_launch_guards() -> None:
         "verbatim",
     ):
         assert phrase in skill, phrase
+    # Both of those live outside `## verify`: the bullet is in `## Guardrails`, and
+    # "verbatim" occurs three times in the file. So a whole-file check passes even
+    # if the gate is stripped out of `verify`, which is the one place it has to
+    # hold — the seat reads its `In:` condition there. Pin it in the section.
+    # Each of these three is absent from `verify` on main, so the block fails without
+    # this change rather than merely describing it.
+    verify = section(skill, "verify")
+    for phrase in ("**Verdict:** ✅ merge-ready", "**Why the loop stopped:**",
+                   "verbatim"):
+        assert phrase in verify, f"`## verify` must carry {phrase!r}"
 
 
 def test_project_config_template_lists_standing_gates() -> None:

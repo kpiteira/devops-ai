@@ -147,7 +147,7 @@ whose dependencies are `delivered`.
 and the **newest section** of its `kbabysit` report carrying `**Verdict:** ✅ merge-ready`.
 Any other verdict line — ⚠️ or ❌ — means the loop is not done, and this seat's whole move
 is to quote that line and its `**Why the loop stopped:**` line to the human verbatim. A
-DISCUSS the human has since decided is closed by the executor's `/kbabysit <n>` re-entry,
+DISCUSS item the human has since decided is closed by the executor's `/kbabysit <n>` re-entry,
 which appends a section with the new verdict; **a verdict never changes in chat.**
 Measured 2026-09-14: an observer told the human PR #70 was merge-ready while the report's
 newest section read `⚠️ needs human decision`, the CodeQL check was red and two of the
