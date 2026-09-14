@@ -25,9 +25,18 @@ what the PR was for. Truth is not the axis; scope is.
 ## How this runs — in its own session, on Opus
 
 This loop runs **in the session that invokes it**, and that session is an Opus-grade
-agent-deck session created from the PR's worktree (`agent-deck add <worktree> -t
-<project>/babysit-<pr> … --model claude-opus-5`, then `session send … '/kbabysit <pr>'`).
-Two reasons, both measured:
+agent-deck session created from the PR's worktree:
+
+```bash
+agent-deck add <worktree> -t <project>/babysit-<pr> -g <project> -c claude --model claude-opus-5
+agent-deck session send <project>/babysit-<pr> '/kbabysit <pr>'
+```
+
+**Pass `-g` every time**, as `kobserve`'s launch does and for the same measured reason: a
+session added without a group inherits its parent's, and groups default to a running-session
+cap of 1 that counts the parent — so a babysit launched from another agent-deck session
+queues or errors instead of starting (pilot, 2026-09-06). Two reasons for the rest, both
+measured:
 
 - **Tier.** Babysitting is polling plus bounded per-finding judgement, executor-tier work;
   the planner tier belongs to the intent and acceptance decisions this loop feeds. On

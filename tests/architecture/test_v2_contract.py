@@ -170,26 +170,36 @@ def test_pr_ownership_rule_reaches_the_babysitter() -> None:
 
 
 def test_babysit_loop_runs_in_an_opus_session_and_says_so() -> None:
-    """The loop must not run on the invoking session's tier (issue #25) — and must be
+    """The loop must run on an Opus-grade invoking session (issue #25) — and must be
     visible in the session that runs it (2026-09-14).
 
-    Twice observed running inline on a top-tier session because the tier lived in
-    prose; #45 moved it to frontmatter as ``context: fork`` + ``model:``. The fork kept
-    the tier and hid the loop: an agent-deck session running a forked babysit shows a
-    status line and nothing else, with every round in a sidechain transcript (measured
-    on #72 and #66). The human dropped the fork; the tier is the session's now, and the
-    skill's preflight states the model and stops on the wrong one. This keeps both.
+    Twice observed running on whatever tier the invoking session happened to be,
+    because the tier lived in prose; #45 moved it to frontmatter as ``context: fork``
+    + ``model:``. The fork kept the tier and hid the loop: an agent-deck session
+    running a forked babysit shows a status line and nothing else, with every round in
+    a sidechain transcript (measured on #72 and #66). The human dropped the fork, so
+    the tier is now the invoking session's own and the skill's preflight is what
+    enforces it. This pins both halves of that: the frontmatter carries none of the
+    four execution fields, and the preflight states an accept condition *and* rejects
+    everything else — an informational ``MODEL:`` line that stopped nothing would be
+    no gate at all.
     """
     skill = read("skills/kbabysit/SKILL.md")
     frontmatter = skill.split("---")[1]
     fields = dict(
         line.split(":", 1) for line in frontmatter.splitlines() if ": " in line
     )
-    assert "context" not in fields, "the fork is back — it hides the loop"
-    assert "model" not in fields, "the tier is the session's, checked in preflight"
+    # All four fields #45 added, not just the two that fork on their own: the shape
+    # this PR pins is a frontmatter with no execution pins in it whatsoever.
+    for field in ("context", "agent", "background", "model"):
+        assert field not in fields, f"execution pin `{field}:` is back in frontmatter"
     preflight = skill.split("## 0. Preflight", 1)[1].split("## 1.", 1)[0]
-    assert "MODEL:" in preflight
-    assert "opus" in preflight.lower()
+    # The accept condition, on the MODEL: line itself — "opus" anywhere in the section
+    # is also satisfied by the rejection text, which would pass with the accept branch
+    # gone or naming any model at all.
+    assert "MODEL: claude-opus" in preflight
+    # The rejection branch: the check has to end the run, not merely report a tier.
+    assert "ends the run here" in preflight
     assert "agent-deck" in preflight
 
 
