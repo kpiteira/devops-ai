@@ -1,6 +1,6 @@
 # Secret providers
 
-**Status:** in progress
+**Status:** closing — first close review CONFORMS ([CLOSE.md](CLOSE.md), 2026-09-14); archive pending the acceptance-test disposition and two deferred decisions
 **Signed off:** 2026-09-12 — Karl (review conversation: A1–A8 confirmed, `read` prints only with `--print`, host-side resolution model; machine-credential provisioning flagged for a later discussion)
 
 ## Intent
