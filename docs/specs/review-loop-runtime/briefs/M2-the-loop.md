@@ -16,7 +16,9 @@ blocking: uv run pytest tests/acceptance/review_loop_runtime/test_m2_the_loop.py
   decisions to `kreview apply <pr> --dispositions <file>` and the tool replies in each
   thread, resolves what is handled, files one issue per out-of-scope **class** (findings
   sharing a `root_cause` share one issue — kreview 0.4.0: one issue for the class, never
-  one per site), and records the round in the PR, so that the model's only writes are
+  one per site; the issue carries the `issue_title` of the **first finding of the class
+  in round order**, so a class whose members disagree about the title still has one
+  observable name), and records the round in the PR, so that the model's only writes are
   its fix commits.
 - **J7** — When a round is applied, the tool decides continue or stop from the round's
   data and the model's tags, naming the rule that fired, so that no stop rule depends on
@@ -233,6 +235,16 @@ fork was dropped 2026-09-14: it hid the loop; the tier is the babysit session's,
 preflight states the model and stops on the wrong one). `skills/kobserve/SKILL.md` names
 `kreview status` where it reads a babysit report.
 
+Dropping that frontmatter turns an existing gate red, so M2 moves the gate with the
+mechanism: `tests/architecture/test_v2_contract.py::test_babysit_loop_is_pinned_to_a_forked_opus_subagent`
+asserts `context == "fork"`, `agent`, `model` containing `opus` and `background ==
+"false"` today, and it runs in `make check` — the always-run gate, not this acceptance
+suite. M2 retargets it onto the replacement mechanism (the preflight `MODEL:` check and
+the absence of a `context:`/`model:` pin) under a name that matches what it now grades.
+Deleting it is not the move: it is the only always-run gate that the loop runs on an
+Opus-grade model at all, and issue #25 is the record of what happens when that rule
+lives in prose.
+
 A **labeled shell fence** (` ```bash `, `sh`, `shell`, `zsh`, `console`) in those two
 skills invokes only: `kreview`, `kselfreview`, `make`, `uv`, and the shell's own
 plumbing — `cd`, `cat`, `echo`, `printf`, `sleep`, `mktemp`, `exit`, `set`, `true`,
@@ -276,7 +288,7 @@ skills' contents, also without running a command.
 | J5 | `::test_round_request_reports_already_reviewed` | a submitted review by `--reviewer` exists for `head_sha` (the author's own review comment makes one, free): `requested` is `already-reviewed` and no review request is created — the Surface's "unless a submitted review by that reviewer exists" graded without buying one | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J5 | `::test_round_request_buys_a_copilot_review` (paid, `KREVIEW_ACCEPTANCE_PAID=1`) | one purchase grades all four `requested` outcomes in order: `--request` with no wait → `requested`; the same call again while the request is outstanding → `pending`; `--wait 300` → the Copilot review is in the packet; `--request` once more → `already-reviewed` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6 | `::test_apply_replies_resolves_files_an_issue_and_records_state` | IMPLEMENT thread: reply starts ``Fixed in `<sha>` —``, resolved; OUT_OF_SCOPE thread: reply names the issue, resolved; the issue's body carries the finding verbatim and the thread URL; the babysit comment exists with `<!-- kreview-state`; `status` shows `running`, 1 round; decision `continue` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J6 | `::test_apply_files_one_issue_per_class` | two OUT_OF_SCOPE findings sharing a `root_cause` but carrying **different** `issue_title`s: **one** issue, its body naming both sites, both threads resolved — distinct titles are the point, since grouping by title would pass a test where both titles matched | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J6 | `::test_apply_files_one_issue_per_class` | two OUT_OF_SCOPE findings sharing a `root_cause` but carrying **different** `issue_title`s: **one** issue, titled with the **first finding of the class in round order** (asserted exactly — `in {both titles}` left the selection rule observable nowhere), its body naming both sites, both threads resolved — distinct titles are the point, since grouping by title would pass a test where both titles matched | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6 | `::test_apply_records_a_suppressed_finding_without_replying` | a review whose body carries a `Suppressed comments (1)` section (posted by the author, free): the finding is in the packet with `source: suppressed`, and after `apply` no thread exists anywhere on the PR, no reply was posted, and the state block holds its id and verdict — the Surface's "suppressed findings get no reply, their disposition is recorded" graded live rather than only in dry-run replay | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6 | `::test_apply_stores_reviewer_text_literally` | a finding whose body carries `$(…)`, backticks, `;` and `&&`: the filed issue's body contains that text byte for byte and the shell never ran it (the marker file the payload would create does not exist) — the "reviewer text never passes through a shell" invariant, otherwise ungraded | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6 | `::test_apply_records_an_issue_comment_disposition` | an issue comment dispositioned: no reply anywhere, no thread opened, its id and verdict in the state block, `no-new-findings` (an issue comment is not line-anchored) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
@@ -298,6 +310,7 @@ skills' contents, also without running a command.
 | J7 | `::test_apply_budget_stops_after_max_rounds` | `--max-rounds 1` with one IMPLEMENT: `stop` / `escalate` / `budget` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J5, J7 | `::test_apply_next_chains_into_the_next_packet` | `apply --next --wait 120` with round 1's window pinned by `--until` and a comment landing after it: `next` holds the following packet with the new finding and the round-1 ledger; the state has 1 recorded round (round 2 is open, not yet applied) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J9 | `::test_report_renders_and_posts_from_state` | after a stop: the comment carries the Verdict, Rounds row, *Why the loop stopped*, paid rounds, and `status: stopped` in the block; TL;DR verbatim | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J9 | `::test_report_renders_every_changed_line_in_order` | `--changed` given **twice**: both lines appear in *What changed because of review*, in the order given, and the `nothing — pre-PR gates held` fallback does not — the only other report test omits the option, so an implementation that ignored `--changed` entirely passed the suite while J9 makes those lines the model's whole contribution to the section | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J8 | `::test_reentry_is_advised_and_gated` | after the report: `status` → `stopped`, `reentry` is `selfreview` after an unreviewed push; `apply` → exit 5; `apply --reenter` → run 2, `running`, and the next packet shows the budget reset (`used_this_run` 1, not 2) with run 1's dispositions still in `ledger` (A9) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_is_ready_on_a_fresh_pr` | a freshly opened PR: `verdict` `ready`, **exit 0**, `checkout.matches_pr` true, `boundary.status` `none`, `ci` `{none, []}`, `reentry` `none`, `last_reviewed_sha` null, `kselfreview_range` null — every other `status` test asserts a stop, so the verdict the loop actually starts from was ungraded | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_stops_on_checkout_mismatch` | the same PR read from a clone on the base branch: `verdict` `stop: checkout-mismatch`, exit 3, with the PR open, in scope and green — graded on its own rather than only as the rule `merged` outranks | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
@@ -306,7 +319,7 @@ skills' contents, also without running a command.
 | J1 (M1) | `::test_status_stops_on_draft` | a draft PR: `pr.draft` true, `verdict` `stop: draft`, exit 3 | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_stops_on_empty_scope` | a PR whose `## Review scope` heading has nothing under it: `scope` `{empty, ""}`, `verdict` `stop: scope-empty`, exit 3 | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_stops_on_scope_missing` | an **open** PR with no `## Review scope` heading: `scope` `{missing, ""}`, `verdict` `stop: scope-missing`, exit 3 — M1 grades the field and the precedence `closed` outranks it, never the verdict, because every M1 fixture is merged or closed | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J10 | `::test_skills_contain_no_gh_or_git_commands` | two graders over both skills: (1) **blocklist** — no fenced line or inline code span invokes `gh`, `git`, `awk`, `jq`, or `curl` in any command position (after an assignment, a shell keyword, a pipe, inside `$( )`); an invocation is the command word plus at least one argument, so prose naming the `gh` CLI passes; (2) **allowlist, fail-closed** — every command word in a labeled shell fence is one of the Surface's list, so `timeout 5 gh …`, `eval`, `bash -c` or a tool nobody thought of fails by name instead of passing until its spelling is added (three rounds each found the next position a blocklist did not read; an allowlist has no next position). Both graders read the command word through its spelling: `"gh"`, `\gh`, `/usr/bin/gh`, `./tools/gh` and `tools/gh` all name `gh`, and `$TOOL` — unresolvable by reading — is named by the allowlist rather than skipped. Fences close on a marker at least as long as their opener; heredoc bodies, `\` continuations and `#` comments are skipped. Also: `kbabysit` names all four subcommands, has no `context: fork`, and keeps its preflight `MODEL:` check; `kobserve` names `kreview status` | fails on main, and without running a command: blocklist 15 lines in `kbabysit`, 20 in `kreview`; allowlist 17 and 66 (measured 2026-09-13 against this branch's skills, which are main's — `git diff main -- skills/` is empty) |
+| J10 | `::test_skills_contain_no_gh_or_git_commands` | two graders over both skills: (1) **blocklist** — no fenced line or inline code span invokes `gh`, `git`, `awk`, `jq`, or `curl` in any command position (after an assignment, a shell keyword, a pipe, inside `$( )`); an invocation is the command word plus at least one argument, so prose naming the `gh` CLI passes; (2) **allowlist, fail-closed** — every command word in a labeled shell fence is one of the Surface's list, so `timeout 5 gh …`, `eval`, `bash -c` or a tool nobody thought of fails by name instead of passing until its spelling is added (four rounds each found the next position a blocklist did not read). **The claim that "an allowlist has no next position" was made here and is false** — round 4 measured a fifth, below. Both graders read the command word through its spelling: `"gh"`, `\gh`, `/usr/bin/gh`, `./tools/gh` and `tools/gh` all name `gh`, and `$TOOL` — unresolvable by reading — is named by the allowlist rather than skipped. Fences close on a marker at least as long as their opener; heredoc bodies, `\` continuations and `#` comments are skipped. Also: `kbabysit` names all four subcommands, has no `context: fork`, and keeps its preflight `MODEL:` check; `kobserve` names `kreview status` | fails on main, and without running a command: blocklist 15 lines in `kbabysit`, 20 in `kreview`; allowlist 17 and 66 (measured 2026-09-13 against this branch's skills, which are main's — `git diff main -- skills/` is empty) |
 
 Plus the standing gates: `make check` exits 0.
 
@@ -332,6 +345,37 @@ allowlist exists to stop.
 
 - `kreview report` without `--post` as the model's preview before posting.
 - A `--reviewer` other than Copilot for human-only repositories.
+
+### Residual, open for Karl — J10's grader fails open at the next position (round 4)
+
+Measured 2026-09-14 against the grader on `5c4c5cb`, not inferred. `_commands()` stops
+at the first token it cannot classify and yields nothing for the whole segment, so an
+option-bearing wrapper hides the forbidden command from the **blocklist** entirely:
+
+| input | `_commands()` | blocklist |
+|---|---|---|
+| `gh api x` | `['gh']` | caught |
+| `sudo gh api x` | `['gh']` | caught |
+| `nohup gh api x` | `['gh']` | caught |
+| `env -i gh api x` | `[]` | **escapes** |
+| `env -u HOME git push` | `[]` | **escapes** |
+| `xargs -0 gh api x` | `[]` | **escapes** |
+| `sudo -u bob gh api x` | `[]` | **escapes** |
+| `command -v gh api` | `[]` | **escapes** |
+| `time -p gh api x` | `[]` | **escapes** |
+
+And a `\` continuation is dropped as data, so a fence containing `kreview status 66 \`
+followed by `| jq '.verdict'` yields no invocation at all: the `jq` is invisible to both
+graders. Raised by Copilot as three findings (two threads on the test, one on this
+brief's own "continuations are skipped" sentence).
+
+This is the **same root cause** the 2026-09-13 self-review closed one round earlier —
+"I cannot classify this token" and "there is no command here" return the same empty
+answer — at its next position, and it is the fifth revision this one grader would take.
+Per `kbabysit` §4 and this spec's own systemic-repeat rule, that repeat is an escalation,
+not another patch, so **round 4 did not touch the grader**. The decision is Karl's:
+patch again (scan past unclassifiable tokens), replace the hand-rolled parser with a
+real lexer, narrow the gate, or leave it until M2 gives it real skill text to grade.
 
 ## Invariants
 

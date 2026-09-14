@@ -406,8 +406,11 @@ def test_skills_delegate_fetch_and_preflight_to_the_tool() -> None:
 
     kbabysit = _skill("kbabysit")
     assert "kreview status" in kbabysit
-    # the judgement and the pin are untouched
-    assert "context: fork" in kbabysit
+    # The judgement text is untouched — that is what M1 promises and what survives
+    # every later stage. The frontmatter is deliberately *not* asserted here: M2's
+    # amendment drops `context: fork` and `model:`, so a frontmatter assertion in a
+    # persistent M1 test would contradict `::test_skills_contain_no_gh_or_git_commands`
+    # the moment M2 lands, and "everything in M1 holds" would be unsatisfiable.
     assert "Stopping is a state, not a mood" in kbabysit
 
 

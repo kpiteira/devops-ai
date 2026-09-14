@@ -29,7 +29,8 @@ two skills shrink to the judgement and the guardrails they exist for.
   levels, and the mechanical signals (second-order, no new findings, CI). The model
   reads the packet; it never calls `gh` or `git` to see a review.
 - `kreview apply <pr> --dispositions <file>` takes the model's decisions and does the
-  rest: replies in each thread, resolves, files one issue per out-of-scope finding,
+  rest: replies in each thread, resolves, files one issue per out-of-scope `root_cause`
+  class (never one per finding — that is J6's rule and the M2 Surface's),
   records the round in the PR, and decides — continue, or stop with the rule that
   fired. With `--next` it requests the next review, waits for it, and returns the next
   packet, so a round costs the model one `apply --next` call beyond its own fix work.
@@ -39,7 +40,10 @@ two skills shrink to the judgement and the guardrails they exist for.
   comment. Any session can re-enter with `kreview status` under the same rules and the
   same ledger. Nothing is kept on local disk.
 - The `kbabysit` and `kreview` skills contain no `gh` or `git` command: the judgement
-  rubric, the loop procedure, the guardrails. An architecture test enforces it.
+  rubric, the loop procedure, the guardrails. Enforced by
+  `tests/acceptance/review_loop_runtime/test_m2_the_loop.py::test_skills_contain_no_gh_or_git_commands`
+  (J10) — an acceptance test, not an architecture test, so `make check` does not run it;
+  it is blocking for M2.
 - Measured at feature close, not by a test: tool calls and model tokens per paid round,
   from the `kbabysit` fork transcripts of #63 (before) against the first two PRs
   babysat with the tool (after).
@@ -61,8 +65,12 @@ two skills shrink to the judgement and the guardrails they exist for.
 - The skills' judgement text — the assessment tables, isolated/systemic, the four
   dispositions and their definitions, the report's semantics — is moved, not rewritten:
   those are the words Karl signed.
-- `kbabysit` keeps its frontmatter pin (forked, Opus), gated by
-  `tests/architecture/test_v2_contract.py`.
+- `kbabysit` runs on an Opus-grade model. Per the 2026-09-14 (M2) amendment below this
+  is no longer a frontmatter pin: the loop runs in the Opus agent-deck session that
+  invokes it, and preflight states the model and stops on the wrong one. M2 retargets
+  `tests/architecture/test_v2_contract.py::test_babysit_loop_is_pinned_to_a_forked_opus_subagent`
+  onto that check — it asserts the fork today, so M2 turns `make check` red if it does
+  not move the gate with the mechanism.
 
 ## Non-goals
 
@@ -185,10 +193,19 @@ two skills shrink to the judgement and the guardrails they exist for.
 <!-- Append-only after sign-off. -->
 
 - [x] 2026-09-13 (M1) decision-change: `kreview status` gains a `ci-failing` verdict,
-- [x] 2026-09-14 (M2) decision-change: `kbabysit` drops `context: fork` + `model:` from its frontmatter; the loop runs in the Opus agent-deck session that invokes it, and preflight states the model and stops on the wrong one. J10's grader asserts the absence of the fork and the presence of the check instead of the pin. *Rejected:* keeping the fork — it hid every round in a sidechain transcript (measured on #72 and #66). Decided by Karl 2026-09-14 ("drop the fork"), acknowledged the same moment.
   last in the order, exit 3 — a red check on the head stops the run instead of being a
   fact the model reads past. Raised by Copilot on PR #66 (twice; the second time as a
   systemic finding on pinned Surface, which stopped the babysit). Graded in M2's scratch
   repository together with `draft` and `scope-empty` (M1 brief D15, M2 Blocking).
   *Rejected:* keeping CI red as a fact plus the skill's "fix CI first" sentence.
   Decided and acknowledged by Karl 2026-09-13.
+- [x] 2026-09-14 (M2) decision-change: `kbabysit` drops `context: fork` and `model:`
+  from its frontmatter; the loop runs in the Opus agent-deck session that invokes it,
+  and preflight states the model and stops on the wrong one. J10's grader asserts the
+  absence of the fork and the presence of the check instead of the pin, and M2 retargets
+  `tests/architecture/test_v2_contract.py::test_babysit_loop_is_pinned_to_a_forked_opus_subagent`
+  — which asserts the fork today and is in `make check` — onto the preflight check, so
+  the gate moves with the mechanism rather than going red behind it.
+  *Rejected:* keeping the fork — it hid every round in a sidechain transcript (measured
+  on #72 and #66). Decided by Karl 2026-09-14 ("drop the fork"), acknowledged the same
+  moment.

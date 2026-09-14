@@ -309,7 +309,11 @@ def test_apply_files_one_issue_per_class(scratch: ScratchPR, tmp_path: Path) -> 
 
     issues = scratch.find_issues()
     assert len(issues) == 1, [i["title"] for i in issues]
-    assert issues[0]["title"] in titles.values()
+    # Which title the one issue carries is pinned, not a disjunction: the first
+    # finding of the class in round order wins. `in titles.values()` accepted either,
+    # so the selection rule was observable in neither the Surface nor the grader, and
+    # two conforming implementations could disagree about the issue's name.
+    assert issues[0]["title"] == titles[c1]
     body = issues[0]["body"]
     assert "line 5 has no trailing metadata" in body
     assert "line 12 has no trailing metadata either" in body
@@ -1445,6 +1449,62 @@ def test_report_renders_and_posts_from_state(
     s = _kr(scratch, "status", str(scratch.number), "--json").json()
     assert s["babysit"]["status"] == "stopped"
     assert s["reentry"] == "none"  # nothing newer than the report
+
+
+def test_report_renders_every_changed_line_in_order(
+    scratch: ScratchPR, tmp_path: Path
+) -> None:
+    """`--changed` given twice puts both lines in the section, in order.
+
+    J9 makes the `--changed` lines the model's entire contribution to *What changed
+    because of review*, and every other report test omits the option and asserts only
+    the zero-value fallback. An implementation that parsed `--changed` and discarded it
+    — or kept just the last one — passed the whole suite.
+    """
+    c1 = scratch.comment(3, "line 3 should say three")
+    _kr(
+        scratch,
+        "apply",
+        str(scratch.number),
+        "--json",
+        "--dispositions",
+        str(
+            dispositions_file(
+                tmp_path,
+                {
+                    "id": f"t{c1}",
+                    "verdict": "PUSH_BACK",
+                    "shape": "isolated",
+                    "reply": "three is not the scope's concern",
+                },
+            )
+        ),
+    )
+    first = "the first thing that changed"
+    second = "the second thing that changed"
+    r = _kr(
+        scratch,
+        "report",
+        str(scratch.number),
+        "--json",
+        "--post",
+        "--tldr",
+        "One round, two changed lines.",
+        "--changed",
+        first,
+        "--changed",
+        second,
+        "--kselfreview",
+        "na",
+    )
+    assert r.code == 0, (r.out, r.err)
+    comment = scratch.babysit_comment()
+    assert comment is not None
+    assert f"- {first}" in comment
+    assert f"- {second}" in comment
+    # order is the order given, and the fallback is gone once a line is supplied
+    assert comment.index(first) < comment.index(second)
+    assert "nothing — pre-PR gates held" not in comment
 
 
 def test_reentry_is_advised_and_gated(scratch: ScratchPR, tmp_path: Path) -> None:
