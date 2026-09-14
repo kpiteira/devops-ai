@@ -29,14 +29,28 @@ agent-deck session created from the PR's worktree:
 
 ```bash
 agent-deck add <worktree> -t <project>/babysit-<pr> -g <project> -c claude --model claude-opus-5
-agent-deck session send <project>/babysit-<pr> '/kbabysit <pr>'
+agent-deck session start <project>/babysit-<pr>
+agent-deck session send <project>/babysit-<pr> '/kbabysit <pr>'   # give the agent ~3s to come up
 ```
 
-**Pass `-g` every time**, as `kobserve`'s launch does and for the same measured reason: a
-session added without a group inherits its parent's, and groups default to a running-session
-cap of 1 that counts the parent — so a babysit launched from another agent-deck session
-queues or errors instead of starting (pilot, 2026-09-06). Two reasons for the rest, both
-measured:
+**This is the repo's launch contract, not a recipe of its own** — the same three steps, in
+the same order, as `skills/kobserve/SKILL.md`, `skills/kworktree/SKILL.md` and
+`src/devops_ai/cli/impl.py` (`add_session` → `start_session` → `send_to_session`). Copy it
+from one of those rather than from memory; each element is there because something broke
+without it:
+
+- **`-g`** — a session added without a group inherits its parent's, and groups default to a
+  running-session cap of 1 that counts the parent, so a babysit launched from another
+  agent-deck session queues or errors instead of starting (pilot, 2026-09-06).
+- **`session start`** — `add` only registers the session; it does not run the tool. Send to
+  a session that was never started and the kickoff goes nowhere, so the babysit never
+  begins.
+- **the pause before `send`** — `send_to_session` sleeps 3 s after start for the same
+  reason ("to allow the agent to start"), and a busy target times out at 60 s and returns
+  failure rather than queueing. If the kickoff does not land, re-send it; nothing else in
+  the loop retries it for you.
+
+Two reasons for the tier and the visibility, both measured:
 
 - **Tier.** Babysitting is polling plus bounded per-finding judgement, executor-tier work;
   the planner tier belongs to the intent and acceptance decisions this loop feeds. On

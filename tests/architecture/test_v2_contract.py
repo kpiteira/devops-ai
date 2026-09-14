@@ -201,6 +201,19 @@ def test_babysit_loop_runs_in_an_opus_session_and_says_so() -> None:
     # The rejection branch: the check has to end the run, not merely report a tier.
     assert "ends the run here" in preflight
     assert "agent-deck" in preflight
+    # The launch recipe is the mechanism the tier now rests on, so it has to be the
+    # repo's launch contract rather than a recipe of its own: add (with a group and the
+    # Opus model) → start → send. Two review rounds on #75 found two separate elements
+    # missing, one per round; this is what stops the third.
+    launch = skill.split("```bash", 1)[1].split("```", 1)[0]
+    for step in (
+        "agent-deck add",
+        "-g ",
+        "--model claude-opus",
+        "agent-deck session start",
+        "agent-deck session send",
+    ):
+        assert step in launch, f"launch recipe is missing `{step}`"
 
 
 def test_observer_skill_exists_with_its_launch_guards() -> None:
