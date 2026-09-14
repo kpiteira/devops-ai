@@ -81,22 +81,41 @@ whose dependencies are `delivered`.
      git -C <repo> fetch origin <pr-branch>
      git -C <repo> worktree add --detach "$SCRATCH/pr-bookkeeping" origin/<pr-branch>
      # …edit, commit…
-     git -C "$SCRATCH/pr-bookkeeping" push origin HEAD:<pr-branch>
-     git -C <repo> worktree remove "$SCRATCH/pr-bookkeeping"
+     pushed=false
+     for attempt in 1 2; do
+       if git -C "$SCRATCH/pr-bookkeeping" push origin HEAD:<pr-branch>; then pushed=true; break; fi
+       git -C "$SCRATCH/pr-bookkeeping" fetch origin <pr-branch> \
+         && git -C "$SCRATCH/pr-bookkeeping" rebase FETCH_HEAD || break
+     done
+     if [ "$pushed" = true ]; then
+       git -C <repo> worktree remove "$SCRATCH/pr-bookkeeping"
+     else
+       echo "bookkeeping NOT pushed — worktree kept at $SCRATCH/pr-bookkeeping"; exit 1
+     fi
      ```
-     A non-fast-forward here means the executor pushed again — its loop re-entered:
-     fetch, rebase, retry once; if the branch moves again, wait for the loop to stop.
-     The executor's checkout is then behind its own branch; its next push fetches.
+     A non-fast-forward here means the executor pushed again — its loop re-entered, which
+     is what the one retry is for; if the branch moves again the retry is spent, the
+     worktree stays with the commit in it, and you wait for the loop to stop before
+     re-running. The executor's checkout is then behind its own branch; its next push
+     fetches.
    - **On a branch and PR of its own** when nothing is open to ride on (an amendment
      the human acknowledged after the merge, a roadmap line). Every PR to main draws
      an automatic Copilot review, so batch such edits rather than opening one per line.
      ```bash
+     SCRATCH=$(mktemp -d)
+     git -C <repo> fetch origin main
      git -C <repo> worktree add --detach "$SCRATCH/bookkeeping" origin/main
      # …edit, commit…
-     git -C "$SCRATCH/bookkeeping" push origin HEAD:refs/heads/bookkeeping/<slug>
-     gh pr create --head bookkeeping/<slug> --title "spec(<feature>): <what>" \
-       --body-file <file carrying a "## Review scope" section: the one bookkeeping outcome>
+     if git -C "$SCRATCH/bookkeeping" push origin HEAD:refs/heads/bookkeeping/<slug>; then
+       gh pr create --head bookkeeping/<slug> --title "spec(<feature>): <what>" \
+         --body-file <file carrying a "## Review scope" section: the one bookkeeping outcome>
+       git -C <repo> worktree remove "$SCRATCH/bookkeeping"
+     else
+       echo "bookkeeping NOT pushed — worktree kept at $SCRATCH/bookkeeping"; exit 1
+     fi
      ```
+     Fetch first: this route runs *after* a merge, so a stale `origin/main` would branch
+     from an older spec and reopen what the merge just closed.
      The human merges it when `check` and `integration` are green, like any PR.
    The worktree is removed only after the push landed; on a conflict or a dead
    network it stays, with the commit in it, and nothing is torn down.
@@ -169,7 +188,11 @@ which is the relay failure under a politer name.
    answers in the PR thread. The pilot's "silence is a miss" reached him three exchanges
    after merge because nobody owned this step.
 4. **Report:** merge-ready, with the re-run evidence and his answers — or blocked, with
-   the reason. He merges.
+   the reason. He merges. **The bookkeeping commit moved the head**, so the `In:`
+   condition's green CI and step 1's re-run both describe the *previous* head: `check`
+   and `integration` are required statuses evaluated per head, and they re-run on this
+   one. Wait for them, and re-run the blocking command at the new head if the commit
+   touched anything the tests read. Merge-ready names the head it is true of.
 
 ## land
 
