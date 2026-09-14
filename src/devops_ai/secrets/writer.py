@@ -57,8 +57,12 @@ def write(
         )
     writer = getattr(provider, WRITE, None)
     if writer is None:
+        # The reference, not just its scheme: a caller writing several of them
+        # needs to know which one was refused, and naming a reference is safe
+        # here in a way naming a literal is not — a literal has no provider, so
+        # it never reaches this branch.
         raise ProviderError(
-            f"{provider.SCHEME} references cannot be written; this provider "
-            f"only reads."
+            f"{provider.SCHEME} references cannot be written, so {ref} was "
+            f"not stored; this provider only reads."
         )
     return str(writer(ref, value, context, if_absent))

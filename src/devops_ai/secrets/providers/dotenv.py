@@ -25,6 +25,7 @@ from ..errors import ProviderError
 SCHEME = "dotenv://"
 KEY_SEPARATOR = "#"
 NEW_FILE_MODE = 0o600
+NUL = "\0"
 # A value that could not possibly be mistaken for part of a key, used to ask
 # `envfile` whether a *key* survives a round trip independently of the value
 # that follows it.
@@ -55,6 +56,22 @@ def write(
     ref: str, value: str, ctx: ResolveContext, if_absent: bool = False
 ) -> str:
     """Set the key in the file, leaving every other line exactly as it was."""
+    # POSIX allows a line break in a filename, so this is reachable rather than
+    # theoretical — and a write answers with the reference it was given, which
+    # `ksecret write` prints. A reference carrying one would make stdout two
+    # lines where the surface promises exactly one, the canonical reference,
+    # and a caller reading that back stores half a reference. `splitlines()`
+    # rather than a list of characters, and NUL beside it, to stay in step with
+    # the same refusal in `azurekeyvault` and `openbao`.
+    #
+    # Here rather than in `_parse`, which reads share: M1-M3 read behaviour is
+    # unchanged, and a read that already resolves such a file must keep doing
+    # so. Only the write, which is new, refuses.
+    if NUL in ref or ref.splitlines() != [ref]:
+        raise ProviderError(
+            f"Malformed reference {_visible(ref)}. A reference cannot contain "
+            f"a NUL byte or a line break."
+        )
     relative, key = _parse(ref)
     path = _target(ctx.path(relative))
 
@@ -94,6 +111,18 @@ def _parse(ref: str) -> tuple[str, str]:
             f"{SCHEME}<path>{KEY_SEPARATOR}<KEY>."
         )
     return relative, key
+
+
+def _visible(ref: str) -> str:
+    """The reference with only its unprintable characters escaped.
+
+    A reference nobody vetted is about to be named in a message a human reads,
+    and echoing a raw line break hides the very thing the message is about.
+    """
+    return "".join(
+        character if character.isprintable() else repr(character)[1:-1]
+        for character in ref
+    )
 
 
 def _target(path: Path) -> Path:

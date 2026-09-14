@@ -136,6 +136,9 @@ class TestWhatTheWriterDispatchesTo:
 
         assert "readonly://" in str(caught.value)
         assert "cannot be written" in str(caught.value)
+        assert "readonly://a/b" in str(caught.value), (
+            "the scheme alone does not say which of several references failed"
+        )
 
     def test_the_host_environment_says_why_it_cannot_be_written(self) -> None:
         for ref in ("env://SOME_NAME", "$SOME_NAME"):
@@ -316,6 +319,40 @@ class TestTheDotenvFile:
             "the mode the user chose is still restored, just afterwards"
         )
         assert target.read_text() == f"K={VALUE}\n"
+
+    @pytest.mark.parametrize("bad", ["foo\nbar", "foo\rbar", "foo bar"])
+    def test_a_reference_that_would_print_as_two_lines_is_refused(
+        self, tmp_path: Path, bad: str
+    ) -> None:
+        """Stdout is promised to be exactly one line: the canonical reference.
+
+        POSIX allows a line break in a filename, so this is reachable rather
+        than theoretical, and `write` answers with the reference it was handed
+        — which `ksecret write` prints. A caller reading that back to store it
+        would keep half a reference.
+        """
+        with pytest.raises(ProviderError) as caught:
+            write(f"dotenv://{bad}#K", VALUE, ResolveContext(base_dir=tmp_path))
+
+        assert "line break" in str(caught.value)
+        assert str(caught.value).splitlines() == [str(caught.value)], (
+            "the refusal must not itself print as two lines"
+        )
+        assert not list(tmp_path.iterdir()), "nothing may be written first"
+
+    def test_the_same_reference_still_reads_exactly_as_it_did(
+        self, tmp_path: Path
+    ) -> None:
+        """The refusal above belongs to `write`, which is new — not to `_parse`.
+
+        M1-M3 read behaviour is a pinned invariant, so a read of the same
+        reference has to go on resolving the file it names.
+        """
+        (tmp_path / "foo\nbar").write_text("K=already\n")
+
+        assert resolve(
+            "K", "dotenv://foo\nbar#K", ResolveContext(base_dir=tmp_path)
+        ) == "already"
 
     def test_a_symlink_is_followed_rather_than_replaced(self, tmp_path: Path) -> None:
         real = tmp_path / "real.env"
