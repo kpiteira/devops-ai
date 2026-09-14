@@ -144,7 +144,15 @@ whose dependencies are `delivered`.
 ## verify
 
 **In:** a milestone PR with the mapping line `Spec: … · Milestone: M<N>`, CI green,
-review rounds converged (`kbabysit` report present).
+and the **newest section** of its `kbabysit` report carrying `**Verdict:** ✅ merge-ready`.
+Any other verdict line — ⚠️ or ❌ — means the loop is not done, and this seat's whole move
+is to quote that line and its `**Why the loop stopped:**` line to the human verbatim. A
+DISCUSS item the human has since decided is closed by the executor's `/kbabysit <n>` re-entry,
+which appends a section with the new verdict; **a verdict never changes in chat.**
+Measured 2026-09-14: an observer told the human PR #70 was merge-ready while the report's
+newest section read `⚠️ needs human decision`, the CodeQL check was red and two of the
+three open items were undecided. The human caught it. That is the trust this seat exists
+to protect, and the word "merge-ready" is one it repeats from the report, never coins.
 
 **This seat has no re-request verb.** It never requests or re-requests a Copilot (or any)
 review, never runs `kreview`, and never sends an executor a finding with a disposition
@@ -209,8 +217,9 @@ which is the relay failure under a politer name.
    or defer to the feature close — and never argue the executor's case. Record his
    answers in the PR thread. The pilot's "silence is a miss" reached him three exchanges
    after merge because nobody owned this step.
-4. **Report:** merge-ready, with the re-run evidence and his answers — or blocked, with
-   the reason. He merges. **Merge-ready names the head it is true of**, and step 3's
+4. **Report:** the report's newest `**Verdict:**` and `**Why the loop stopped:**` lines,
+   quoted verbatim, then the re-run evidence and his answers — or blocked, with the
+   reason. He merges. **Merge-ready names the head it is true of**, and step 3's
    bookkeeping commit moves the head — so the `In:` condition's green CI and a step 1
    re-run taken before it both describe a head that is no longer the one being merged.
    Required statuses are evaluated per head and re-run on the new one: wait for them.
@@ -232,6 +241,14 @@ which is the relay failure under a politer name.
    `/kspec close` in a fresh session.
 
 ## Guardrails
+
+- **Never upgrade a verdict.** The babysit report's newest `**Verdict:**` line is the
+  loop's conclusion; relay it verbatim. If it is not ✅, the PR is not merge-ready, whatever
+  else looks done. A verdict is the loop's to write and this seat's to read: it changes
+  only when the loop appends a new section — a `/kbabysit <n>` re-entry, or the single
+  post-report auto-review the loop still owns (`kbabysit`, *One exception*). Which of the
+  two wrote it is `kbabysit`'s business, not this seat's; either way you read the newest
+  section and quote it. Never in chat.
 
 - Never merge; never decide a product semantic; never edit a brief or an acceptance
   test (planner branches only).
