@@ -297,9 +297,28 @@ skills' contents, also without running a command.
 | J1 (M1) | `::test_status_stops_on_red_ci` | a PR whose branch carries a workflow that exits 1: once the check settles, `ci.status` `failing`, a failing entry in `ci.checks`, `verdict` `stop: ci-failing`, exit 3 — from a clone on the branch, so `checkout-mismatch` cannot mask it | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_stops_on_draft` | a draft PR: `pr.draft` true, `verdict` `stop: draft`, exit 3 | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_stops_on_empty_scope` | a PR whose `## Review scope` heading has nothing under it: `scope` `{empty, ""}`, `verdict` `stop: scope-empty`, exit 3 | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J10 | `::test_skills_contain_no_gh_or_git_commands` | two graders over both skills: (1) **blocklist** — no fenced line or inline code span invokes `gh`, `git`, `awk`, `jq`, or `curl` in any command position (after an assignment, a shell keyword, a pipe, inside `$( )`); an invocation is the command word plus at least one argument, so prose naming the `gh` CLI passes; (2) **allowlist, fail-closed** — every command word in a labeled shell fence is one of the Surface's list, so `timeout 5 gh …`, `eval`, `bash -c` or a tool nobody thought of fails by name instead of passing until its spelling is added (three rounds each found the next position a blocklist did not read; an allowlist has no next position). Fences close on a marker at least as long as their opener; heredoc bodies, `\` continuations and `#` comments are skipped. Also: `kbabysit` names all four subcommands and keeps its frontmatter pin; `kobserve` names `kreview status` | fails on main, and without running a command: blocklist 15 lines in `kbabysit`, 20 in `kreview`; allowlist 17 and 61 (measured 2026-09-13, `f95a0a1` skills = main's); the grader itself was falsified on 25 crafted cases before it was kept |
+| J1 (M1) | `::test_status_stops_on_scope_missing` | an **open** PR with no `## Review scope` heading: `scope` `{missing, ""}`, `verdict` `stop: scope-missing`, exit 3 — M1 grades the field and the precedence `closed` outranks it, never the verdict, because every M1 fixture is merged or closed | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J10 | `::test_skills_contain_no_gh_or_git_commands` | two graders over both skills: (1) **blocklist** — no fenced line or inline code span invokes `gh`, `git`, `awk`, `jq`, or `curl` in any command position (after an assignment, a shell keyword, a pipe, inside `$( )`); an invocation is the command word plus at least one argument, so prose naming the `gh` CLI passes; (2) **allowlist, fail-closed** — every command word in a labeled shell fence is one of the Surface's list, so `timeout 5 gh …`, `eval`, `bash -c` or a tool nobody thought of fails by name instead of passing until its spelling is added (three rounds each found the next position a blocklist did not read; an allowlist has no next position). Both graders read the command word through its spelling: `"gh"`, `\gh`, `/usr/bin/gh`, `./tools/gh` and `tools/gh` all name `gh`, and `$TOOL` — unresolvable by reading — is named by the allowlist rather than skipped. Fences close on a marker at least as long as their opener; heredoc bodies, `\` continuations and `#` comments are skipped. Also: `kbabysit` names all four subcommands and keeps its frontmatter pin; `kobserve` names `kreview status` | fails on main, and without running a command: blocklist 15 lines in `kbabysit`, 20 in `kreview`; allowlist 17 and 66 (measured 2026-09-13 against this branch's skills, which are main's — `git diff main -- skills/` is empty) |
 
 Plus the standing gates: `make check` exits 0.
+
+**J10's parser is itself graded.** Every other row here is decided by an API; J10's is
+decided by a parser this repository wrote, and a parser that misreads a command position
+returns green for the wrong reason. `::test_j10_grader_reads_every_command_position`
+holds 21 crafted cases: the six path- and quote-spellings of a command word and the one
+indirection (`$TOOL`); the six positions earlier rounds widened the blocklist to reach
+(plain, assignment, shell keyword, pipe, env prefix, loop body); the three wrappers only
+the allowlist can see (`timeout`, `eval`, `bash -c`); and five lines a correct rewrite
+contains that must **not** fail — `kreview`, `make`, a quoted argument, `/kbabysit`, a
+comment. It is not blocking — it grades the test file, so it
+passes on main — and it is what lets the row above be trusted rather than believed. It
+replaces the earlier claim that the parser "was falsified on crafted cases", which named
+a number no reader could re-derive; the cases are now in the repository. Measured
+2026-09-13, before they were written: of the seven ways to spell a command word that is
+not a bare identifier, six passed **both** graders silently — `/usr/bin/gh`,
+`./tools/gh`, `../bin/gh`, `"gh"`, `\gh` and `$TOOL` — and the seventh, `tools/gh`,
+passed the blocklist. A fail-closed allowlist was failing open on the spellings an
+allowlist exists to stop.
 
 ## Advisory
 

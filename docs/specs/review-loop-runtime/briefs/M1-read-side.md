@@ -192,18 +192,21 @@ residual, not papered over with a `>=`.
 
 Plus the standing gates: `make check` exits 0.
 
-**Graded here, and not graded here.** Of the verdict order, `merged`, `closed`,
-`scope-missing`, and two precedences — `merged` over `checkout-mismatch`, `closed` over
-`scope-missing` — are graded above. `draft`, `scope-empty`, and `ci-failing` are **not**
-graded in M1: each needs a PR in that state. Measured 2026-09-13 in this repository:
-no PR is a draft today (`gh pr list --state all --json isDraft` → 0) and none carries a
+**Graded here, and not graded here.** Of the verdict order, `merged` and `closed`, and
+two precedences — `merged` over `checkout-mismatch`, `closed` over `scope-missing` — are
+graded above, as is the `scope.status` value `missing` itself. The *verdict*
+`scope-missing`, and `draft`, `scope-empty` and `ci-failing`, are **not** graded in M1:
+each needs an **open** PR in that state, and every fixture here is merged or closed, so
+a rule above it always decides first — #19 is scope-less and stops on `closed`, #10 is
+scope-less and stops on `merged`. Measured 2026-09-13 in this repository: no PR is a
+draft today (`gh pr list --state all --json isDraft` → 0) and none carries a
 `## Review scope` heading with nothing under it (the same listing with `body`); and
 M1's fixtures are merged PRs at their merge heads, so a head with a failing check is
 not among them. A PR in an arbitrary state is what the scratch repository M2
-introduces, and M2's Blocking table carries the three tests
-(`test_status_stops_on_red_ci`, `_on_draft`, `_on_empty_scope`; draft PRs are
-available in that private repository — probed 2026-09-13). The verdict is M1's
-Surface; its last three reasons are graded one milestone later, which the sign-off
+introduces, and M2's Blocking table carries the four tests
+(`test_status_stops_on_red_ci`, `_on_draft`, `_on_empty_scope`, `_on_scope_missing`;
+draft PRs are available in that private repository — probed 2026-09-13). The verdict is
+M1's Surface; four of its reasons are graded one milestone later, which the sign-off
 accepted.
 
 The packet's third **provenance** state is in the same position. `original` and

@@ -1260,6 +1260,24 @@ def test_status_stops_on_empty_scope(scratch_factory) -> None:
     assert s["verdict"] == "stop: scope-empty"
 
 
+def test_status_stops_on_scope_missing(scratch_factory) -> None:
+    """The verdict, not just the field — an **open** PR with no `## Review scope`.
+
+    M1 grades `scope.status` `missing` on #19 and the precedence that `closed` outranks
+    it, and every M1 fixture is merged or closed, so a rule above `scope-missing` always
+    decides there: a tool that never emitted this verdict passed the whole suite. It is
+    the fence kbabysit §0 refuses to start without, so it cannot be the one stop nobody
+    grades.
+    """
+    pr = scratch_factory(scope=None)
+    r = _kr(pr, "status", str(pr.number), "--json")
+    assert r.code == 3, (r.out, r.err)
+    s = r.json()
+    assert s["pr"]["state"] == "open"
+    assert s["scope"] == {"status": "missing", "text": ""}
+    assert s["verdict"] == "stop: scope-missing"
+
+
 def test_status_is_ready_on_a_fresh_pr(scratch: ScratchPR) -> None:
     """The verdict the whole loop hangs on — `ready`, exit 0 — with its empty states.
 
@@ -1514,9 +1532,35 @@ _NOT_THE_COMMAND = {
     "readonly",
 }
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*=")
-_COMMAND_WORD = re.compile(r"^[A-Za-z_][\w./-]*$")
+_COMMAND_WORD = re.compile(r"^[A-Za-z_][\w.-]*$")
+_QUOTED = re.compile(r"""^(["'])(.+)\1$""")
+# `/kbabysit` is a slash command, not a path: one leading slash and no directory
+_SLASH_COMMAND = re.compile(r"^/[^/]+$")
 _FENCE = re.compile(r"^\s*(`{3,}|~{3,})\s*([A-Za-z]*)")
 _HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?")
+
+
+def _command_word(token: str) -> str | None:
+    """The command a segment's first token names, or `None` when it names none.
+
+    `"gh"`, `\\gh`, `/usr/bin/gh`, `./tools/gh` and `tools/gh` all invoke `gh`, and a
+    grader that accepts only bare identifiers calls every one of them "not a command".
+    That drops the segment from **both** graders below, so the fail-closed allowlist
+    fails open on precisely the spellings an allowlist exists to stop: the first
+    version of it passed `/usr/bin/gh api …` silently. `$TOOL` cannot be resolved by
+    reading, so it is returned as itself — unresolvable is not the same as allowed, and
+    the allowlist must name it rather than skip it. `/kbabysit <pr>` still names no
+    command: a slash command is one leading slash with no directory, not a path.
+    """
+    quoted = _QUOTED.match(token)
+    if quoted:
+        token = quoted.group(2)
+    token = token.removeprefix("\\")
+    if token.startswith("$") and len(token) > 1:
+        return token
+    if "/" in token and not _SLASH_COMMAND.match(token):
+        token = token.rsplit("/", 1)[-1]
+    return token if _COMMAND_WORD.match(token) else None
 
 
 def _commands(snippet: str) -> list[list[str]]:
@@ -1524,7 +1568,7 @@ def _commands(snippet: str) -> list[list[str]]:
 
     `REPO=$(gh repo view …)`, `if git merge-base …`, `… | jq '.x'` and `VAR=1 curl …`
     each yield their real command word; a grader that reads `words[0]` of the whole
-    snippet sees none of them. Segments whose first token is not a command word
+    snippet sees none of them. Segments whose first token names no command
     (`<sha>`, `--flag`, `…`, `/kbabysit`, a JSON fragment) yield nothing.
     """
     out: list[list[str]] = []
@@ -1535,8 +1579,9 @@ def _commands(snippet: str) -> list[list[str]]:
         words = _REDIRECT.sub(" ", segment).split()
         while words and (words[0] in _NOT_THE_COMMAND or _ASSIGNMENT.match(words[0])):
             words = words[1:]
-        if words and _COMMAND_WORD.match(words[0]):
-            out.append(words)
+        word = _command_word(words[0]) if words else None
+        if word:
+            out.append([word, *words[1:]])
     return out
 
 
@@ -1618,6 +1663,60 @@ def _unlisted_commands(text: str) -> list[str]:
         for w in _commands(s)
         if w[0] not in ALLOWED_IN_SHELL_FENCES
     ]
+
+
+# The grader's own graders. J10 is the one blocking test whose verdict is produced by a
+# parser rather than read off an API, so "it was falsified by hand before it was kept"
+# is a claim only a committed case table can carry: every row below is a command
+# position that escaped some earlier version of it, or an allowed line that must not be
+# failed for naming a tool. `blocked` is the blocklist verdict, `unlisted` the
+# allowlist's; they differ on purpose — a bare `gh` in a shell fence is not an
+# invocation (no argument) but is still not on the allowlist.
+J10_CASES = [
+    # the escapes: a command word that is not a bare identifier
+    ("absolute-path", "/usr/bin/gh api repos/x/y", True, True),
+    ("relative-path", "./tools/gh api repos/x/y", True, True),
+    ("parent-path", "../bin/gh api repos/x/y", True, True),
+    ("bare-dir-path", "tools/gh api repos/x/y", True, True),
+    ("quoted-command", '"gh" api repos/x/y', True, True),
+    ("escaped-command", "\\gh api repos/x/y", True, True),
+    # unresolvable by reading: the allowlist must name it, not skip it
+    ("variable-indirection", "$TOOL api repos/x/y", False, True),
+    # positions earlier rounds widened the blocklist to reach
+    ("plain", "gh api repos/x/y", True, True),
+    ("assignment", "REPO=$(gh repo view --json nameWithOwner)", True, True),
+    ("shell-keyword", "if git merge-base --is-ancestor a b; then", True, True),
+    ("pipe", "kreview status 66 --json | jq '.verdict'", True, True),
+    ("env-prefix", "VAR=1 curl -s https://x", True, True),
+    ("loop-body", "while gh api x; do sleep 1; done", True, True),
+    # wrappers the blocklist cannot see through, which is why the allowlist exists
+    ("wrapper", "timeout 5 gh api repos/x/y", False, True),
+    ("eval", 'eval "gh api repos/x/y"', False, True),
+    ("interpreter", "bash -c 'gh api repos/x/y'", False, True),
+    # and what a correct rewrite contains: none of these may fail
+    ("allowed-tool", "kreview status 66 --json", False, False),
+    ("allowed-gate", "make check", False, False),
+    ("allowed-quoted-arg", 'cd "$REPO_ROOT"', False, False),
+    ("slash-command", "/kbabysit 66", False, False),
+    ("comment", "# gh api repos/x/y was the old way", False, False),
+]
+
+
+@pytest.mark.parametrize(("case", "line", "blocked", "unlisted"), J10_CASES)
+def test_j10_grader_reads_every_command_position(
+    case: str, line: str, blocked: bool, unlisted: bool
+) -> None:
+    """Falsify J10's parser before trusting its verdict on the real skills.
+
+    Measured 2026-09-13: `/usr/bin/gh api …` and its four siblings passed *both*
+    graders, because a command word that is not a bare identifier yielded no command at
+    all — so the fail-closed allowlist failed open on exactly the spellings it exists
+    to stop. The last five rows are the other half of the check: a grader that fails a
+    correct rewrite is a corrupted signal, not a strict one.
+    """
+    fenced = f"```bash\n{line}\n```"
+    assert bool(_shell_invocations(fenced)) is blocked, (case, _commands(line))
+    assert bool(_unlisted_commands(fenced)) is unlisted, (case, _commands(line))
 
 
 def test_skills_contain_no_gh_or_git_commands() -> None:
