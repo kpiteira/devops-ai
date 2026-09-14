@@ -169,22 +169,28 @@ def test_pr_ownership_rule_reaches_the_babysitter() -> None:
     assert "owns" in read("skills/kbabysit/SKILL.md")
 
 
-def test_babysit_loop_is_pinned_to_a_forked_opus_subagent() -> None:
-    """The loop must not run inline on the invoking session's tier (issue #25).
+def test_babysit_loop_runs_in_an_opus_session_and_says_so() -> None:
+    """The loop must not run on the invoking session's tier (issue #25) — and must be
+    visible in the session that runs it (2026-09-14).
 
     Twice observed running inline on a top-tier session because the tier lived in
-    prose. It lives in frontmatter now, and this is what keeps it there.
+    prose; #45 moved it to frontmatter as ``context: fork`` + ``model:``. The fork kept
+    the tier and hid the loop: an agent-deck session running a forked babysit shows a
+    status line and nothing else, with every round in a sidechain transcript (measured
+    on #72 and #66). The human dropped the fork; the tier is the session's now, and the
+    skill's preflight states the model and stops on the wrong one. This keeps both.
     """
-    frontmatter = read("skills/kbabysit/SKILL.md").split("---")[1]
+    skill = read("skills/kbabysit/SKILL.md")
+    frontmatter = skill.split("---")[1]
     fields = dict(
         line.split(":", 1) for line in frontmatter.splitlines() if ": " in line
     )
-    assert fields.get("context", "").strip() == "fork"
-    assert fields.get("agent", "").strip() == "general-purpose"
-    assert "opus" in fields.get("model", "").strip()
-    # Not cosmetic: background:true would deliver the report as a task notification
-    # long after the invoking turn, which is the unread round the skill forbids.
-    assert fields.get("background", "").strip() == "false"
+    assert "context" not in fields, "the fork is back — it hides the loop"
+    assert "model" not in fields, "the tier is the session's, checked in preflight"
+    preflight = skill.split("## 0. Preflight", 1)[1].split("## 1.", 1)[0]
+    assert "MODEL:" in preflight
+    assert "opus" in preflight.lower()
+    assert "agent-deck" in preflight
 
 
 def test_observer_skill_exists_with_its_launch_guards() -> None:

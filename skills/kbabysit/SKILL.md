@@ -1,12 +1,8 @@
 ---
 name: kbabysit
 description: Drive a PR from ready-for-review to merge-ready — request Copilot review, wait for it, triage and address comments via kreview against the PR's written review scope, re-request, and stop when the reviewer has finished with the PR (not with the fixes). Ends with a TL;DR report. Never merges, never triggers Claude reviews.
-context: fork
-agent: general-purpose
-background: false
-model: claude-opus-5
 metadata:
-  version: "0.4.0"
+  version: "0.5.0"
 ---
 
 # kbabysit — babysit a PR to merge-ready
@@ -26,41 +22,39 @@ what the PR was for. Truth is not the axis; scope is.
 
 **Arguments for this run:** `$ARGUMENTS` — empty means "the PR for the current branch".
 
-## How this runs — forked, on Opus
+## How this runs — in its own session, on Opus
 
-This skill's frontmatter carries `context: fork`, `agent: general-purpose`,
-`background: false` and `model: claude-opus-5`, so the loop always executes in a subagent
-on an Opus-grade model, never inline on the invoking session's model. Two reasons, both
-measured: **tier economics** — babysitting is polling plus bounded per-finding judgement,
-well within Opus-grade capability, and the invoking session's tier belongs to the
-intent/acceptance decisions this loop feeds, not to a re-review poll; and **context
-hygiene** — a run generates a lot of low-value output (poll results, review bodies, CI
-logs) that stays in the subagent instead of silting up a long-lived design or
-orchestration session. On 2026-09-03/04 the loop ran inline on a top-tier session because
-the skill named no execution tier (agent-memory #246, recorded in devops-ai #25); the human
-observed the same thing again on 2026-09-12 and re-signed the rule, which is why the tier
-is now in the frontmatter rather than in prose anyone can skip.
+This loop runs **in the session that invokes it**, and that session is an Opus-grade
+agent-deck session created from the PR's worktree (`agent-deck add <worktree> -t
+<project>/babysit-<pr> … --model claude-opus-5`, then `session send … '/kbabysit <pr>'`).
+Two reasons, both measured:
+
+- **Tier.** Babysitting is polling plus bounded per-finding judgement, executor-tier work;
+  the planner tier belongs to the intent and acceptance decisions this loop feeds. On
+  2026-09-03/04 the loop ran inline on a top-tier session because the skill named no tier
+  (agent-memory #246, devops-ai #25); the human saw it again on 2026-09-12 and #45 pinned
+  the tier in frontmatter with `context: fork` + `model: claude-opus-5`.
+- **Visibility.** The fork fixed the tier and hid the loop: a forked run leaves the
+  invoking session showing a status line and nothing else, with every round's reasoning in
+  a sidechain transcript nobody opens. Measured 2026-09-13 on devops-ai #72 and #66 — two
+  full babysits, two empty panes. The human's word on 2026-09-14: drop the fork. The tier
+  is now the session's, and step 0 checks it instead of the frontmatter forcing it.
 
 What that costs you, and how this skill pays it:
 
-- **The fork sees no conversation history** — only this file with `$ARGUMENTS` substituted.
-  So the PR number must either be passed explicitly (`/kbabysit 42`) or be resolvable from
-  the checkout. Step 0 reads the explicit number **first** and only falls back to
-  `gh pr view` — the other order silently babysits the branch's PR when you asked for a
-  different one — and stops outright if the two disagree, because the loop pushes fixes and
-  `kreview` resolves the PR from the checkout too. The fork starts in the invoking session's
-  working directory (verified 2026-09-12), so that fallback resolves correctly.
-- **`background: false`** makes the invoking turn wait for the report instead of collecting
-  it from a background task later. The ownership rule below — an unread review round is not
-  done — is the reason: a report that lands as a background notification after the session
-  moved on is exactly the unread round. It also makes interactive runs behave like `-p`
-  and SDK runs, which wait regardless. It needs Claude Code v2.1.218 or later; on an older
-  build the field is inert and the fork reports back as a background task instead — later,
-  but not lost.
-- **`kreview` runs inside this subagent**, per round, and is not itself forked — forking it
-  would hide each round's reasoning from the loop that has to decide whether to run another
-  one. Invoke it with the Skill tool (available to a `general-purpose` fork, verified
-  2026-09-12); if that tool is missing wherever this runs, read and follow
+- **The session sees no planner conversation** — only this file with `$ARGUMENTS`
+  substituted and whatever the kickoff said. So the PR number must either be passed
+  explicitly (`/kbabysit 42`) or be resolvable from the checkout. Step 0 reads the explicit
+  number **first** and only falls back to `gh pr view` — the other order silently babysits
+  the branch's PR when you asked for a different one — and stops outright if the two
+  disagree, because the loop pushes fixes and `kreview` resolves the PR from the checkout
+  too. A session created from the PR's worktree resolves correctly by construction.
+- **The report lands in this session's turn** and in the PR comment. The ownership rule
+  below — an unread review round is not done — is why the session that runs this loop has
+  no other job: nothing moves on before the report is read.
+- **`kreview` runs in this same session**, per round, never forked — forking it would hide
+  each round's reasoning from the loop that has to decide whether to run another one.
+  Invoke it with the Skill tool; if that tool is missing wherever this runs, read and follow
   `~/.claude/skills/kreview/SKILL.md` directly instead — same contract either way.
 
 **End state:** merge-ready (or explicitly blocked) + a detailed report with TL;DR. This skill
@@ -75,6 +69,14 @@ Copilot round sat overnight on a side PR nobody owned. For a milestone PR the ex
 ---
 
 ## 0. Preflight
+
+**Model first.** Say which model this session runs on — the harness names it — as a
+`MODEL:` line. `MODEL: claude-opus-…` continues. Anything else — a Fable/Mythos planner
+session, a Sonnet or Haiku session, a session that resumed on a default after a restart —
+ends the run here: `MODEL: <id> — not the executor tier; launch an Opus agent-deck session
+from this PR's worktree and run /kbabysit <n> there`. The tier used to be forced by
+`context: fork` in this file's frontmatter; the fork hid the loop, so the check is yours
+now and this line is what keeps it from being skipped.
 
 ```bash
 ARG_PR=$(printf '%s' "$ARGUMENTS" | sed 's/^#//' | grep -oE '^[0-9]+')      # explicit <pr-number>, if given

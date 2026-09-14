@@ -47,6 +47,10 @@ A skill can, however, pin its own execution for the turn it is active. The
 only; with `context: fork` the same `model:` sets the forked subagent's model instead, and
 `agent:` picks the subagent type. That closes the open question this rule used to carry (see
 `docs/designs/opus-4.8-evolution/INTENT.md`): pin a tier in frontmatter when the *skill*, not
-the session, determines the right one — `kbabysit` does it to force its loop onto an
-Opus-grade subagent — and otherwise leave it to the harness, because a pinned tier is invisible
-in the status bar and outlives nobody's attention.
+the session, determines the right one, and otherwise leave it to the harness, because a
+pinned tier is invisible in the status bar and outlives nobody's attention. `kbabysit` did
+this (#45, `context: fork` + `model:`) and dropped it on 2026-09-14: a forked loop is
+invisible in the session that runs it — a status line and nothing else, the rounds in a
+sidechain transcript — so the babysit now runs in an Opus agent-deck session of its own
+and its preflight states the model and stops on the wrong one. A pin that hides the work
+it pins is the wrong pin.
