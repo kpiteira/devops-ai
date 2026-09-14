@@ -71,10 +71,19 @@ whose dependencies are `delivered`.
    push explicitly. **Where main rejects direct pushes** — a branch ruleset requiring a
    pull request, as devops-ai has since 2026-09-14 (#28: PR required, `check` and
    `integration` required, no bypass) — bookkeeping lands one of two ways. This skill is
-   installed globally across projects, so read that as a condition to check (`gh api
-   "repos/$REPO/rulesets"`, or just try the push), not as a fact about every repo: where
-   main is unprotected, a direct push from the same detached worktree is still the
-   simplest route and the two below are the fallback.
+   installed globally across projects, so read that as a condition to check, not as a
+   fact about every repo: where main is unprotected, a direct push from the same detached
+   worktree is still the simplest route and the two below are the fallback.
+
+     ```bash
+     gh api "repos/$REPO/rules/branches/main" --jq '.[].type' | grep -qx pull_request
+     ```
+     That endpoint reports the rules actually **in force** on the branch, org-level
+     rulesets included; a `pull_request` entry is this condition. Do not read
+     `repos/$REPO/rulesets` for it — it lists the repo's own rulesets whatever their
+     enforcement or target (devops-ai's has three, one `disabled`) and no org rules, so
+     both its empty and its non-empty answers mean several things at once. Trying the
+     push is the other unambiguous probe.
    - **On the milestone PR itself, before the human merges it** — the default. The
      spec's Decomposition row (`delivered (PR #N)`) and any fact-correction amendment
      are one commit on the PR branch, pushed from a detached worktree at the branch
@@ -172,9 +181,10 @@ which is the relay failure under a politer name.
    of the PR head, or a sandbox you provision — run the brief's `blocking:` command
    and compare with the PR body's pasted output: same head, same count. Until the CI
    wiring in the evolutions backlog lands, this is what "verifiable by a stranger"
-   means in practice. Record the command and output in a PR comment. If step 3 will
-   add a bookkeeping commit, land that commit before this re-run (step 4) — the
-   comparison is only worth anything at the head that gets merged.
+   means in practice. Record the command and output in a PR comment. **Order:** step 3
+   decides the bookkeeping commit and step 4 explains why it has to precede this one, so
+   the sequence you actually run is 2 → 3 → 1 → 4. The comparison is only worth anything
+   at the head that gets merged, and step 3's commit is what makes that head final.
 2. **Guard.** If the project's contract-integrity guard did not run (not deployed, or
    the PR predates it), run it by hand: the *script* comes from the base commit, the
    *diff* it judges is `<base>...HEAD`, so run it in a checkout of the PR head:
