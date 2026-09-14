@@ -148,6 +148,65 @@ class TestWhatTheWriterDispatchesTo:
             assert ref in str(caught.value)
             assert VALUE not in str(caught.value)
 
+    @pytest.mark.parametrize("bad", ["a\nb", "a\rb", "a\u2028b", "a\0b"])
+    def test_a_reference_that_cannot_print_as_one_line_never_reaches_a_backend(
+        self, monkeypatch: pytest.MonkeyPatch, bad: str
+    ) -> None:
+        """The canonical reference is this module's promise, so this is its guard.
+
+        `write` answers with the string a caller keeps, and the surface pins that
+        answer to exactly one line. A provider that hands back the reference it
+        was given — three of the four do — turns a reference carrying a line
+        break into two lines of stdout, and a caller reading that back keeps half
+        a reference.
+
+        Refused *here* rather than in each provider because the one-line promise
+        belongs to the canonical reference, not to any backend: guarding per
+        provider is how `openbao` and `onepassword` came to have no guard at all
+        while `dotenv` and `azurekeyvault` each grew their own.
+
+        The provider must not be reached. For `bao://` the write would otherwise
+        succeed first — the value is stored, and only then is the caller handed a
+        reference it cannot use.
+        """
+        reached = []
+
+        class Stub:
+            SCHEME = "stub://"
+
+            @staticmethod
+            def write(*args: object, **kw: object) -> str:
+                reached.append(args)
+                return "stub://ok"
+
+        monkeypatch.setattr(
+            "devops_ai.secrets.writer.provider_for", lambda ref: Stub()
+        )
+
+        with pytest.raises(ProviderError) as caught:
+            write(f"stub://{bad}", VALUE)
+
+        assert not reached, "the backend was asked to store it anyway"
+        assert VALUE not in str(caught.value)
+        assert str(caught.value).splitlines() == [str(caught.value)], (
+            "the refusal must not itself print as two lines"
+        )
+
+    def test_a_literal_carrying_a_line_break_is_still_not_echoed(self) -> None:
+        """Ordering: the literal branch runs first, and it must keep running.
+
+        A string no provider claims *is* its value. Were the one-line guard
+        placed ahead of that branch, it would name — and so leak — exactly the
+        literal the branch exists to keep quiet.
+        """
+        literal = "postgres://user:hunter2@db/\napp"
+
+        with pytest.raises(ProviderError) as caught:
+            write(literal, VALUE)
+
+        assert "hunter2" not in str(caught.value)
+        assert "not a secret reference" in str(caught.value)
+
 
 # ------------------------------------------------------------------ dotenv
 
@@ -320,7 +379,45 @@ class TestTheDotenvFile:
         )
         assert target.read_text() == f"K={VALUE}\n"
 
-    @pytest.mark.parametrize("bad", ["foo\nbar", "foo\rbar", "foo bar"])
+    def test_a_mode_that_cannot_be_restored_is_not_a_failed_write(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Moving the restore after the rename put it after the point of no return.
+
+        The value is on disk once `os.replace` returns. A restore that fails
+        then — an SMB, FAT or FUSE mount where `rename` works and `chmod` does
+        not — was raised as `Cannot write …`, so a caller was told nothing was
+        stored while the secret sat in the file. It would abort or retry a write
+        that had in fact succeeded, which is the one outcome J8's round trip
+        cannot survive.
+
+        The mode is the part that may be dropped, never the write: what is left
+        is owner-only, which is the strict direction, and the reference still
+        comes back so the caller can read the value it stored.
+        """
+        target = tmp_path / "old.env"
+        target.write_text("K=old\nOTHER=keep\n")
+        os.chmod(target, 0o644)
+        real_chmod = os.chmod
+
+        def refuse_on_the_target(path: object, mode: int, *a: object) -> None:
+            if os.path.realpath(str(path)) == os.path.realpath(str(target)):
+                raise OSError(1, "Operation not permitted")
+            real_chmod(path, mode, *a)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(dotenv.os, "chmod", refuse_on_the_target)
+
+        got = write("dotenv://old.env#K", VALUE, ResolveContext(base_dir=tmp_path))
+
+        assert got == "dotenv://old.env#K", (
+            "a stored secret must answer with its reference"
+        )
+        assert target.read_text() == f"K={VALUE}\nOTHER=keep\n"
+        assert stat.S_IMODE(os.stat(target).st_mode) == 0o600, (
+            "the mode we could not restore stays at the strict end, not the loose one"
+        )
+
+    @pytest.mark.parametrize("bad", ["foo\nbar", "foo\rbar", "foo\u2028bar"])
     def test_a_reference_that_would_print_as_two_lines_is_refused(
         self, tmp_path: Path, bad: str
     ) -> None:

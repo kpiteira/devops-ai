@@ -60,9 +60,13 @@ def write(
     # theoretical — and a write answers with the reference it was given, which
     # `ksecret write` prints. A reference carrying one would make stdout two
     # lines where the surface promises exactly one, the canonical reference,
-    # and a caller reading that back stores half a reference. `splitlines()`
-    # rather than a list of characters, and NUL beside it, to stay in step with
-    # the same refusal in `azurekeyvault` and `openbao`.
+    # and a caller reading that back stores half a reference.
+    #
+    # The one-line promise is enforced for every provider in `writer.write`,
+    # which is the module that makes it; this repeats it because `dotenv.write`
+    # is also called directly, and because the refusal has to come before any
+    # file is touched. `azurekeyvault` keeps its own for a sharper reason still
+    # — a line break there forges the error fields it parses back out of `az`.
     #
     # Here rather than in `_parse`, which reads share: M1-M3 read behaviour is
     # unchanged, and a read that already resolves such a file must keep doing
@@ -276,9 +280,16 @@ def _save(path: Path, text: str, existed: bool) -> None:
             os.fsync(stream.fileno())
         os.chmod(temporary, NEW_FILE_MODE)
         os.replace(temporary, path)
-        if previous_mode is not None:
-            os.chmod(path, previous_mode)
     except OSError as exc:
         with contextlib.suppress(OSError):
             os.unlink(temporary)
         raise ProviderError(f"Cannot write {path}: {exc.strerror}.") from None
+    if previous_mode is not None:
+        # Outside the block above, and suppressed, because `os.replace` has
+        # returned: the value *is* the file now. On a mount where rename works
+        # and chmod does not — SMB, FAT, some FUSE — raising here would report
+        # `Cannot write` over a write that succeeded, and a caller would abort
+        # or retry a secret already stored. The mode is the part that may be
+        # dropped; what is left is owner-only, the strict end of the mistake.
+        with contextlib.suppress(OSError):
+            os.chmod(path, previous_mode)
