@@ -298,6 +298,36 @@ class TestALiteralIsNeverEchoedWithoutPrint:
         assert result.output.strip() == f"ok {ref}"
         assert "hunter2" not in result.output
 
+    def test_a_refused_stdin_names_the_reference_it_was_meant_for(
+        self, project: Path
+    ) -> None:
+        """`errors name the reference` covers the input failure too.
+
+        A provisioning run pipes many secrets through this command; a refusal
+        that names none of them says only that *something* was not text.
+        """
+        ref = "dotenv://out.env#K"
+        result = runner.invoke(app, ["write", ref], input=b"\xff\xfe not text")
+
+        assert result.exit_code == 1
+        assert ref in result.output
+
+    def test_a_refused_stdin_still_does_not_echo_a_literal(
+        self, project: Path
+    ) -> None:
+        """The mirror, and the reason the reference goes through `_label`.
+
+        Naming the "reference" here would print the value itself, which is the
+        one thing every other path in this command is careful not to do.
+        """
+        result = runner.invoke(
+            app, ["write", self.LITERAL], input=b"\xff\xfe not text"
+        )
+
+        assert result.exit_code == 1
+        assert "hunter2" not in result.output
+        assert "(literal)" in result.output
+
     def test_an_env_file_key_is_not_redacted(self, project: Path) -> None:
         """Keys come from the file, not from the value — echoing them is safe."""
         (project / "refs.env").write_text("CONN=postgres://user:hunter2@host/db\n")

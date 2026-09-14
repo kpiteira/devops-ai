@@ -22,6 +22,29 @@ def normalized(text: str) -> str:
     return " ".join(text.replace(">", " ").replace("*", " ").split())
 
 
+def section(text: str, heading: str) -> str:
+    """The body of one `## <heading>` section, up to the next `## ` heading."""
+    marker = f"\n## {heading}\n"
+    assert marker in text, f"no `## {heading}` section"
+    rest = text[text.index(marker) + 1 :]
+    end = rest.find("\n## ", 1)
+    return rest if end == -1 else rest[:end]
+
+
+def block(text: str, starts_with: str) -> str:
+    """The blank-line-delimited paragraph that starts with `starts_with`.
+
+    A phrase asserted against a whole section says only that *somewhere* in it the
+    words survive. When the same phrase legitimately appears in two places, that is
+    not enough: deleting it from the load-bearing one stays green. Naming the block
+    is what makes an assertion point at a specific obligation.
+    """
+    for paragraph in text.split("\n\n"):
+        if paragraph.lstrip().startswith(starts_with):
+            return paragraph
+    raise AssertionError(f"no paragraph starting {starts_with!r}")
+
+
 def test_task_pipeline_stays_removed() -> None:
     for gone in ("skills/kplan", "skills/kloop", "skills/kdesign",
                  "rules/tdd.md", "rules/handoffs.md", "templates/acp.md"):
@@ -222,8 +245,36 @@ def test_babysit_loop_runs_in_an_opus_session_and_says_so() -> None:
 
 def test_observer_skill_exists_with_its_launch_guards() -> None:
     skill = read("skills/kobserve/SKILL.md")
-    for phrase in ("--group", "model", "checkout", "For the human", "kinfra done"):
+    for phrase in (
+        "--group",
+        "model",
+        "checkout",
+        "For the human",
+        "kinfra done",
+        # 2026-09-14: an observer coined "merge-ready" over a ⚠️ report (PR #70)
+        "Never upgrade a verdict",
+        "verbatim",
+    ):
         assert phrase in skill, phrase
+    # Those two live outside `## verify` (the bullet is in `## Guardrails`, and
+    # "verbatim" occurs three times in the file), so a whole-file check survives the
+    # gate being stripped out of `verify` entirely. The verdict rule has two distinct
+    # obligations inside `verify` and they are pinned one block each, because
+    # "**Why the loop stopped:**" and "verbatim" appear in *both* — a section-wide
+    # check stays green when either site loses them.
+    verify = section(skill, "verify")
+    gate = block(verify, "**In:**")          # what the seat may enter on
+    for phrase in ("**newest section**", "**Verdict:** ✅ merge-ready",
+                   "**Why the loop stopped:**", "verbatim"):
+        assert phrase in gate, f"`verify` `In:` gate must carry {phrase!r}"
+    # Keyed on the step's name, not its number: inserting a step ahead of it would
+    # renumber `4.` and kill the test with a bare ValueError, so its red would have
+    # meant "renumbered" as often as "the relay obligation is gone". `**Report:**`
+    # occurs once in `verify`, so this red means exactly one thing.
+    assert "**Report:**" in verify, "`## verify` must keep its report step"
+    relay = verify[verify.index("**Report:**"):]      # what the seat must say
+    for phrase in ("**Why the loop stopped:**", "verbatim"):
+        assert phrase in relay, f"`verify` step 4 must carry {phrase!r}"
 
 
 def test_project_config_template_lists_standing_gates() -> None:

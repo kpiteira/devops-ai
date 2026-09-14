@@ -30,7 +30,8 @@ blocking: uv run pytest tests/acceptance/secret_providers/test_m4_write.py tests
     exists.
   - `op://<vault>/<item>/<field>` — creates the item with that field when the item
     does not exist; sets the field when it does. Either way the value travels in a
-    JSON template file (mode 0600, removed afterwards), never in argv.
+    JSON template piped to `op`'s stdin, never in argv and never on disk (amended
+    2026-09-14, Karl: was a 0600 template file; stdin is the stricter channel).
   - `$VAR` / `env://` — exit 1: the host environment is read-only.
 - Errors name the reference, never the value.
 
@@ -55,7 +56,8 @@ Plus the standing gates: `make check` exits 0.
 ## Invariants
 
 - Secret values reach providers via stdin, environment, or 0600 temp files only —
-  never argv (`op item create` and `op item edit` accept `--template <json file>`;
+  never argv (`op item create` and `op item edit` accept a JSON template on stdin,
+  or `--template <json file>`;
   `az keyvault secret set` accepts `--file`; OpenBao is HTTP). This invariant is
   reviewed, not machine-checked: no acceptance test can observe another process's
   argv reliably.
@@ -87,8 +89,9 @@ Plus the standing gates: `make check` exits 0.
   sibling keys survive); a plain `POST` replaces all keys.
 - `op`'s own help says "for sensitive values, use a template instead" of assignment
   arguments — for both `item create` and `item edit`. Editing by template means:
-  `op item get <item> --format json` → modify the field in the JSON → `op item edit
-  <item> --template <file>`; agent-memory references items by ID after creation.
+  `op item get <item> --format json` → modify the field in the JSON → pipe it to
+  `op item edit <item>` (documented in `op item edit --help`; measured against the
+  acceptance vault 2026-09-13); agent-memory references items by ID after creation.
 
 ## Decisions
 

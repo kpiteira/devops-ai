@@ -6,6 +6,11 @@ one value. Where and who come from the environment the same way `bao` takes
 them — the `BAO_*` spelling first, then `VAULT_*`, then the token file
 `bao login` writes — so the two agree on which server they are talking to.
 
+Writing is a KV v2 *patch*: the named key is set and the secret's other keys
+are left alone, which is what a provisioning step storing one credential into a
+shared secret needs. A value travels in a request body, which is neither argv
+nor a file, so there is nothing to clean up afterwards.
+
 Two rules hold everywhere below. Nothing that answers back carries a value: a
 missing key is named, its siblings are not, and a server error is reported by
 status rather than by echoing a response body. And the token goes only to the
@@ -43,6 +48,13 @@ TIMEOUT = 30
 # Every 3xx, not an enumerated few: which ones urllib would have followed is
 # exactly the judgement this provider declines to make.
 REDIRECT_MIN, REDIRECT_MAX = 300, 400
+JSON_TYPE = "application/json"
+# KV v2 refuses a patch sent as plain JSON with a 415 (measured against the dev
+# image): the media type is what tells the server to merge rather than replace,
+# so getting it wrong would be the difference between setting one key and
+# discarding every other.
+MERGE_PATCH_TYPE = "application/merge-patch+json"
+NOT_FOUND = 404
 
 
 class Server(NamedTuple):
@@ -81,6 +93,91 @@ def resolve(ref: str, ctx: ResolveContext) -> str:
     if not isinstance(value, str):
         return json.dumps(value)
     return value
+
+
+def write(
+    ref: str, value: str, ctx: ResolveContext, if_absent: bool = False
+) -> str:
+    """Set one key of a KV v2 secret, leaving the secret's other keys alone."""
+    mount, path, key = _parse(ref)
+    server = _address(ctx)
+    token = _token(ctx)
+    tls = _tls(ctx)
+    location = _location(mount, path)
+    body: dict[str, object] = {"data": {key: value}}
+
+    if if_absent and _holds(server, mount, path, key, ref, token, tls):
+        return ref
+
+    try:
+        _send(server, "PATCH", location, token, tls, body, MERGE_PATCH_TYPE)
+    except _Status as status:
+        if status.code != NOT_FOUND:
+            raise _status_error(
+                status.code, ref, mount, path, server, writing=True
+            ) from None
+        # KV v2 answers 404 to a patch of a secret that has no current version
+        # — one that was never written, and one whose latest version has been
+        # deleted (both measured against the dev image). A create is right for
+        # the first and is the only thing available for the second: there is no
+        # readable key there to preserve, so nothing a patch would have kept is
+        # lost by writing a version that holds just this one.
+        try:
+            _send(server, "POST", location, token, tls, body, JSON_TYPE)
+        except _Status as created:
+            raise _status_error(
+                created.code, ref, mount, path, server, writing=True
+            ) from None
+    return ref
+
+
+def _holds(
+    server: Server,
+    mount: str,
+    path: str,
+    key: str,
+    ref: str,
+    token: str,
+    tls: ssl.SSLContext | None,
+) -> bool:
+    """Whether the secret already carries this key — asked, not assumed absent.
+
+    A 404 is the one failure that means "no": the secret has no current
+    version, so it holds nothing. Anything else is a server that could not
+    answer the question, and treating that as absence would turn a refused read
+    into an overwrite — the one outcome `--if-absent` exists to prevent.
+    """
+    try:
+        body = _send(server, "GET", _location(mount, path), token, tls)
+    except _Status as status:
+        if status.code == NOT_FOUND:
+            return False
+        raise _status_error(
+            status.code, ref, mount, path, server, writing=True
+        ) from None
+    envelope = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(envelope, dict) or "data" not in envelope:
+        # Validated exactly as `_read_secret` does, and for a sharper reason: a
+        # KV v1 mount answers `{"data": {...}}`, so reading an unfamiliar shape
+        # as "absent" would overwrite the live secret those keys belong to.
+        raise ProviderError(
+            f"The answer for {mount}/{path} is not a KV v2 secret, so whether "
+            f"{ref} already exists could not be determined and nothing was "
+            f"written. Check that {mount} is a KV v2 mount."
+        )
+    values = envelope["data"]
+    if values is None:
+        # The current version is deleted or destroyed: nothing readable is
+        # there to preserve, which is the same ground on which `write` creates
+        # over a 404 rather than refusing.
+        return False
+    if not isinstance(values, dict):
+        raise ProviderError(
+            f"The answer for {mount}/{path} is not a KV v2 secret, so whether "
+            f"{ref} already exists could not be determined and nothing was "
+            f"written. Check that {mount} is a KV v2 mount."
+        )
+    return key in values
 
 
 def _parse(ref: str) -> tuple[str, str, str]:
@@ -280,20 +377,44 @@ class _NoRedirects(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def _read_secret(
+class _Status(Exception):
+    """An HTTP error status, before anything has decided what it means.
+
+    A GET and a PATCH read the same code differently — a 404 is a missing
+    secret to one and the thing to create to the other — so the transport
+    reports the number and each caller says the sentence. The response body is
+    dropped here rather than carried: it is the one part of an answer that
+    could hold a value.
+    """
+
+    def __init__(self, code: int) -> None:
+        self.code = code
+        super().__init__(str(code))
+
+
+def _send(
     server: Server,
-    mount: str,
-    path: str,
-    ref: str,
+    method: str,
+    location: str,
     token: str,
     tls: ssl.SSLContext | None,
+    payload: dict[str, object] | None = None,
+    content_type: str | None = None,
 ) -> dict[str, object]:
-    """GET the current version of `<mount>/<path>`; return its key/value map."""
-    location = urllib.parse.quote(f"{mount}/data/{path}", safe="/")
+    """One request to the configured server; its parsed body, or `_Status`.
+
+    Every rule this module holds lives here rather than at each call site: no
+    proxy, no redirect, the token only on the address that was configured, and
+    nothing of a response body in anything raised.
+    """
+    headers = {"X-Vault-Token": token}
+    if content_type is not None:
+        headers["Content-Type"] = content_type
     request = urllib.request.Request(
         f"{server.base}/v1/{location}",
-        headers={"X-Vault-Token": token},
-        method="GET",
+        data=json.dumps(payload).encode("utf-8") if payload is not None else None,
+        headers=headers,
+        method=method,
     )
     opener = urllib.request.build_opener(
         # An empty ProxyHandler, not the default one: `build_opener` would
@@ -313,7 +434,7 @@ def _read_secret(
         # socket open for as long as the error is held, and `resolve_all` holds
         # every one of them.
         exc.close()
-        raise _status_error(exc.code, ref, mount, path, server) from None
+        raise _Status(exc.code) from None
     except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
         # HTTPException is not an OSError: a truncated body raises
         # `IncompleteRead` out of `.read()`, which would otherwise leave the
@@ -328,6 +449,27 @@ def _read_secret(
             f"The server at {server.base} did not answer with JSON. Check that "
             f"{server.variable} names an OpenBao or Vault server."
         ) from None
+    return dict(body) if isinstance(body, dict) else {}
+
+
+def _location(mount: str, path: str) -> str:
+    """The KV v2 data path a reference names, escaped for a URL."""
+    return urllib.parse.quote(f"{mount}/data/{path}", safe="/")
+
+
+def _read_secret(
+    server: Server,
+    mount: str,
+    path: str,
+    ref: str,
+    token: str,
+    tls: ssl.SSLContext | None,
+) -> dict[str, object]:
+    """GET the current version of `<mount>/<path>`; return its key/value map."""
+    try:
+        body = _send(server, "GET", _location(mount, path), token, tls)
+    except _Status as status:
+        raise _status_error(status.code, ref, mount, path, server) from None
 
     envelope = body.get("data") if isinstance(body, dict) else None
     if not isinstance(envelope, dict) or "data" not in envelope:
@@ -359,6 +501,7 @@ def _status_error(
     mount: str,
     path: str,
     server: Server,
+    writing: bool = False,
 ) -> ProviderError:
     """What an HTTP status means, without reading the body back to the user.
 
@@ -366,14 +509,31 @@ def _status_error(
     sends half the users to a variable they never set. Where the answer depends
     on which was chosen, `server.variable` says; where it does not, both are
     named, matching how `_token` already asks for one.
+
+    `writing` changes only what a refusal asks the reader to fix. A token that
+    can read is not thereby one that can patch, and sending someone to check
+    their read access for a write they were refused is guidance that cannot
+    work. A 404 never reaches here while writing — `write` creates instead.
     """
     if code in (401, 403):
+        if writing:
+            return ProviderError(
+                f"The server refused the token for {ref} (HTTP {code}). Writing "
+                f"one key needs the `patch` capability on {mount}/{path} (and "
+                f"`create` where the secret does not exist yet); a token that "
+                f"can read it does not necessarily have them."
+            )
         return ProviderError(
             f"The server refused the token for {ref} (HTTP {code}). Run "
             f"`bao login` (or `vault login`), or export a BAO_TOKEN (or "
             f"VAULT_TOKEN) with read access."
         )
-    if code == 404:
+    if code == NOT_FOUND:
+        if writing:
+            return ProviderError(
+                f"Nothing at {mount}/{path} accepted the write. Check that "
+                f"{mount} is a KV v2 mount in {ref}."
+            )
         return ProviderError(
             f"No secret at {mount}/{path}. Check the mount and path in {ref}."
         )
