@@ -285,6 +285,38 @@ class TestTheDotenvFile:
         write("dotenv://old.env#K", VALUE, ResolveContext(base_dir=tmp_path))
         assert stat.S_IMODE(os.stat(tmp_path / "old.env").st_mode) == 0o644
 
+    def test_the_value_is_never_world_readable_before_the_rename(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The temporary file holds the value, so its mode is a real exposure.
+
+        Copying the target's mode onto it *before* the rename publishes the
+        secret at that mode — 0644 here — under a `.ksecret-*` name nobody is
+        watching, for the window until the swap. The user's mode belongs on the
+        file only once it is the file, so the window runs owner-only instead.
+        """
+        target = tmp_path / "old.env"
+        target.write_text("K=old\n")
+        os.chmod(target, 0o644)
+        seen: list[int] = []
+        real_replace = os.replace
+
+        def watch(src: object, dst: object, *args: object, **kw: object) -> None:
+            seen.append(stat.S_IMODE(os.stat(src).st_mode))  # type: ignore[arg-type]
+            real_replace(src, dst, *args, **kw)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(dotenv.os, "replace", watch)
+
+        write("dotenv://old.env#K", VALUE, ResolveContext(base_dir=tmp_path))
+
+        assert seen == [0o600], (
+            "the file carrying the value was readable by others before the swap"
+        )
+        assert stat.S_IMODE(os.stat(target).st_mode) == 0o644, (
+            "the mode the user chose is still restored, just afterwards"
+        )
+        assert target.read_text() == f"K={VALUE}\n"
+
     def test_a_symlink_is_followed_rather_than_replaced(self, tmp_path: Path) -> None:
         real = tmp_path / "real.env"
         real.write_text("K=old\n")

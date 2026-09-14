@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import contextlib
 import os
-import shutil
 import tempfile
 from pathlib import Path
 
@@ -221,7 +220,20 @@ def _save(path: Path, text: str, existed: bool) -> None:
     them, and a write to one key is not the moment to overrule that. A file we
     create is owner-only, said here rather than left to `mkstemp`'s default,
     because it is a promise this command makes and not an implementation note.
+
+    The user's mode is restored *after* the rename, never copied onto the
+    temporary file before it. The temporary already holds the value, so
+    widening it first would publish the secret at the target's mode — 0644,
+    say — for the window before the rename, under a name nobody is watching.
+    Restoring afterwards inverts that window to owner-only, which is the
+    direction that cannot hurt.
     """
+    try:
+        previous_mode = (path.stat().st_mode & 0o777) if existed else None
+    except OSError:
+        # It was there a moment ago. Falling back to owner-only keeps the
+        # value unreadable rather than guessing a mode nobody stated.
+        previous_mode = None
     try:
         handle, temporary = tempfile.mkstemp(
             dir=path.parent, prefix=".ksecret-", suffix=".tmp"
@@ -233,11 +245,10 @@ def _save(path: Path, text: str, existed: bool) -> None:
             stream.write(text.encode("utf-8"))
             stream.flush()
             os.fsync(stream.fileno())
-        if existed:
-            shutil.copymode(path, temporary)
-        else:
-            os.chmod(temporary, NEW_FILE_MODE)
+        os.chmod(temporary, NEW_FILE_MODE)
         os.replace(temporary, path)
+        if previous_mode is not None:
+            os.chmod(path, previous_mode)
     except OSError as exc:
         with contextlib.suppress(OSError):
             os.unlink(temporary)
