@@ -185,6 +185,7 @@ two skills shrink to the judgement and the guardrails they exist for.
 <!-- Append-only after sign-off. -->
 
 - [x] 2026-09-13 (M1) decision-change: `kreview status` gains a `ci-failing` verdict,
+- [x] 2026-09-14 (M2) decision-change: `kbabysit` drops `context: fork` + `model:` from its frontmatter; the loop runs in the Opus agent-deck session that invokes it, and preflight states the model and stops on the wrong one. J10's grader asserts the absence of the fork and the presence of the check instead of the pin. *Rejected:* keeping the fork — it hid every round in a sidechain transcript (measured on #72 and #66). Decided by Karl 2026-09-14 ("drop the fork"), acknowledged the same moment.
   last in the order, exit 3 — a red check on the head stops the run instead of being a
   fact the model reads past. Raised by Copilot on PR #66 (twice; the second time as a
   systemic finding on pinned Surface, which stopped the babysit). Graded in M2's scratch

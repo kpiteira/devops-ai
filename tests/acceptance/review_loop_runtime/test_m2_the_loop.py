@@ -1734,7 +1734,10 @@ def test_skills_contain_no_gh_or_git_commands() -> None:
     for sub in ("kreview status", "kreview round", "kreview apply", "kreview report"):
         assert sub in kbabysit
     assert "kselfreview" in kbabysit
-    assert "context: fork" in kbabysit
+    # the fork was dropped 2026-09-14 (it hid the loop); the tier is the session's now,
+    # and the preflight check is what the rewrite must keep
+    assert "context: fork" not in kbabysit
+    assert "MODEL:" in kbabysit
     assert "Never merge" in kbabysit
     # the Surface pins the observer seat too: without this, kobserve can be left on the
     # old report flow and J10 still passes
