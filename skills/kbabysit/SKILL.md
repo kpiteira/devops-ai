@@ -30,7 +30,8 @@ agent-deck session created from the PR's worktree:
 ```bash
 agent-deck add <worktree> -t <project>/babysit-<pr> -g <project> -c claude --model claude-opus-5
 agent-deck session start <project>/babysit-<pr>
-agent-deck session send <project>/babysit-<pr> '/kbabysit <pr>'   # give the agent ~3s to come up
+sleep 3                                                          # the agent has to come up first
+agent-deck session send <project>/babysit-<pr> '/kbabysit <pr>'
 ```
 
 **This is the repo's launch contract, not a recipe of its own** — the same three steps, in
@@ -45,10 +46,14 @@ without it:
 - **`session start`** — `add` only registers the session; it does not run the tool. Send to
   a session that was never started and the kickoff goes nowhere, so the babysit never
   begins.
-- **the pause before `send`** — `send_to_session` sleeps 3 s after start for the same
-  reason ("to allow the agent to start"), and a busy target times out at 60 s and returns
-  failure rather than queueing. If the kickoff does not land, re-send it; nothing else in
-  the loop retries it for you.
+- **the `sleep 3` before `send`** — an actual command, not a note: `send_to_session`
+  *executes* `time.sleep(delay)` with `delay=3` before sending
+  (`src/devops_ai/agent_deck.py:88-99`, "to allow the agent to start"), so a recipe that
+  only mentions the pause in a trailing comment reproduces the bug the wrapper exists to
+  avoid — the comment does not pause anything, and the kickoff goes to a session that is
+  not up yet. A busy target then times out at 60 s (`COMMAND_TIMEOUT`) and returns failure
+  rather than queueing. If the kickoff does not land, re-send it; nothing else in the loop
+  retries it for you.
 
 Two reasons for the tier and the visibility, both measured:
 
@@ -94,8 +99,14 @@ Copilot round sat overnight on a side PR nobody owned. For a milestone PR the ex
 ## 0. Preflight
 
 **Model first.** Say which model this session runs on — the harness names it — as a
-`MODEL:` line. `MODEL: claude-opus-…` continues. Anything else — a Fable/Mythos planner
-session, a Sonnet or Haiku session, a session that resumed on a default after a restart —
+`MODEL:` line, and quote the harness's **exact model id** in it, because that id is what
+the condition is read against: the line the harness supports is
+`MODEL: Opus 5 (1M context) — claude-opus-5[1m]`, whose display name comes first, so an
+acceptance condition anchored to the *start* of the line would reject the very session
+this skill's own launch recipe creates. The rule is therefore about the id appearing, not
+about where: a `MODEL:` line **containing** a `claude-opus-…` id continues. Anything else
+— a Fable/Mythos planner session, a Sonnet or Haiku session, a session that resumed on a
+default after a restart —
 ends the run here: `MODEL: <id> — not the executor tier; launch an Opus agent-deck session
 from this PR's worktree and run /kbabysit <n> there`. The tier used to be forced by
 `context: fork` in this file's frontmatter; the fork hid the loop, so the check is yours
@@ -503,7 +514,10 @@ does not downgrade the verdict, and the line says so (#66's report got this righ
 budget was not the binding constraint: 2 of 3 rounds used"). Anything else firing
 alongside does downgrade it, because the two claims conflict — a second-order round that
 is *also* this round's repeat of last round's mechanism is a reviewer finding echo sites
-inside the fixes, not a reviewer that is done with the PR.
+inside the fixes, not a reviewer that is done with the PR. **❌ outranks both**: if CI is
+red or conflicts are unresolved, that is the verdict no matter what else fired with it —
+"downgrade to ⚠️" is a rule about convergence signals meeting non-convergence ones, and a
+branch that does not build never reaches that question.
 
 Measured 2026-09-14: #66 and #75 wrote ✅ over a `systemic — same mechanism as last round`
 stop, and #77 wrote ✅ over a round that was second-order but had both the budget and that

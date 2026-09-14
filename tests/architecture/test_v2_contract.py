@@ -217,13 +217,26 @@ def test_babysit_loop_runs_in_an_opus_session_and_says_so() -> None:
     for field in ("context", "agent", "background", "model"):
         assert field not in fields, f"execution pin `{field}:` is back in frontmatter"
     preflight = skill.split("## 0. Preflight", 1)[1].split("## 1.", 1)[0]
-    # The accept condition, on the MODEL: line itself — "opus" anywhere in the section
-    # is also satisfied by the rejection text, which would pass with the accept branch
-    # gone or naming any model at all.
-    assert "MODEL: claude-opus" in preflight
+    # Scoped to the `**Model first.**` paragraph, not the whole preflight section. Both
+    # phrases below happen to be unique to that paragraph today, so a section-wide check
+    # does hold — but only by accident of the surrounding prose: the moment either
+    # phrase is used elsewhere in preflight, deleting the gate stops making this red.
+    # The block is the obligation; the section merely contains it.
+    model_gate = " ".join(block(preflight, "**Model first.**").split())
+    # The accept *condition*, as one clause — not a bare `claude-opus-`, which this
+    # block contains twice: once in the rule and once in the worked example of the
+    # harness's own line. Asserting the loose token leaves the rule deletable with the
+    # example alone holding the gate green (measured: that mutation passed).
+    #
+    # The clause also pins `containing`, which is the whole finding it came from: the
+    # harness line leads with a display name, so an acceptance condition anchored to
+    # the start of the line would reject the very session the launch recipe creates.
+    assert "**containing** a `claude-opus-…` id continues" in model_gate, (
+        "acceptance must be an id the line *contains*, not one it starts with"
+    )
     # The rejection branch: the check has to end the run, not merely report a tier.
-    assert "ends the run here" in preflight
-    assert "agent-deck" in preflight
+    assert "ends the run here" in model_gate
+    assert "agent-deck" in model_gate
     # A one-shot gate does not replace the frontmatter pin it removed: `model:` was
     # re-applied to every fork and so survived a restart, while a check that runs only
     # at step 0 does not. The pilot measured a session resuming on a different model
@@ -246,9 +259,18 @@ def test_babysit_loop_runs_in_an_opus_session_and_says_so() -> None:
         "-g ",
         "--model claude-opus",
         "agent-deck session start",
+        # An executable pause, not a comment about one. Round 2's report predicted this
+        # element would be the next one found missing and closed the class by writing
+        # the recipe down; it was still absent two rounds later, because prose about a
+        # delay does not delay anything. `sleep` is the token that has to be there.
+        "sleep 3",
         "agent-deck session send",
     ):
         assert step in launch, f"launch recipe is missing `{step}`"
+    # ...and in the right order: the pause is worthless after the send it protects.
+    assert launch.index("sleep 3") < launch.index("agent-deck session send"), (
+        "the pause must come before the send it exists to protect"
+    )
 
 
 def test_babysit_verdict_is_a_function_of_the_stop() -> None:
@@ -296,6 +318,12 @@ def test_babysit_verdict_is_a_function_of_the_stop() -> None:
     # convergence one could always be the one quoted.
     multi = flat(block(skill, "**When more than one signal fires"))
     assert "all of them to be convergence signals" in multi
+    # ❌ outranks the downgrade rule. Without this, "anything else firing alongside
+    # downgrades to ⚠️" and "CI red is ❌, never ⚠️" both claim a converged-but-CI-red
+    # stop, and the verdict is whichever sentence the reader hits first.
+    assert "outranks" in multi, (
+        "❌ must take precedence over the multi-signal downgrade"
+    )
     # The exception's *reason*, which occurs once. "not the binding constraint" reads
     # like the obligation but appears twice in this paragraph — once as the rule and
     # once inside the quoted #66 report — so asserting it leaves the rule deletable
