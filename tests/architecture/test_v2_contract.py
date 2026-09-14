@@ -224,6 +224,14 @@ def test_babysit_loop_runs_in_an_opus_session_and_says_so() -> None:
     # The rejection branch: the check has to end the run, not merely report a tier.
     assert "ends the run here" in preflight
     assert "agent-deck" in preflight
+    # A one-shot gate does not replace the frontmatter pin it removed: `model:` was
+    # re-applied to every fork and so survived a restart, while a check that runs only
+    # at step 0 does not. The pilot measured a session resuming on a different model
+    # after a tmux restart and running on unnoticed, which is this PR's regression to
+    # own, not a general observation.
+    assert "on every resume" in preflight, (
+        "the model gate must re-run after a restart, not only at step 0"
+    )
     # The launch recipe is the mechanism the tier now rests on, so it has to be the
     # repo's launch contract rather than a recipe of its own: add (with a group and the
     # Opus model) → start → send. Two review rounds on #75 found two separate elements
@@ -258,20 +266,35 @@ def test_babysit_verdict_is_a_function_of_the_stop() -> None:
     characters that contain none of these obligations and passes no matter what.
     """
     skill = read("skills/kbabysit/SKILL.md")
+
+    # Every phrase below is matched against whitespace-collapsed text. These are
+    # assertions about prose, and prose wraps: "conflicts the loop could not clear"
+    # already spans a newline, so the literal substring is absent from a paragraph
+    # that plainly contains the rule. Collapsing first means these gates go red for
+    # the rule being gone and not for the paragraph being reflowed.
+    def flat(text: str) -> str:
+        return " ".join(text.split())
+
     # The template line itself carries the signal slots. Asserting `✅ merge-ready`
     # file-wide would stay green with the template reverted to a bare glyph menu,
     # because the rule paragraphs below quote the glyph too.
-    verdict_line = block(skill, "**Verdict:**")
+    verdict_line = flat(block(skill, "**Verdict:**"))
     for slot in ("(converged: <signal>)", "(stopped: <signal>)"):
         assert slot in verdict_line, f"Verdict template must carry `{slot}`"
-    rule = block(skill, "**The verdict is a function of the stop")
+
+    rule = flat(block(skill, "**The verdict is a function of the stop"))
     assert "*convergence* signal only" in rule
     # CI was once enumerated as ⚠️ *and* defined as ❌ in this same paragraph, which
-    # left a CI stop with no determinate verdict.
+    # left a CI stop with no determinate verdict. Both of ❌'s causes are pinned as a
+    # set: pinning only the CI half is how this gate shipped first, and `or conflicts
+    # the loop could not clear` could be deleted with every other assertion green.
     assert "never ⚠️" in rule, "CI must be ❌ alone — it was once in both lists"
+    for cause in ("CI red", "conflicts the loop could not clear"):
+        assert cause in rule, f"❌ must keep its `{cause}` cause"
+
     # Rounds routinely end on several signals at once; without a precedence rule the
     # convergence one could always be the one quoted.
-    multi = block(skill, "**When more than one signal fires")
+    multi = flat(block(skill, "**When more than one signal fires"))
     assert "all of them to be convergence signals" in multi
     # The exception's *reason*, which occurs once. "not the binding constraint" reads
     # like the obligation but appears twice in this paragraph — once as the rule and

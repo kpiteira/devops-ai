@@ -101,6 +101,15 @@ from this PR's worktree and run /kbabysit <n> there`. The tier used to be forced
 `context: fork` in this file's frontmatter; the fork hid the loop, so the check is yours
 now and this line is what keeps it from being skipped.
 
+**Re-run this gate on every resume, not just at step 0.** The frontmatter pin was
+re-applied to each fork, so it survived a restart; a one-shot preflight does not, and the
+model is a property that changes underneath a running loop. Measured in the pilot
+(`docs/designs/v2-contract/PILOT.md`, 2026-09-08): after a tmux restart
+`agent-deck session start` resumed a planner on Opus 4.8 instead of Fable — the session's
+model setting did not survive — and the rest of that session ran on the weaker model
+unnoticed until someone read the status bar. If this session was restarted or resumed
+mid-loop, state the `MODEL:` line again before the next round and apply the same stop.
+
 ```bash
 ARG_PR=$(printf '%s' "$ARGUMENTS" | sed 's/^#//' | grep -oE '^[0-9]+')      # explicit <pr-number>, if given
 BRANCH_PR=$(gh pr view --json number -q '.number' 2>/dev/null)              # this checkout's own PR, if any
