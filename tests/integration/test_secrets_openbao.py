@@ -926,6 +926,30 @@ class TestWritingOnlyWhenAbsent:
             f"{why} must stop before anything is written"
         )
 
+    def test_a_deleted_current_version_still_counts_as_absent(
+        self, bao: FakeBao
+    ) -> None:
+        """The one null KV v2 defines a meaning for, as against a malformed one.
+
+        `{"data": {"data": null}}` is a secret whose current version was deleted
+        or destroyed: there is no readable key there to preserve, which is the
+        same ground on which `write` creates over a 404 rather than refusing.
+        Refusing here instead would make `--if-absent` unable to restore a
+        secret someone deleted.
+        """
+        answers = iter([(200, json.dumps({"data": {"data": None}})), (200, "{}")])
+        bao.answer = lambda path: next(answers)
+
+        got = write(
+            "bao://kv/app#token",
+            VALUE,
+            ResolveContext(env={"BAO_ADDR": bao.addr, "BAO_TOKEN": "t-1"}),
+            if_absent=True,
+        )
+
+        assert got == "bao://kv/app#token"
+        assert [asked.method for asked in bao.asked] == ["GET", "PATCH"]
+
     def test_a_refused_existence_check_asks_for_write_access(
         self, bao: FakeBao
     ) -> None:

@@ -203,8 +203,19 @@ def _find(
         executable, ctx, ref, "list",
         ["item", "list", "--vault", vault, "--format=json"],
     )
+    if not (listing.stdout or "").strip():
+        # `[]` would parse as "the vault is empty", and an empty vault is a
+        # vault the item is certainly not in — so a listing that said nothing
+        # would become a second item, or a disarmed `--if-absent`. Measured
+        # against op 2.39.0: a listing with no matches prints `[]`, never
+        # nothing, so silence here is a failure and not an empty vault.
+        raise ProviderError(
+            f"1Password answered nothing when listing the vault for {ref}, so "
+            f"whether the item exists could not be determined and nothing was "
+            f"written. Check that `op item list --vault {vault}` succeeds."
+        )
     try:
-        items = json.loads(listing.stdout or "[]")
+        items = json.loads(listing.stdout)
     except ValueError:
         raise ProviderError(
             f"1Password did not answer with JSON when listing the vault for "

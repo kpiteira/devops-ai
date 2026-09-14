@@ -1198,6 +1198,33 @@ class TestAnUnfamiliarAnswerIsNotAnAbsence:
             call["argv"][1] for call in calls_of(log) if len(call["argv"]) > 1
         ], "a listing nobody could read must not become a second item"
 
+    def test_a_listing_that_says_nothing_is_not_an_empty_vault(
+        self, tmp_path: Path
+    ) -> None:
+        """The same class as the line above, at the other end of the parser.
+
+        Measured against op 2.39.0: `op item list --format=json` prints `[]`
+        when nothing matches, so empty stdout is a failure rather than an empty
+        vault — and an empty vault is one the item is certainly *not* in, which
+        is what makes reading silence that way create a duplicate.
+        """
+        log = fake_cli(
+            tmp_path / "bin", "op", op_answers(**{"item list": {"stdout": ""}})
+        )
+
+        with pytest.raises(ProviderError) as caught:
+            write(
+                "op://a-vault/my-item/password",
+                VALUE,
+                on_path(tmp_path / "bin"),
+                if_absent=True,
+            )
+
+        assert "op://a-vault/my-item/password" in str(caught.value)
+        assert "create" not in [
+            call["argv"][1] for call in calls_of(log) if len(call["argv"]) > 1
+        ]
+
 
 class TestAWriteRefusalSaysWhatAWriteNeeds:
     def test_a_refused_existence_check_asks_for_the_write_role(
@@ -1251,3 +1278,35 @@ class TestAWriteRefusalSaysWhatAWriteNeeds:
 
         assert "akv://a-vault/a-secret" in str(caught.value)
         assert VALUE not in str(caught.value)
+
+    def test_a_failure_after_the_file_exists_still_leaves_nothing_behind(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The second staging failure: the file is made, then cannot be used.
+
+        A separate branch from `mkstemp` raising, and the one where cleanup
+        matters — a file holding the value already exists by the time `chmod`
+        fails, so the refusal must remove it rather than leave a 0644 secret in
+        the temporary directory.
+        """
+        fake_cli(tmp_path / "bin", "az", {"keyvault secret set": {}})
+        staged: list[str] = []
+        real_chmod = azurekeyvault.os.chmod
+
+        def refuse(path: object, mode: object, *args: object, **kw: object) -> None:
+            if isinstance(path, str) and path.endswith(".value"):
+                staged.append(path)
+                raise OSError(30, "Read-only file system")
+            real_chmod(path, mode, *args, **kw)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(azurekeyvault.os, "chmod", refuse)
+
+        with pytest.raises(ProviderError) as caught:
+            write("akv://a-vault/a-secret", VALUE, on_path(tmp_path / "bin"))
+
+        assert "akv://a-vault/a-secret" in str(caught.value)
+        assert VALUE not in str(caught.value)
+        assert staged, "the test must have reached the chmod it is replacing"
+        assert not any(os.path.exists(path) for path in staged), (
+            "a value file must not outlive the refusal that abandoned it"
+        )
