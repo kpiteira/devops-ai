@@ -1,6 +1,6 @@
 ---
 name: kobserve
-description: The observer seat of the v2 contract — launch an executor session for a milestone, verify a delivered milestone PR before the human merges (independent blocking re-run, the "For the human" gate), and land it (spec row on main, teardown). Use when a signed feature needs its executors launched, a milestone PR needs verifying, or a merged milestone needs landing.
+description: The observer seat of the v2 contract — launch an executor session for a milestone, verify a delivered milestone PR before the human merges (independent blocking re-run, the "For the human" gate, the spec row committed onto the PR branch so the merge carries it), and land it (confirm the row landed, teardown). Use when a signed feature needs its executors launched, a milestone PR needs verifying, or a merged milestone needs landing.
 argument-hint: "launch <feature>/M<N> | verify <pr-number> | land <pr-number>"
 metadata:
   version: "0.2.0"
@@ -68,9 +68,13 @@ whose dependencies are `delivered`.
 4. **Never share a checkout with a child.** The observer touches the project's
    repository only through a temporary, detached worktree it creates and removes — git
    refuses a second worktree on a branch that is already checked out, so detach and
-   push explicitly. Main takes no direct pushes (ruleset since 2026-09-14, #28: pull
-   request required, `check` and `integration` required, no bypass), so bookkeeping
-   lands one of two ways:
+   push explicitly. **Where main rejects direct pushes** — a branch ruleset requiring a
+   pull request, as devops-ai has since 2026-09-14 (#28: PR required, `check` and
+   `integration` required, no bypass) — bookkeeping lands one of two ways. This skill is
+   installed globally across projects, so read that as a condition to check (`gh api
+   "repos/$REPO/rulesets"`, or just try the push), not as a fact about every repo: where
+   main is unprotected, a direct push from the same detached worktree is still the
+   simplest route and the two below are the fallback.
    - **On the milestone PR itself, before the human merges it** — the default. The
      spec's Decomposition row (`delivered (PR #N)`) and any fact-correction amendment
      are one commit on the PR branch, pushed from a detached worktree at the branch
@@ -106,17 +110,23 @@ whose dependencies are `delivered`.
      git -C <repo> fetch origin main
      git -C <repo> worktree add --detach "$SCRATCH/bookkeeping" origin/main
      # …edit, commit…
-     if git -C "$SCRATCH/bookkeeping" push origin HEAD:refs/heads/bookkeeping/<slug>; then
-       gh pr create --head bookkeeping/<slug> --title "spec(<feature>): <what>" \
-         --body-file <file carrying a "## Review scope" section: the one bookkeeping outcome>
-       git -C <repo> worktree remove "$SCRATCH/bookkeeping"
-     else
+     if ! git -C "$SCRATCH/bookkeeping" push origin HEAD:refs/heads/bookkeeping/<slug>; then
        echo "bookkeeping NOT pushed — worktree kept at $SCRATCH/bookkeeping"; exit 1
      fi
+     gh pr create --repo <owner/repo> --base main --head bookkeeping/<slug> \
+       --title "spec(<feature>): <what>" \
+       --body-file <file carrying a "## Review scope" section: the one bookkeeping outcome> \
+       || { echo "pushed, but no PR — worktree kept at $SCRATCH/bookkeeping"; exit 1; }
+     git -C <repo> worktree remove "$SCRATCH/bookkeeping"
      ```
      Fetch first: this route runs *after* a merge, so a stale `origin/main` would branch
-     from an older spec and reopen what the merge just closed.
-     The human merges it when `check` and `integration` are green, like any PR.
+     from an older spec and reopen what the merge just closed. `gh pr create` reads the
+     repo from *its own* cwd, not from `git -C <repo>`, so `--repo` and `--base` are
+     spelled out — the rest of the block never changes the observer's directory, and an
+     unscoped create would target whatever repo it happens to be standing in. The push
+     and the create fail separately: a branch pushed with no PR is not done, so the
+     worktree stays for that case too.
+     The human merges it when the repo's required checks are green, like any PR.
    The worktree is removed only after the push landed; on a conflict or a dead
    network it stays, with the commit in it, and nothing is torn down.
    The pilot's observer once switched the checkout a triage planner was working in;
@@ -162,7 +172,9 @@ which is the relay failure under a politer name.
    of the PR head, or a sandbox you provision — run the brief's `blocking:` command
    and compare with the PR body's pasted output: same head, same count. Until the CI
    wiring in the evolutions backlog lands, this is what "verifiable by a stranger"
-   means in practice. Record the command and output in a PR comment.
+   means in practice. Record the command and output in a PR comment. If step 3 will
+   add a bookkeeping commit, land that commit before this re-run (step 4) — the
+   comparison is only worth anything at the head that gets merged.
 2. **Guard.** If the project's contract-integrity guard did not run (not deployed, or
    the PR predates it), run it by hand: the *script* comes from the base commit, the
    *diff* it judges is `<base>...HEAD`, so run it in a checkout of the PR head:
@@ -188,11 +200,13 @@ which is the relay failure under a politer name.
    answers in the PR thread. The pilot's "silence is a miss" reached him three exchanges
    after merge because nobody owned this step.
 4. **Report:** merge-ready, with the re-run evidence and his answers — or blocked, with
-   the reason. He merges. **The bookkeeping commit moved the head**, so the `In:`
-   condition's green CI and step 1's re-run both describe the *previous* head: `check`
-   and `integration` are required statuses evaluated per head, and they re-run on this
-   one. Wait for them, and re-run the blocking command at the new head if the commit
-   touched anything the tests read. Merge-ready names the head it is true of.
+   the reason. He merges. **Merge-ready names the head it is true of**, and step 3's
+   bookkeeping commit moves the head — so the `In:` condition's green CI and a step 1
+   re-run taken before it both describe a head that is no longer the one being merged.
+   Required statuses are evaluated per head and re-run on the new one: wait for them.
+   Do not reason about whether the commit could have changed the re-run's result — make
+   the bookkeeping commit *first* and run step 1 once, at the head you will report. One
+   run, no judgement call, and the evidence matches the head by construction.
 
 ## land
 
