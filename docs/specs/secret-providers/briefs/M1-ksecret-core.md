@@ -144,8 +144,9 @@ Plus the standing gates: `make check` exits 0.
 
 - `src/devops_ai/secrets/providers/env.py` is the only module that decides the `$`
   claim (`handles`) and the name rule (`resolve`); nothing else under `src/` tests for
-  a `$` prefix (grep, 2026-09-14). `tests/unit/test_secrets.py` pins the old broad
-  claim and changes with it. `ksecret`'s `(literal)` label and kinfra's
+  a `$` prefix (grep, 2026-09-14). No unit test pins the old broad claim: the shorthand
+  cases in `tests/unit/test_secrets.py` use valid names, and its one edge case — a bare
+  `$` is a literal — stays true. `ksecret`'s `(literal)` label and kinfra's
   `describe_secret_source` follow `provider_for`, so a newly-literal string is labelled
   correctly with no change there.
 
@@ -163,10 +164,10 @@ Plus the standing gates: `make check` exits 0.
   is the one module carrying its scheme literal (`"op://"`), so file names are free.
   (A6 — the architecture test pins exactly this.)
 - `$VAR` stays supported as shorthand for `env://VAR`; both fall back to `./.env`
-  (A4, A5). *Feature close, 2026-09-14 (Karl, option c):* the shorthand claims only a
-  `$` followed by a letter, `_` or `{`, and refuses a malformed name by name; any other
-  `$`-string is a literal. Rejected: the broad claim (a bcrypt hash cannot be declared)
-  and exact-name-only claiming (`$MY-VAR`, `${HOME}` would silently self-resolve).
+  (A4, A5). *Feature close, 2026-09-14 (Karl, option c):* which `$`-strings the
+  shorthand claims is pinned in the grammar row above. Rejected: the broad claim (a
+  bcrypt hash cannot be declared) and exact-name-only claiming (`$MY-VAR`, `${HOME}`
+  would silently self-resolve).
 - Unregistered schemes pass through as literals (A8) — backward compatibility for
   connection-string literals beats catching typos, and `check` still surfaces them.
 - 1Password error guidance (install / sign in / not found) is kept verbatim from

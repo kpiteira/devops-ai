@@ -124,7 +124,7 @@ Human decision (Karl, 2026-09-14): **keep as shipped**. Noted on the M4 amendmen
   feature, not a fix.
 - A `$` inside a resolved value is interpolated away by compose between `.env.secrets`
   and the container (`HASH=$2b$12$abcdef` reaches the service as `$2b$12`; `p$w` as `p`),
-  measured with Docker 29.7.2 — issue #81. Pre-existing, every provider; the same
+  measured in a running container with Docker 29.7.2 — issue #81. Pre-existing, every provider; the same
   file-format family as #50/#52.
 - A NUL byte crashes two paths with a traceback rather than a named refusal: in an
   `op://` reference (#53) and in a resolved value handed to `ksecret run` (#64).
