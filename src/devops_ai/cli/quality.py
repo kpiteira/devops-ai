@@ -27,6 +27,11 @@ class QualityPlan:
     setup_cmd: str
     # Structural gates (tests/architecture/) — derived from the unit test command.
     test_arch_cmd: str | None = None
+    # Integration tests (tests/integration/) — project.md's `Integration tests`
+    # command when it carries one, derived from the unit test command otherwise,
+    # and only when that directory holds tests. None means the project has none,
+    # so no Makefile target and no CI job are emitted for it.
+    test_integration_cmd: str | None = None
 
 
 def detect_quality_config(project_root: Path) -> QualityPlan | None:
@@ -47,6 +52,7 @@ def detect_quality_config(project_root: Path) -> QualityPlan | None:
     unit_tests = _extract_field(content, "Unit tests")
     quality_checks = _extract_field(content, "Quality checks")
     lint_fast = _extract_field(content, "Lint \\(fast\\)")
+    integration_tests = _extract_field(content, "Integration tests")
     e2e_cmd = _extract_field(content, "Command", section="E2E")
 
     if not unit_tests or not quality_checks:
@@ -72,6 +78,8 @@ def detect_quality_config(project_root: Path) -> QualityPlan | None:
         unit_tests = _normalize_uv_cmd(unit_tests)
         if lint_fast:
             lint_fast = _normalize_uv_cmd(lint_fast)
+        if integration_tests:
+            integration_tests = _normalize_uv_cmd(integration_tests)
         if e2e_cmd:
             e2e_cmd = _normalize_uv_cmd(e2e_cmd)
 
@@ -87,6 +95,12 @@ def detect_quality_config(project_root: Path) -> QualityPlan | None:
     # Derive structural-gates command from the unit test command
     test_arch_cmd = _derive_test_arch_cmd(unit_tests)
 
+    # The integration command — configured if project.md carries one, derived
+    # otherwise; either way only for projects that have the tests
+    test_integration_cmd = _resolve_test_integration_cmd(
+        integration_tests, unit_tests, project_root, lang,
+    )
+
     return QualityPlan(
         project_root=project_root,
         project_name=name or project_root.name,
@@ -99,6 +113,7 @@ def detect_quality_config(project_root: Path) -> QualityPlan | None:
         fix_cmd=fix_cmd,
         setup_cmd=setup_cmd,
         test_arch_cmd=test_arch_cmd,
+        test_integration_cmd=test_integration_cmd,
     )
 
 
@@ -157,6 +172,106 @@ def _derive_test_arch_cmd(test_unit_cmd: str) -> str | None:
     return None
 
 
+def _resolve_test_integration_cmd(
+    configured: str | None,
+    test_unit_cmd: str,
+    project_root: Path,
+    language: str,
+) -> str | None:
+    """The integration-test command (tests/integration/) for this project.
+
+    The directory decides *whether* to emit; project.md decides *what* runs.
+
+    Whether: tests/integration/ must hold at least one test file (see
+    `_has_test_files` for how much that claim is worth per language). pytest
+    exits non-zero on a missing path (usage error, 4) and on an empty
+    collection (5), so a target or a CI job emitted for a project without
+    integration tests would be red for a reason that has nothing to do with the
+    code. Checking for a file rather than just the directory covers the
+    dir-exists-but-empty case.
+
+    What: project.md's `Integration tests` field is the source of truth when it
+    carries a real command — a project with its own selectors, markers or
+    runner keeps them instead of having them rewritten away. When it carries
+    nothing usable (absent, "Not configured", or the template's unedited
+    `[...]` placeholder) the command is derived from the unit command, which
+    then has to name tests/unit — otherwise there is no convention to map onto
+    (same rule as test-arch).
+    """
+    integration_dir = project_root / "tests" / "integration"
+    if not integration_dir.is_dir():
+        return None
+    if not _has_test_files(integration_dir, language):
+        return None
+    explicit = _configured_cmd(configured)
+    if explicit:
+        return explicit
+    if "tests/unit" not in test_unit_cmd:
+        return None
+    return test_unit_cmd.replace("tests/unit", "tests/integration")
+
+
+def _configured_cmd(value: str | None) -> str | None:
+    """A project.md field value if it is a command, None if it is a placeholder.
+
+    The template ships `- **Integration tests:** [command, or "Not configured"]`,
+    so both the bracketed placeholder and the literal "Not configured" reach
+    here from real project.md files. Running either as a command is worse than
+    deriving one.
+    """
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.rstrip(".").casefold() == "not configured":
+        return None
+    if text.startswith("[") and text.endswith("]"):
+        return None
+    return text
+
+
+# Filename conventions we have actually checked against a runner's empty-suite
+# behaviour. Python only, deliberately: pytest's exit 4/5 is the trap this gate
+# exists to dodge, and it was measured. A language absent from this map gets the
+# weaker check in `_has_test_files` rather than a guessed pattern.
+_TEST_FILE_PATTERNS: dict[str, tuple[str, ...]] = {
+    "python": ("test_*.py", "*_test.py"),
+}
+
+
+def _has_test_files(directory: Path, language: str) -> bool:
+    """Whether `directory` holds anything that looks like a test.
+
+    A filename check, not a collection check — and it is worth saying what that
+    buys and what it does not.
+
+    For Python it is pytest's own two default `python_files` patterns, so a
+    directory of fixtures and conftest alone is correctly rejected. It is still
+    only a *name*: a `test_fixtures.py` holding nothing but fixtures collects
+    zero items and pytest exits 5. Proving otherwise means running
+    `pytest --collect-only` from `kinfra init`, i.e. executing the project's
+    test runner inside a module whose contract is pure detection — a cost and a
+    blast radius out of proportion to a directory that a project set up wrong.
+    The policy is filename-only, on purpose.
+
+    For any other language there is no verified empty-suite behaviour to encode,
+    so guessing `*.test.ts` or `*_test.go` would claim a precision we do not
+    have. Those projects are held to the weakest defensible bar instead: the
+    directory contains at least one regular file.
+
+    `rglob` yields directories as well as files, so every branch filters
+    `is_file()` — a directory named `test_fixtures.py/` collects nothing.
+    """
+    patterns = _TEST_FILE_PATTERNS.get(language)
+    if patterns is None:
+        return any(p.is_file() for p in directory.rglob("*"))
+    return any(
+        any(p.is_file() for p in directory.rglob(pattern))
+        for pattern in patterns
+    )
+
+
 # Recipe shared by Makefile/Justfile: run the gates when the directory exists,
 # stay green (with a notice) for projects that haven't adopted them yet. Once
 # tests/architecture/ lands, the gates' own arming test takes over loud-failure.
@@ -211,6 +326,14 @@ def generate_justfile(plan: QualityPlan) -> str:
         f"    {plan.test_unit_cmd}",
     ]
 
+    if plan.test_integration_cmd:
+        lines.extend([
+            "",
+            "# Integration tests (real services; not part of `check`)",
+            "test-integration:",
+            f"    {plan.test_integration_cmd}",
+        ])
+
     if plan.test_arch_cmd:
         lines.extend([
             "",
@@ -260,6 +383,8 @@ def generate_justfile(plan: QualityPlan) -> str:
 def generate_makefile(plan: QualityPlan) -> str:
     """Generate Makefile content with standard quality targets."""
     targets = ["lint", "quality", "test-unit", "check", "setup"]
+    if plan.test_integration_cmd:
+        targets.insert(3, "test-integration")
     if plan.test_arch_cmd:
         targets.append("test-arch")
     if plan.test_e2e_cmd:
@@ -281,6 +406,13 @@ def generate_makefile(plan: QualityPlan) -> str:
         "test-unit:",
         f"\t{plan.test_unit_cmd}",
     ]
+
+    if plan.test_integration_cmd:
+        lines.extend([
+            "",
+            "test-integration:",
+            f"\t{plan.test_integration_cmd}",
+        ])
 
     if plan.test_arch_cmd:
         lines.extend([
@@ -667,6 +799,34 @@ def generate_ci_workflow(plan: QualityPlan) -> str:
         "\"$RUNNER_TEMP/check_contract_integrity.py\"\n"
         "          python3 \"$RUNNER_TEMP/check_contract_integrity.py\" "
         "\"${{ github.event.pull_request.base.sha }}\" \"$GITHUB_HEAD_REF\"\n"
+        f"{_integration_job(plan, setup_steps)}"
+    )
+
+
+def _integration_job(plan: QualityPlan, setup_steps: str) -> str:
+    """A separate `integration` job on the same events as `check`.
+
+    Separate on purpose: `check` is the always-run gate and its budget is
+    unit-only (devops-ai docs/EVOLUTIONS.md item 5, rules/testing-taxonomy.md).
+    Integration tests touch real services, so they get their own job — red there
+    is a real failure, and it never spends the `check` job's two minutes.
+
+    Emitted only for projects that have tests/integration/ (see
+    `_resolve_test_integration_cmd`).
+    """
+    if not plan.test_integration_cmd:
+        return ""
+    return (
+        "\n"
+        "  integration:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@v4\n"
+        "        with:\n"
+        "          fetch-depth: 0\n"
+        f"{setup_steps}"
+        "      - name: Integration tests\n"
+        "        run: make test-integration\n"
     )
 
 
