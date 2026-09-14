@@ -189,7 +189,16 @@ def test_babysit_loop_is_pinned_to_a_forked_opus_subagent() -> None:
 
 def test_observer_skill_exists_with_its_launch_guards() -> None:
     skill = read("skills/kobserve/SKILL.md")
-    for phrase in ("--group", "model", "checkout", "For the human", "kinfra done"):
+    for phrase in (
+        "--group",
+        "model",
+        "checkout",
+        "For the human",
+        "kinfra done",
+        # 2026-09-14: an observer coined "merge-ready" over a ⚠️ report (PR #70)
+        "Never upgrade a verdict",
+        "verbatim",
+    ):
         assert phrase in skill, phrase
 
 
