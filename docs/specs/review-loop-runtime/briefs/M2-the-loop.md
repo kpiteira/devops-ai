@@ -220,10 +220,24 @@ Names `status`, `round`, `apply`, `report`.
 ### Skills
 
 `skills/kbabysit/SKILL.md` and `skills/kreview/SKILL.md` contain no `gh `, `git `,
-`awk`, `jq`, or `curl` invocation; their procedure names `kreview status`, `kreview
-round`, `kreview apply`, `kreview report`, and `kselfreview <range>` — and keeps every
-guardrail and judgement paragraph. `kbabysit`'s frontmatter is unchanged.
-`skills/kobserve/SKILL.md` names `kreview status` where it reads a babysit report.
+`awk`, `jq`, or `curl` invocation in any code — fenced or inline, in any command
+position; their procedure names `kreview status`, `kreview round`, `kreview apply`,
+`kreview report`, and `kselfreview <range>` — and keeps every guardrail and judgement
+paragraph. `kbabysit`'s frontmatter is unchanged. `skills/kobserve/SKILL.md` names
+`kreview status` where it reads a babysit report.
+
+A **labeled shell fence** (` ```bash `, `sh`, `shell`, `zsh`, `console`) in those two
+skills invokes only: `kreview`, `kselfreview`, `make`, `uv`, and the shell's own
+plumbing — `cd`, `cat`, `echo`, `printf`, `sleep`, `mktemp`, `exit`, `set`, `true`,
+`false`. Comments, heredoc bodies and continuation lines are not invocations. The list
+is closed on purpose: the two skills are judgement and guardrails, and a step that needs
+another command is either the tool's job (a `kreview` gap — the escape valve) or not a
+step. Unlabeled fences (usage lines such as `/kbabysit <pr>`) and the ` ```markdown `
+report template are held to the blocklist above only.
+
+The model's own commits and pushes (D5: the tool never pushes) are **prose** in the
+skills — "commit the fix, push, then apply" — never a fenced `git` line; `apply`'s
+refusal of a commit that is not on the PR head is what makes an unpushed fix visible.
 
 ## Blocking
 
@@ -283,7 +297,7 @@ skills' contents, also without running a command.
 | J1 (M1) | `::test_status_stops_on_red_ci` | a PR whose branch carries a workflow that exits 1: once the check settles, `ci.status` `failing`, a failing entry in `ci.checks`, `verdict` `stop: ci-failing`, exit 3 — from a clone on the branch, so `checkout-mismatch` cannot mask it | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_stops_on_draft` | a draft PR: `pr.draft` true, `verdict` `stop: draft`, exit 3 | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_stops_on_empty_scope` | a PR whose `## Review scope` heading has nothing under it: `scope` `{empty, ""}`, `verdict` `stop: scope-empty`, exit 3 | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J10 | `::test_skills_contain_no_gh_or_git_commands` | in neither skill does any fenced line or inline code span **invoke** `gh`, `git`, `awk`, `jq`, or `curl` in any command position — after a variable assignment (`REPO=$(gh repo view …)`), a shell keyword (`if git merge-base …`), a pipe, or inside `$( )` — which is the "no invocation" the Surface pins, not "the snippet's first word". An invocation is the command word with at least one argument, so prose naming the `gh` CLI still passes; `kbabysit` names all four subcommands and keeps its frontmatter pin; `kobserve` names `kreview status` | fails on main, and without running a command: 16 such invocations in `kbabysit`, 22 in `kreview`, 8 in `kobserve` (measured 2026-09-13) |
+| J10 | `::test_skills_contain_no_gh_or_git_commands` | two graders over both skills: (1) **blocklist** — no fenced line or inline code span invokes `gh`, `git`, `awk`, `jq`, or `curl` in any command position (after an assignment, a shell keyword, a pipe, inside `$( )`); an invocation is the command word plus at least one argument, so prose naming the `gh` CLI passes; (2) **allowlist, fail-closed** — every command word in a labeled shell fence is one of the Surface's list, so `timeout 5 gh …`, `eval`, `bash -c` or a tool nobody thought of fails by name instead of passing until its spelling is added (three rounds each found the next position a blocklist did not read; an allowlist has no next position). Fences close on a marker at least as long as their opener; heredoc bodies, `\` continuations and `#` comments are skipped. Also: `kbabysit` names all four subcommands and keeps its frontmatter pin; `kobserve` names `kreview status` | fails on main, and without running a command: blocklist 15 lines in `kbabysit`, 20 in `kreview`; allowlist 17 and 61 (measured 2026-09-13, `f95a0a1` skills = main's); the grader itself was falsified on 25 crafted cases before it was kept |
 
 Plus the standing gates: `make check` exits 0.
 

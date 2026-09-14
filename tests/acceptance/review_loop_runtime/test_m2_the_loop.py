@@ -1457,11 +1457,37 @@ def test_reentry_is_advised_and_gated(scratch: ScratchPR, tmp_path: Path) -> Non
 
 
 FORBIDDEN_COMMANDS = ("gh", "git", "awk", "jq", "curl")
-
+# What a shell fence in a rewritten skill may invoke, and nothing else: the tool, the
+# self-review pass, the standing gates, and the shell's own plumbing. The model's
+# commits and pushes (D5) are prose in the skills, never a fenced `git` line.
+ALLOWED_IN_SHELL_FENCES = frozenset(
+    {
+        "kreview",
+        "kselfreview",
+        "make",
+        "uv",
+        "cd",
+        "cat",
+        "echo",
+        "printf",
+        "sleep",
+        "mktemp",
+        "exit",
+        "set",
+        "true",
+        "false",
+    }
+)
+_SHELL_FENCE_LANGS = frozenset({"bash", "sh", "shell", "zsh", "console"})
 
 # where one command ends and the next begins: a pipe, a separator, a subshell, a
 # command substitution, a redirection
-_COMMAND_BREAK = re.compile(r"\$\(|&&|\|\||[|;&()`{}]|<|>")
+_COMMAND_BREAK = re.compile(r"\$\(|&&|\|\||[|;&()`{}]")
+# a redirection and its target (`2>/dev/null`, `> "$OUT"`, `<<'EOF'`, `<<<"$BODY"`)
+# and a `<placeholder>`: neither is a command
+_REDIRECT = re.compile(r"\d?(?:<<<|<<-?|[<>]{1,2}&?)\s*\S*")
+# a loop or case header: what follows `in` is data, and the body starts after `do`
+_LOOP_HEADER = re.compile(r"^\s*(?:for|select|case)\s")
 # tokens that can precede the command word without being one
 _NOT_THE_COMMAND = {
     "$",
@@ -1480,46 +1506,118 @@ _NOT_THE_COMMAND = {
     "nohup",
     "xargs",
     "env",
+    "fi",
+    "done",
+    "esac",
+    "export",
+    "local",
+    "readonly",
 }
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*=")
+_COMMAND_WORD = re.compile(r"^[A-Za-z_][\w./-]*$")
+_FENCE = re.compile(r"^\s*(`{3,}|~{3,})\s*([A-Za-z]*)")
+_HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?")
+
+
+def _commands(snippet: str) -> list[list[str]]:
+    """The command of every segment of `snippet`: `[word, *args]`, prefixes stripped.
+
+    `REPO=$(gh repo view …)`, `if git merge-base …`, `… | jq '.x'` and `VAR=1 curl …`
+    each yield their real command word; a grader that reads `words[0]` of the whole
+    snippet sees none of them. Segments whose first token is not a command word
+    (`<sha>`, `--flag`, `…`, `/kbabysit`, a JSON fragment) yield nothing.
+    """
+    out: list[list[str]] = []
+    for segment in _COMMAND_BREAK.split(snippet):
+        if _LOOP_HEADER.match(segment):
+            continue
+        # split() on any whitespace: a space-only split misses `git\tstatus`
+        words = _REDIRECT.sub(" ", segment).split()
+        while words and (words[0] in _NOT_THE_COMMAND or _ASSIGNMENT.match(words[0])):
+            words = words[1:]
+        if words and _COMMAND_WORD.match(words[0]):
+            out.append(words)
+    return out
+
+
+def _code(text: str) -> tuple[list[str], list[str]]:
+    """(lines of labeled shell fences, every other code: other fences + inline spans).
+
+    Fences close only on a marker at least as long as the one that opened them, so a
+    ````bash block wrapping a ``` example stays one block. Heredoc bodies and backslash-
+    continued lines are data, not commands, and are dropped; `#` comments too.
+    """
+    shell: list[str] = []
+    other: list[str] = []
+    fence = ""
+    in_shell = False
+    heredoc: str | None = None
+    continued = False
+    for line in text.splitlines():
+        m = _FENCE.match(line)
+        if not fence:
+            if m:
+                fence, in_shell = m.group(1), m.group(2).lower() in _SHELL_FENCE_LANGS
+                continue
+            other.extend(re.findall(r"`([^`\n]+)`", line))
+            continue
+        if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+            fence, heredoc, continued = "", None, False
+            continue
+        if heredoc is not None:
+            if line.strip() == heredoc:
+                heredoc = None
+            continue
+        if not in_shell:
+            other.append(line)
+            continue
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if continued:
+            continued = stripped.endswith("\\")
+            continue
+        continued = stripped.endswith("\\")
+        shell.append(line)
+        hd = _HEREDOC.search(line)
+        if hd:
+            heredoc = hd.group(1)
+    return shell, other
 
 
 def _shell_invocations(text: str) -> list[str]:
     """Every fenced line or inline code span that *invokes* a forbidden command.
 
-    The Surface pins "no `gh `, `git `, `awk`, `jq`, or `curl` invocation", so the check
-    is generic in two directions, each of which was a hole in an earlier version: not a
-    list of spellings (`gh repo view` sailed past a check for `gh api`), and not only
-    the snippet's first word — `REPO=$(gh repo view …)`, `if git merge-base …`,
-    `… | jq '.x'` and `VAR=1 curl …` are all invocations, and a grader that reads
-    `words[0]` sees none of them. Prose about git is not an invocation, so only code is
-    scanned.
+    The Surface pins "no `gh `, `git `, `awk`, `jq`, or `curl` invocation" anywhere in
+    code, so this is generic over spellings and over command positions (`_commands`).
+    An invocation is the command word *plus at least one argument*: a bare `gh` in a
+    code span names the CLI, and failing a correct rewrite for naming it is the
+    corrupted signal the test-quality rule forbids.
     """
-    candidates: list[str] = []
-    in_fence = False
-    for line in text.splitlines():
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            candidates.append(line)
-        candidates.extend(re.findall(r"`([^`\n]+)`", line))
-    found: list[str] = []
-    for snippet in candidates:
-        for segment in _COMMAND_BREAK.split(snippet):
-            # split() on any whitespace: a space-only split misses `git\tstatus`
-            words = segment.split()
-            while words and (
-                words[0] in _NOT_THE_COMMAND or _ASSIGNMENT.match(words[0])
-            ):
-                words = words[1:]
-            # an invocation is the command word *plus at least one argument*: a bare
-            # `gh` in prose names the CLI, and failing a correct rewrite for naming it
-            # is the corrupted signal the test-quality rule forbids
-            if len(words) >= 2 and words[0] in FORBIDDEN_COMMANDS:
-                found.append(snippet.strip())
-                break
-    return found
+    shell, other = _code(text)
+    return [
+        s.strip()
+        for s in shell + other
+        if any(len(w) >= 2 and w[0] in FORBIDDEN_COMMANDS for w in _commands(s))
+    ]
+
+
+def _unlisted_commands(text: str) -> list[str]:
+    """Every labeled shell-fence line whose command is outside the allowlist.
+
+    The blocklist above names what the skills must stop doing; this names what they may
+    still do, so a rewrite that reaches for a tool nobody listed — `timeout 5 gh …`,
+    `eval`, `bash -c`, a `python` one-liner that shells out — fails closed instead of
+    passing until someone thinks of its spelling. Three rounds of review each found the
+    next position a blocklist did not read; an allowlist has no next position.
+    """
+    shell, _ = _code(text)
+    return [
+        f"{s.strip()}  [{w[0]}]"
+        for s in shell
+        for w in _commands(s)
+        if w[0] not in ALLOWED_IN_SHELL_FENCES
+    ]
 
 
 def test_skills_contain_no_gh_or_git_commands() -> None:
@@ -1527,6 +1625,12 @@ def test_skills_contain_no_gh_or_git_commands() -> None:
         text = (ROOT / "skills" / name / "SKILL.md").read_text()
         found = _shell_invocations(text)
         assert found == [], f"{name}: these are the tool's job now: {found[:5]}"
+        unlisted = _unlisted_commands(text)
+        assert unlisted == [], (
+            f"{name}: a shell fence invokes something outside the allowlist "
+            f"(ALLOWED_IN_SHELL_FENCES): {unlisted[:5]} — a rewrite that needs it is "
+            "the escape valve, not an edit here"
+        )
     kbabysit = (ROOT / "skills" / "kbabysit" / "SKILL.md").read_text()
     for sub in ("kreview status", "kreview round", "kreview apply", "kreview report"):
         assert sub in kbabysit
