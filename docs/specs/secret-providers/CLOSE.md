@@ -57,7 +57,10 @@ One run, 17 s, every step measured (drive script kept out of the repository):
 | E | Same value stored with `ksecret write akv://kv-devops-ai-accept/ksecret-close-…`; `--if-absent` again; `infra.toml` swapped to the `akv://` reference; refresh; secret deleted afterwards | `.env.secrets` byte-identical to the OpenBao-backed file |
 | F | Token revoked (`BAO_TOKEN` wrong): `ksecret run … -- touch marker`; then `sandbox start --refresh-secrets` | `run`: exit 1, marker absent, stdout empty, stderr names the key (`AGENT_MEMORY_AUTH_TOKEN: The server refused the token for bao://… (HTTP 403)`); sandbox: non-zero, message names both keys, the previous `.env.secrets` intact |
 
-No secret value appeared in any stdout, stderr or command message across the run.
+No secret value appeared in any *diagnostic* output across the run — no status line, error
+message or log, at the CLI or at the sandbox. The one place a value reached a stdout is the
+deliberate `ksecret read --print` of steps B and E, piped straight into `ksecret write`: that
+is the opt-in print path the spec makes explicit, and nothing rendered it to a terminal.
 
 Not exercised here: `op://` reads and writes, which need Karl's touch. Their last live
 evidence is the observer's runs at the M1 and M4 heads, cited above.
@@ -101,6 +104,15 @@ Human decision (Karl, 2026-09-14): **(c)**. Recorded as the 2026-09-14 amendment
 J4 addition both measured failing on main `6edc786` for the right reason).
 Implementation is issue #80 — an Opus executor PR gated by M1's blocking command. The
 archive waits for it.
+
+**One refinement inside (c) — the planner's, not Karl's.** The option as offered above
+begins the claim at a letter or underscore. As amended, `{` is claimed too: `${HOME}`
+is refused by name ("braces are not part of the shorthand; write $NAME or env://NAME")
+rather than passing through as a literal, because it is the likeliest misspelling of a
+real reference. `$HOME/.config` is refused the same way. SPEC.md, the M1 grammar row
+and `test_dollar_shorthand_claims_only_names` all carry the three-character claim set
+(letter, `_`, `{`); (c) above is left as it was put to Karl. **For Karl on this PR:**
+say if you want `${…}` treated as a literal instead — one Surface row and one test line.
 
 **2. A `ksecret write op://…` update loses a passkey on the target item** (M4, #70:
 "revisit at feature close"). An update sends the whole fetched item back as the template;
@@ -150,7 +162,9 @@ Human decision (Karl, 2026-09-14): **keep as shipped**. Noted on the M4 amendmen
 
 ## Acceptance-test disposition
 
-Recommendation per test. **Karl, 2026-09-14: every row as recommended.** Suites are promoted by what they need:
+Recommendation per test. **Karl, 2026-09-14: every row as recommended** — said of the table as it
+stood that day; the one row added since is marked pending below rather than signed on his behalf.
+Suites are promoted by what they need:
 nothing but the console script → `integration`; Docker → `integration` (the suite
 already skips without a daemon, PR #44); a human grant or a real cloud vault → `e2e`
 (manual, skips otherwise); already covered by a standing gate → `drop`.
@@ -160,6 +174,7 @@ already skips without a daemon, PR #44); a human grant or a real cloud vault →
 | M1 | `test_read_env_dotenv_and_literal` | integration | as recommended |
 | M1 | `test_read_failure_names_ref_not_value` | integration | as recommended |
 | M1 | `test_read_without_print_confirms_only` | integration | as recommended |
+| M1 | `test_dollar_shorthand_claims_only_names` | integration | **pending** — the row postdates the 2026-09-14 decision (added with this PR) |
 | M1 | `test_read_op_reference` | e2e (needs a 1Password grant) | as recommended |
 | M1 | `test_run_injects_resolved_env_without_disk` | integration | as recommended |
 | M1 | `test_run_refuses_when_any_ref_fails` | integration | as recommended |

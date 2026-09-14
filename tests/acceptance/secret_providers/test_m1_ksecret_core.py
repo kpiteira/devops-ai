@@ -133,6 +133,9 @@ def test_dollar_shorthand_claims_only_names(project: Path) -> None:
     r = ksecret("check", *literals, cwd=project, env=env)
     assert r.code == 0, r.err
     assert r.out.count(": literal") == len(literals) and "error" not in r.out
+    # `check` is the status-only path and a literal *is* its value, so the inputs
+    # must not come back in the output — J3's rule, applied to literals.
+    assert not any(lit in r.out + r.err for lit in literals), "check echoed a literal"
     r = ksecret("read", HASH_LITERAL, cwd=project, env=env)
     assert r.code == 0 and r.out == "ok (literal)\n"
     assert HASH_LITERAL not in r.out + r.err, "a literal is its own value"
