@@ -35,7 +35,7 @@ blocking: uv run pytest tests/acceptance/secret_providers/test_m1_ksecret_core.p
 | Form | Resolves to |
 |------|-------------|
 | `bare text` | the text itself (literal) — including an unregistered `word://…` (A8) |
-| `$NAME`, `env://NAME` | exported variable `NAME`; else key `NAME` in `./.env` if that file exists; else error |
+| `$NAME`, `env://NAME` | exported variable `NAME`; else key `NAME` in `./.env` if that file exists; else error. `NAME` is a POSIX name (`[A-Za-z_][A-Za-z0-9_]*`). *Amended at feature close, 2026-09-14:* the shorthand claims a string only when the character after `$` is a letter, `_` or `{`; a claimed string whose name is not a POSIX name — `$MY-VAR`, `$HOME/.config`, `env://MY-VAR`, every `${…}` form — is a malformed reference: exit 1, message `Malformed reference <ref>: <name> is not a valid variable name (letters, digits and underscores, not starting with a digit).`, or for a `${…}` form `Malformed reference <ref>: braces are not part of the shorthand; write $NAME or env://NAME.`; never a `.env` lookup. Any other `$`-prefixed string (`$2b$12$…`, `$1`, `$(cmd)`, `$$`) is a literal (A8) |
 | `dotenv://<path>#<KEY>` | key `KEY` in the dotenv file at `path` (relative to cwd; for kinfra, relative to the main repo root) |
 | `op://<vault>/<item>/<field>` | `op read --no-newline` (unchanged behavior, unchanged error guidance) |
 
@@ -70,7 +70,8 @@ the slot dir has mode 0600. `kinfra init --check` and the interactive prompt nam
 **Docs:** a `## Secrets` section in `README.md` naming every scheme in the grammar
 above plus `bao://` and `akv://` (as "coming" or documented, executor's call), the
 recommendation ladder (vault-backed over `.env`), and the one-time
-`uv tool install -e . --reinstall` needed to obtain the new command.
+`uv tool install -e . --reinstall` needed to obtain the new command. The grammar row
+states which `$`-prefixed strings are literals (2026-09-14).
 
 ## Blocking
 
@@ -79,11 +80,12 @@ recommendation ladder (vault-backed over `.env`), and the one-time
 | J1 | `test_m1_ksecret_core.py::test_read_env_dotenv_and_literal` | `read --print` returns the exported value, the dotenv value, the literal; both `$VAR` and `env://VAR` fall back to `./.env`, and an exported value wins |
 | J1 | `test_m1_ksecret_core.py::test_read_failure_names_ref_not_value` | Missing key → exit 1, stderr names the ref, stdout empty |
 | J1 | `test_m1_ksecret_core.py::test_read_without_print_confirms_only` | Bare `read` → exit 0 and `ok <ref>` when resolvable, exit 1 when not; the value never appears in stdout or stderr |
+| J1, J4 | `test_m1_ksecret_core.py::test_dollar_shorthand_claims_only_names` | `$2b$12$…`, `$1`, `$(cmd)`, `$$` are literals: `check` says `literal` and exits 0, bare `read` says `ok (literal)` without echoing, `--print` echoes; `$MY-VAR`, `$HOME/.config`, `env://MY-VAR` are `error` with "not a valid variable name" and `${HOME}` with "braces", `check` exits 1, "not set" appears nowhere, `read` prints nothing on stdout; `$_KSECRET_T_UNDER` resolves. Added at feature close 2026-09-14; measured on main `6edc786`: fails — the literals are refused as unset variables |
 | J1 | `test_m1_ksecret_core.py::test_read_op_reference` | An item the test creates in 1Password reads back; skips when Karl does not grant `op` access (there is no scriptable sign-in — A3) |
 | J2 | `test_m1_ksecret_core.py::test_run_injects_resolved_env_without_disk` | Child sees resolved values; literal lines pass through and are visible to later references in the same file (`D=$OP_ACCOUNT`); no new file appears; child exit code propagates |
 | J2 | `test_m1_ksecret_core.py::test_run_refuses_when_any_ref_fails` | Command not executed, exit 1, stderr names every failing key (two failures, both reported) |
 | J3 | `test_m1_ksecret_core.py::test_check_reports_without_values` | Output classifies ok/literal/error; the secret value string is absent from stdout and stderr |
-| J4 | `test_m1_ksecret_core.py::test_kinfra_sandbox_resolves_dotenv_and_env_fallback` | `kinfra impl` on a project with `.env` + `dotenv://` and `$VAR` refs writes both values to the slot's `.env.secrets`, mode 0600 |
+| J4 | `test_m1_ksecret_core.py::test_kinfra_sandbox_resolves_dotenv_and_env_fallback` | `kinfra impl` on a project with `.env` + `dotenv://` and `$VAR` refs writes both values to the slot's `.env.secrets`, mode 0600; a `$2b$…` literal entry is written verbatim (added 2026-09-14; measured on main `6edc786`: fails — `impl` refuses the literal as an unset variable) |
 | J1 | `test_m1_ksecret_core.py::test_help_lists_the_three_commands` | `ksecret --help` exits 0 and names `read`, `run`, `check` |
 | J5 | `test_m1_ksecret_core.py::test_readme_documents_every_scheme` | README has a Secrets section naming each scheme and the reinstall step |
 | — | `test_m1_ksecret_core.py::test_providers_package_is_in_place` | The providers package exists with at least three modules (env, dotenv, 1Password) |
@@ -140,6 +142,13 @@ Plus the standing gates: `make check` exits 0.
   means the environment is broken and needs fixing, and a milestone whose only
   `op://` evidence is a skip is not delivered.
 
+- `src/devops_ai/secrets/providers/env.py` is the only module that decides the `$`
+  claim (`handles`) and the name rule (`resolve`); nothing else under `src/` tests for
+  a `$` prefix (grep, 2026-09-14). `tests/unit/test_secrets.py` pins the old broad
+  claim and changes with it. `ksecret`'s `(literal)` label and kinfra's
+  `describe_secret_source` follow `provider_for`, so a newly-literal string is labelled
+  correctly with no change there.
+
 ## Decisions
 
 - Printing is opt-in (`--print`). **Directive — human:** a bare `read` succeeds and
@@ -154,7 +163,10 @@ Plus the standing gates: `make check` exits 0.
   is the one module carrying its scheme literal (`"op://"`), so file names are free.
   (A6 — the architecture test pins exactly this.)
 - `$VAR` stays supported as shorthand for `env://VAR`; both fall back to `./.env`
-  (A4, A5).
+  (A4, A5). *Feature close, 2026-09-14 (Karl, option c):* the shorthand claims only a
+  `$` followed by a letter, `_` or `{`, and refuses a malformed name by name; any other
+  `$`-string is a literal. Rejected: the broad claim (a bcrypt hash cannot be declared)
+  and exact-name-only claiming (`$MY-VAR`, `${HOME}` would silently self-resolve).
 - Unregistered schemes pass through as literals (A8) — backward compatibility for
   connection-string literals beats catching typos, and `check` still surfaces them.
 - 1Password error guidance (install / sign in / not found) is kept verbatim from

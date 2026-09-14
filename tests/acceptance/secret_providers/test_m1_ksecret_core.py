@@ -21,6 +21,8 @@ from tests.acceptance.secret_providers.conftest import (
 
 SECRET = "hello-from-dotenv-7f3a"
 FALLBACK = "fallback-value-9c1d"
+# A bcrypt hash: `$` followed by a digit can never begin a variable name (A8).
+HASH_LITERAL = "$2b$12$abcdefghijklmnopqrstuv"
 
 
 @pytest.fixture()
@@ -113,6 +115,48 @@ def test_read_without_print_confirms_only(project: Path) -> None:
     r = ksecret("read", "dotenv://.env#NOPE", cwd=project, env=clean_env())
     assert r.code == 1 and r.out == ""
     assert "NOPE" in r.err and SECRET not in r.err
+
+
+# ------------------------------------------- $NAME grammar (close, 2026-09-14)
+
+
+def test_dollar_shorthand_claims_only_names(project: Path) -> None:
+    """`$` claims a string only when what follows can begin a variable name.
+
+    Amendment 2026-09-14: `$` + letter / underscore / brace is a reference, and
+    malformed when the name is not a POSIX name; `$` + anything else is a literal.
+    """
+    env = clean_env(_KSECRET_T_UNDER="under-1a2b")
+
+    # `$` followed by something no variable name can start with: literals.
+    literals = [HASH_LITERAL, "$1", "$(cmd)", "$$"]
+    r = ksecret("check", *literals, cwd=project, env=env)
+    assert r.code == 0, r.err
+    assert r.out.count(": literal") == len(literals) and "error" not in r.out
+    r = ksecret("read", HASH_LITERAL, cwd=project, env=env)
+    assert r.code == 0 and r.out == "ok (literal)\n"
+    assert HASH_LITERAL not in r.out + r.err, "a literal is its own value"
+    r = ksecret("read", "--print", HASH_LITERAL, cwd=project, env=env)
+    assert r.code == 0 and r.out == HASH_LITERAL + "\n"
+
+    # `$` followed by a letter, `_` or `{`: claimed, and refused by name when the
+    # name is not a POSIX name — never a silent literal, never a fallback lookup.
+    malformed = ["$MY-VAR", "$HOME/.config", "env://MY-VAR", "${HOME}"]
+    r = ksecret("check", *malformed, cwd=project, env=env)
+    assert r.code == 1
+    lines = r.out.splitlines()
+    assert len(lines) == len(malformed), r.out
+    assert all(": error" in line for line in lines), r.out
+    assert all("not a valid variable name" in line for line in lines[:3]), r.out
+    assert "braces" in lines[3], r.out
+    assert "not set" not in r.out, "a malformed name must not be looked up"
+    r = ksecret("read", "$MY-VAR", cwd=project, env=env)
+    assert r.code == 1 and r.out == ""
+    assert "not a valid variable name" in r.err
+
+    # Names that start with an underscore, and carry digits, still resolve.
+    r = ksecret("read", "--print", "$_KSECRET_T_UNDER", cwd=project, env=env)
+    assert r.code == 0 and r.out == "under-1a2b\n"
 
 
 def test_read_op_reference(op_item: tuple[str, str], tmp_path: Path) -> None:
@@ -225,6 +269,7 @@ def test_kinfra_sandbox_resolves_dotenv_and_env_fallback(
         + "\n[sandbox.secrets]\n"
         'FROM_FILE = "dotenv://.env#FROM_FILE"\n'
         'FB = "$KSECRET_T_FB"\n'
+        f'HASH = "{HASH_LITERAL}"\n'
     )
     subprocess.run(
         ["git", "add", "-A"], cwd=repo_root, check=True, capture_output=True
@@ -248,6 +293,7 @@ def test_kinfra_sandbox_resolves_dotenv_and_env_fallback(
     content = secrets_file.read_text()
     assert f"FROM_FILE={SECRET}\n" in content
     assert f"FB={FALLBACK}\n" in content
+    assert f"HASH={HASH_LITERAL}\n" in content, "a $-literal is written verbatim"
     assert stat.S_IMODE(os.stat(secrets_file).st_mode) == 0o600
 
 

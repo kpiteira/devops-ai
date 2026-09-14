@@ -1,6 +1,6 @@
 # Secret providers
 
-**Status:** closing — first close review CONFORMS ([CLOSE.md](CLOSE.md), 2026-09-14); archive pending the acceptance-test disposition and two deferred decisions
+**Status:** closing — first close review CONFORMS ([CLOSE.md](CLOSE.md), 2026-09-14); decisions and test dispositions recorded there; archive waits for issue #80 (the `$NAME` grammar PR) and the second close review
 **Signed off:** 2026-09-12 — Karl (review conversation: A1–A8 confirmed, `read` prints only with `--print`, host-side resolution model; machine-credential provisioning flagged for a later discussion)
 
 ## Intent
@@ -205,7 +205,8 @@ briefs and tests reference them. -->
   through per A8; restricting the claim to valid variable-name syntax would instead
   turn typos like `$MY-VAR` into silent self-resolving literals. Karl chose to keep
   the current broad behaviour for M1 and revisit the grammar at feature close
-  (2026-09-12). No change in this milestone.
+  (2026-09-12). No change in this milestone. **Decided at feature close — see the
+  2026-09-14 entry at the end of this list.**
 - [x] 2026-09-13 (M2, M3) decision confirmed: a `bao://` or `akv://` string in an
   existing `[sandbox.secrets]` stops being an unclaimed literal and resolves against
   its backend; a project that cannot reach the backend now gets a failed `kinfra impl`
@@ -275,7 +276,9 @@ briefs and tests reference them. -->
   item back as the template, and the `op` CLI's JSON cannot represent a passkey, so a passkey
   on the target item is lost; no detection is possible at that seam. Karl 2026-09-14: A —
   README warning as shipped ("write to items that hold machine credentials, not ones a person
-  signs in with"); revisit at feature close.
+  signs in with"); revisit at feature close. Feature close 2026-09-14: kept as shipped
+  (Karl); the detectable alternative — tag items `ksecret write` creates and refuse an
+  untagged update without a flag — was declined for now.
 - [x] 2026-09-14 (M4, #70) decision: `ksecret write --if-absent akv://…` treats a *disabled*
   Key Vault secret as absent and stores a new, enabled version over it — the same answer a
   plain write gives and the M3 disabled-equals-not-found decision applied to writes. Karl
@@ -283,3 +286,19 @@ briefs and tests reference them. -->
 - [x] 2026-09-14 (M4, #70) decision: `ksecret write op://<vault>/<item>/<field>` creates the
   item titled with the `<item>` segment when nothing matches, including when the segment is
   the 26-character ID of a deleted item. Karl 2026-09-14: A — accepted as predictable.
+- [x] 2026-09-14 (feature close, M1) decision: the `$NAME` shorthand claims a string
+  only when the character after `$` can begin a variable name — a letter, `_`, or `{`
+  — and a claimed string whose name is not a POSIX name (`[A-Za-z_][A-Za-z0-9_]*`,
+  so every `${…}` form included) is a **malformed reference**, refused by name with no
+  `.env` lookup. Every other `$`-prefixed string (`$2b$12$…`, `$1`, `$(cmd)`, `$$`)
+  is a literal per A8, and `check` labels it so. `env://<name>` is claimed as before
+  and holds its name to the same rule. Rejected: the broad claim as shipped (a bcrypt
+  hash cannot be declared in `[sandbox.secrets]` at all), and claiming only exact
+  names (`$MY-VAR` and `${HOME}` would become silent self-resolving literals). `{` is
+  claimed rather than left a literal because `${HOME}` is the likeliest misspelling of
+  a real reference — the planner's choice within Karl's decision, for his review on
+  the close PR. Acknowledged by Karl 2026-09-14 (option c). Changes the M1 Surface
+  (`$NAME` row) and M1's blocking tests: `test_dollar_shorthand_claims_only_names` is
+  new and J4's sandbox test declares a `$2b$…` literal; both measured failing on main
+  `6edc786` for the right reason. Lands as a small PR after the close PR — issue #80 —
+  with M1's blocking command as its gate; the archive waits for it.

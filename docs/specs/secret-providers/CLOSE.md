@@ -70,7 +70,9 @@ evidence is the observer's runs at the M1 and M4 heads, cited above.
 
 ## Corrective milestones
 
-None.
+None. The `$NAME` grammar change is a decided follow-up (amendment 2026-09-14,
+issue #80), not drift; the spec stays `closing` until it lands and the second close
+review confirms.
 
 ## Decisions deferred to this close
 
@@ -94,7 +96,11 @@ moving it to a `dotenv://` file.
   `$2b$12$…` passes through per A8; `check` labels it `literal`. Changes the M1 Surface
   row for `$NAME`; a replan of that row plus one acceptance case, and an executor PR.
 
-Human decision: _____
+Human decision (Karl, 2026-09-14): **(c)**. Recorded as the 2026-09-14 amendment; M1's
+`$NAME` row and blocking tests are updated on the close branch (the new test and the
+J4 addition both measured failing on main `6edc786` for the right reason).
+Implementation is issue #80 — an Opus executor PR gated by M1's blocking command. The
+archive waits for it.
 
 **2. A `ksecret write op://…` update loses a passkey on the target item** (M4, #70:
 "revisit at feature close"). An update sends the whole fetched item back as the template;
@@ -108,7 +114,7 @@ the `op` JSON cannot represent a passkey, so nothing at that seam can detect one
   update an untagged item without an explicit flag. Cost: every item created before the
   tag (agent-memory's existing ones) needs the flag or a one-time tagging.
 
-Human decision: _____
+Human decision (Karl, 2026-09-14): **keep as shipped**. Noted on the M4 amendment.
 
 ## Outside the outcomes
 
@@ -116,6 +122,10 @@ Human decision: _____
   with no escapes, and the writer raises a bare traceback — issues #50 and #52. The
   choice (refuse with a message, or materialise such secrets as mounted files) is a
   feature, not a fix.
+- A `$` inside a resolved value is interpolated away by compose between `.env.secrets`
+  and the container (`HASH=$2b$12$abcdef` reaches the service as `$2b$12`; `p$w` as `p`),
+  measured with Docker 29.7.2 — issue #81. Pre-existing, every provider; the same
+  file-format family as #50/#52.
 - A NUL byte crashes two paths with a traceback rather than a named refusal: in an
   `op://` reference (#53) and in a resolved value handed to `ksecret run` (#64).
 - Text I/O elsewhere in `src/` (`compose.py`, `registry.py`, `sandbox.py`) still uses
@@ -140,40 +150,40 @@ Human decision: _____
 
 ## Acceptance-test disposition
 
-Recommendation per test; the decision is Karl's. Suites are promoted by what they need:
+Recommendation per test. **Karl, 2026-09-14: every row as recommended.** Suites are promoted by what they need:
 nothing but the console script → `integration`; Docker → `integration` (the suite
 already skips without a daemon, PR #44); a human grant or a real cloud vault → `e2e`
 (manual, skips otherwise); already covered by a standing gate → `drop`.
 
 | Milestone | Scoped test | Promote to (e2e / integration / unit / drop) | Human decision |
 |-----------|-------------|----------------------------------------------|----------------|
-| M1 | `test_read_env_dotenv_and_literal` | integration | |
-| M1 | `test_read_failure_names_ref_not_value` | integration | |
-| M1 | `test_read_without_print_confirms_only` | integration | |
-| M1 | `test_read_op_reference` | e2e (needs a 1Password grant) | |
-| M1 | `test_run_injects_resolved_env_without_disk` | integration | |
-| M1 | `test_run_refuses_when_any_ref_fails` | integration | |
-| M1 | `test_check_reports_without_values` | integration | |
-| M1 | `test_kinfra_sandbox_resolves_dotenv_and_env_fallback` | e2e (Docker + slot lifecycle) | |
-| M1 | `test_help_lists_the_three_commands` | integration | |
-| M1 | `test_providers_package_is_in_place` | drop (the architecture gate no longer needs its skip guard) | |
-| M1 | `test_readme_documents_every_scheme` | unit — fold the three README tests into `tests/architecture/test_docs_hygiene.py` | |
-| M2 | `test_read_kv2_secret_from_dev_server` | integration (Docker, skips without it) | |
-| M2 | `test_token_file_fallback_and_missing_key` | integration | |
-| M2 | `test_run_and_check_accept_bao_refs` | integration | |
-| M2 | `test_bao_is_a_provider_module` | drop (architecture gate covers it) | |
-| M2 | `test_readme_documents_bao` | unit (with the M1 README test) | |
-| M3 | `test_read_secret_from_real_vault` | e2e (real Key Vault) | |
-| M3 | `test_versioned_reference_reads_that_version` | e2e | |
-| M3 | `test_missing_secret_names_ref_not_value` | e2e | |
-| M3 | `test_run_and_check_accept_akv_refs` | e2e | |
-| M3 | `test_akv_is_a_provider_module` | drop (architecture gate covers it) | |
-| M3 | `test_readme_documents_akv` | unit (with the M1 README test) | |
-| M4 | `test_write_then_read_dotenv` | integration | |
-| M4 | `test_write_then_read_openbao` | integration (Docker) | |
-| M4 | `test_write_then_read_akv` | e2e | |
-| M4 | `test_write_op_creates_and_updates_item` | e2e (needs a 1Password grant) | |
-| M4 | `test_write_env_is_refused` | integration | |
+| M1 | `test_read_env_dotenv_and_literal` | integration | as recommended |
+| M1 | `test_read_failure_names_ref_not_value` | integration | as recommended |
+| M1 | `test_read_without_print_confirms_only` | integration | as recommended |
+| M1 | `test_read_op_reference` | e2e (needs a 1Password grant) | as recommended |
+| M1 | `test_run_injects_resolved_env_without_disk` | integration | as recommended |
+| M1 | `test_run_refuses_when_any_ref_fails` | integration | as recommended |
+| M1 | `test_check_reports_without_values` | integration | as recommended |
+| M1 | `test_kinfra_sandbox_resolves_dotenv_and_env_fallback` | e2e (Docker + slot lifecycle) | as recommended |
+| M1 | `test_help_lists_the_three_commands` | integration | as recommended |
+| M1 | `test_providers_package_is_in_place` | drop (the architecture gate no longer needs its skip guard) | as recommended |
+| M1 | `test_readme_documents_every_scheme` | unit — fold the three README tests into `tests/architecture/test_docs_hygiene.py` | as recommended |
+| M2 | `test_read_kv2_secret_from_dev_server` | integration (Docker, skips without it) | as recommended |
+| M2 | `test_token_file_fallback_and_missing_key` | integration | as recommended |
+| M2 | `test_run_and_check_accept_bao_refs` | integration | as recommended |
+| M2 | `test_bao_is_a_provider_module` | drop (architecture gate covers it) | as recommended |
+| M2 | `test_readme_documents_bao` | unit (with the M1 README test) | as recommended |
+| M3 | `test_read_secret_from_real_vault` | e2e (real Key Vault) | as recommended |
+| M3 | `test_versioned_reference_reads_that_version` | e2e | as recommended |
+| M3 | `test_missing_secret_names_ref_not_value` | e2e | as recommended |
+| M3 | `test_run_and_check_accept_akv_refs` | e2e | as recommended |
+| M3 | `test_akv_is_a_provider_module` | drop (architecture gate covers it) | as recommended |
+| M3 | `test_readme_documents_akv` | unit (with the M1 README test) | as recommended |
+| M4 | `test_write_then_read_dotenv` | integration | as recommended |
+| M4 | `test_write_then_read_openbao` | integration (Docker) | as recommended |
+| M4 | `test_write_then_read_akv` | e2e | as recommended |
+| M4 | `test_write_op_creates_and_updates_item` | e2e (needs a 1Password grant) | as recommended |
+| M4 | `test_write_env_is_refused` | integration | as recommended |
 
 The shared `conftest.py` splits with them: `ksecret()`, `clean_env()`, `bao` go with
 the integration set; `op_item`, `akv` with the e2e set.
