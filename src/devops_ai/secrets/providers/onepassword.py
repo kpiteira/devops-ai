@@ -211,7 +211,16 @@ def _find(
             f"{ref}. Check that `op item list --vault {vault}` succeeds."
         ) from None
     if not isinstance(items, list):
-        items = []
+        # Not an empty vault: a listing nobody could read says nothing about
+        # whether the item is there. Read as empty it would create a second
+        # item — and silently disarm the `--if-absent` that exists to stop
+        # exactly that.
+        raise ProviderError(
+            f"1Password did not answer with a list of items when listing the "
+            f"vault for {ref}, so whether the item exists could not be "
+            f"determined and nothing was written. Check that "
+            f"`op item list --vault {vault}` succeeds."
+        )
 
     entries = [entry for entry in items if isinstance(entry, dict)]
     if any(entry.get("id") == item for entry in entries):
@@ -248,8 +257,17 @@ def _document(
 ) -> dict[str, Any]:
     """Run `op` and parse its stdout as an item document."""
     result = _op(executable, ctx, ref, doing, args)
+    if not (result.stdout or "").strip():
+        # `{}` would parse, and that is the danger: an update rebuilds the
+        # whole item from this document, so an empty one becomes a template
+        # holding just the field being written — and `op item edit` drops every
+        # field a template omits. A one-field write would wipe the rest.
+        raise ProviderError(
+            f"1Password answered nothing for {ref} (op item {doing}), so there "
+            f"is no item to write back and nothing was written."
+        )
     try:
-        document = json.loads(result.stdout or "{}")
+        document = json.loads(result.stdout)
     except ValueError:
         # Never the output itself: for `item get` it is the item, values and
         # all, and a parse failure is the one moment nobody has checked it.

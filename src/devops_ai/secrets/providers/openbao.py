@@ -152,10 +152,32 @@ def _holds(
     except _Status as status:
         if status.code == NOT_FOUND:
             return False
-        raise _status_error(status.code, ref, mount, path, server) from None
-    envelope = body.get("data")
-    values = envelope.get("data") if isinstance(envelope, dict) else None
-    return isinstance(values, dict) and key in values
+        raise _status_error(
+            status.code, ref, mount, path, server, writing=True
+        ) from None
+    envelope = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(envelope, dict) or "data" not in envelope:
+        # Validated exactly as `_read_secret` does, and for a sharper reason: a
+        # KV v1 mount answers `{"data": {...}}`, so reading an unfamiliar shape
+        # as "absent" would overwrite the live secret those keys belong to.
+        raise ProviderError(
+            f"The answer for {mount}/{path} is not a KV v2 secret, so whether "
+            f"{ref} already exists could not be determined and nothing was "
+            f"written. Check that {mount} is a KV v2 mount."
+        )
+    values = envelope["data"]
+    if values is None:
+        # The current version is deleted or destroyed: nothing readable is
+        # there to preserve, which is the same ground on which `write` creates
+        # over a 404 rather than refusing.
+        return False
+    if not isinstance(values, dict):
+        raise ProviderError(
+            f"The answer for {mount}/{path} is not a KV v2 secret, so whether "
+            f"{ref} already exists could not be determined and nothing was "
+            f"written. Check that {mount} is a KV v2 mount."
+        )
+    return key in values
 
 
 def _parse(ref: str) -> tuple[str, str, str]:

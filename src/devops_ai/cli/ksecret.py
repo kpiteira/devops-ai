@@ -87,7 +87,11 @@ def write(
     try:
         value = _stdin_value()
     except ValueError as exc:
-        typer.echo(f"ksecret write: {exc}", err=True)
+        # Named through `_label`, never as the bare `ref`: a string no provider
+        # claims *is* its value, so echoing it here would leak the very thing
+        # the rest of this command refuses to print. A provisioning log holding
+        # many writes otherwise cannot tell which one refused its input.
+        typer.echo(f"ksecret write {_label(ref)}: {exc}", err=True)
         raise typer.Exit(1) from None
 
     try:

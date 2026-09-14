@@ -147,7 +147,7 @@ def write(
     if if_absent and _exists(executable, ctx, ref, vault, secret):
         return ref
 
-    with _value_file(value) as path:
+    with _value_file(value, ref) as path:
         command = [
             executable, "keyvault", "secret", "set",
             "--vault-name", vault,
@@ -232,7 +232,13 @@ def _exists(
     if _reads_as_absent(*_az_error_fields(result.stderr or "")):
         return False
     raise ProviderError(
-        _diagnose(ref, vault, secret, None, result.returncode, result.stderr or "")
+        # `writing=True`: this probe runs only from the `--if-absent` write
+        # path, so naming the read-only Secrets User role for a refusal that
+        # blocked a write is remediation that cannot work.
+        _diagnose(
+            ref, vault, secret, None, result.returncode, result.stderr or "",
+            writing=True,
+        )
     )
 
 
@@ -255,7 +261,7 @@ def _executable(ctx: ResolveContext) -> str:
 
 
 @contextlib.contextmanager
-def _value_file(value: str) -> Iterator[str]:
+def _value_file(value: str, ref: str) -> Iterator[str]:
     """The value in a file only its owner can read, gone when the block ends.
 
     `mkstemp` opens with 0600 already; the mode is set again because it is the
@@ -264,11 +270,30 @@ def _value_file(value: str) -> Iterator[str]:
     a `finally` so a failing `az`, a timeout and an interpreter error all leave
     the same nothing behind.
     """
-    handle, path = tempfile.mkstemp(prefix="ksecret-", suffix=".value")
     try:
-        with os.fdopen(handle, "wb") as stream:
-            stream.write(value.encode("utf-8"))
-        os.chmod(path, VALUE_FILE_MODE)
+        handle, path = tempfile.mkstemp(prefix="ksecret-", suffix=".value")
+    except OSError as exc:
+        # Nothing downstream translates `OSError`, so a full or read-only
+        # temporary directory would answer a command that promises an error
+        # naming the reference with a stack trace instead. `exc.strerror`
+        # rather than `exc`, whose text carries the path of the file the value
+        # was going into.
+        raise ProviderError(
+            f"{_visible(ref)} was not written: no temporary file could be "
+            f"created to hand the value to the Azure CLI "
+            f"({exc.strerror or exc.__class__.__name__}). Check TMPDIR."
+        ) from None
+    try:
+        try:
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(value.encode("utf-8"))
+            os.chmod(path, VALUE_FILE_MODE)
+        except OSError as exc:
+            raise ProviderError(
+                f"{_visible(ref)} was not written: the value could not be "
+                f"staged for the Azure CLI "
+                f"({exc.strerror or exc.__class__.__name__}). Check TMPDIR."
+            ) from None
         yield path
     finally:
         with contextlib.suppress(OSError):

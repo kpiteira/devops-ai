@@ -1124,3 +1124,130 @@ class TestLeavingAnExistingSecretAlone:
     def test_the_host_environment_refuses_either_way(self) -> None:
         with pytest.raises(ProviderError):
             write("env://SOME_NAME", VALUE, if_absent=True)
+
+
+class TestAnUnfamiliarAnswerIsNotAnAbsence:
+    """A backend that exits 0 saying something unexpected has not said "no".
+
+    Reading an unparseable success as absence is how `--if-absent` mints a
+    second credential, and how an update becomes a template that erases the
+    item it was meant to edit. Every one of these paths already had a sibling
+    that refuses correctly — `_document` rejects a non-dict, `_read_secret`
+    validates the KV v2 envelope — so what is pinned here is that the
+    *existence* and *fetch* paths agree with them.
+    """
+
+    def test_an_empty_item_get_never_becomes_a_template_that_erases_the_item(
+        self, tmp_path: Path
+    ) -> None:
+        """The update sends the whole item back precisely so nothing is lost.
+
+        An empty stdout parsed as `{}` would rebuild that "whole item" as the
+        one field being written, and `op item edit` drops every field a
+        template omits — turning a one-field write into a wipe of the rest.
+        """
+        log = fake_cli(
+            tmp_path / "bin",
+            "op",
+            op_answers(
+                **{
+                    "item list": {
+                        "stdout": json.dumps([{"id": "anitemid0000000000000000001",
+                                               "title": "my-item"}])
+                    },
+                    "item get": {"stdout": ""},
+                }
+            ),
+        )
+
+        with pytest.raises(ProviderError) as caught:
+            write(
+                "op://a-vault/my-item/password", VALUE, on_path(tmp_path / "bin")
+            )
+
+        assert "op://a-vault/my-item/password" in str(caught.value)
+        assert "edit" not in [
+            call["argv"][1] for call in calls_of(log) if len(call["argv"]) > 1
+        ], "nothing may be written on an answer that was never understood"
+
+    def test_a_listing_that_is_not_a_list_is_refused_rather_than_read_as_empty(
+        self, tmp_path: Path
+    ) -> None:
+        """An unreadable listing is not proof the item is absent.
+
+        Read as empty, `--if-absent` stops protecting anything and the write
+        creates a *second* item — the duplicate credential the flag exists to
+        prevent.
+        """
+        log = fake_cli(
+            tmp_path / "bin",
+            "op",
+            op_answers(**{"item list": {"stdout": json.dumps({"items": []})}}),
+        )
+
+        with pytest.raises(ProviderError) as caught:
+            write(
+                "op://a-vault/my-item/password",
+                VALUE,
+                on_path(tmp_path / "bin"),
+                if_absent=True,
+            )
+
+        assert "op://a-vault/my-item/password" in str(caught.value)
+        assert "create" not in [
+            call["argv"][1] for call in calls_of(log) if len(call["argv"]) > 1
+        ], "a listing nobody could read must not become a second item"
+
+
+class TestAWriteRefusalSaysWhatAWriteNeeds:
+    def test_a_refused_existence_check_asks_for_the_write_role(
+        self, tmp_path: Path
+    ) -> None:
+        """`_exists` runs only for `--if-absent`, so its refusal is a write's.
+
+        Naming the read-only Secrets User role for a write that was refused is
+        guidance that cannot work, which is why `_diagnose` takes `writing`.
+        """
+        fake_cli(
+            tmp_path / "bin",
+            "az",
+            {
+                "keyvault secret show": {
+                    "stderr": "ERROR: (Forbidden) Caller is not authorized\n",
+                    "code": 1,
+                }
+            },
+        )
+
+        with pytest.raises(ProviderError) as caught:
+            write(
+                "akv://a-vault/a-secret",
+                VALUE,
+                on_path(tmp_path / "bin"),
+                if_absent=True,
+            )
+
+        assert "Secrets User" not in str(caught.value)
+        assert "Secrets Officer" in str(caught.value)
+
+    def test_a_staging_failure_names_the_reference_instead_of_a_traceback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`ksecret write` translates only `ProviderError`.
+
+        A full or read-only temporary directory raises `OSError` out of
+        `mkstemp`, which nothing downstream catches — so the command that
+        promises an error naming the reference prints a stack trace instead.
+        """
+        fake_cli(tmp_path / "bin", "az", {"keyvault secret set": {}})
+
+        def refuse(*args: object, **kwargs: object) -> tuple[int, str]:
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr(azurekeyvault.tempfile, "mkstemp", refuse)
+
+        with pytest.raises(ProviderError) as caught:
+            write("akv://a-vault/a-secret", VALUE, on_path(tmp_path / "bin"))
+
+        assert "akv://a-vault/a-secret" in str(caught.value)
+        assert VALUE not in str(caught.value)

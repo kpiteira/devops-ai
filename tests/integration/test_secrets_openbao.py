@@ -891,3 +891,59 @@ class TestWritingOnlyWhenAbsent:
             )
 
         assert [asked.method for asked in bao.asked] == ["GET"]
+
+    @pytest.mark.parametrize(
+        ("answer", "why"),
+        [
+            ((200, "{}"), "an empty body"),
+            ((200, json.dumps({"data": {"token": "v"}})), "a KV v1 envelope"),
+            ((200, json.dumps({"data": None})), "a null envelope"),
+            ((200, json.dumps(["not", "an", "object"])), "a list"),
+        ],
+    )
+    def test_an_answer_that_is_not_kv_v2_is_not_read_as_absence(
+        self, bao: FakeBao, answer: tuple[int, str], why: str
+    ) -> None:
+        """`_holds` promises that a 404 is the *one* failure meaning "no".
+
+        A 2xx the provider cannot parse is a server that did not answer the
+        question — most sharply a KV v1 mount, where `{"data": {...}}` really
+        does carry the keys and reading it as "absent" would overwrite a live
+        secret. Absence has to be proven, not inferred from an unfamiliar shape.
+        """
+        bao.answer = lambda path: answer
+
+        with pytest.raises(ProviderError) as caught:
+            write(
+                "bao://kv/app#token",
+                VALUE,
+                ResolveContext(env={"BAO_ADDR": bao.addr, "BAO_TOKEN": "t-1"}),
+                if_absent=True,
+            )
+
+        assert "KV v2" in str(caught.value), why
+        assert [asked.method for asked in bao.asked] == ["GET"], (
+            f"{why} must stop before anything is written"
+        )
+
+    def test_a_refused_existence_check_asks_for_write_access(
+        self, bao: FakeBao
+    ) -> None:
+        """The probe only ever runs for a write, so its refusal is a write's.
+
+        Sending someone to check their *read* access for a write they were
+        refused is guidance that cannot work — the reason `_status_error` takes
+        `writing` at all.
+        """
+        bao.answer = lambda path: (403, "{}")
+
+        with pytest.raises(ProviderError) as caught:
+            write(
+                "bao://kv/app#token",
+                VALUE,
+                ResolveContext(env={"BAO_ADDR": bao.addr, "BAO_TOKEN": "t-1"}),
+                if_absent=True,
+            )
+
+        assert "read access" not in str(caught.value)
+        assert "patch" in str(caught.value)
