@@ -1090,6 +1090,79 @@ def test_apply_refuses_a_repeat_of_outside_the_ledger(
     assert [rnd["n"] for rnd in scratch.state()["rounds"]] == [1]
 
 
+def test_apply_systemic_repeat_stops_the_loop(
+    scratch: ScratchPR, tmp_path: Path
+) -> None:
+    """A round that repeats last round's systemic root cause is an escalation.
+
+    kbabysit §4: per-site patches across rounds are never the answer — if a round's
+    findings are the mechanism the previous round already patched, the loop stops, and
+    that stop is the human's, not a convergence. Three skill-driven reports on
+    2026-09-14 wore ✅ over exactly this stop; the tool's verdict is a function of
+    `stop_kind`, so here it must be ⚠️ with the signal named.
+    """
+    c1 = scratch.comment(3, "line 3 has no trailing metadata")
+    first = _round(scratch)
+    root = "the file carries no per-line metadata"
+    _apply(
+        scratch,
+        "--since",
+        first["window"]["since"],
+        "--until",
+        first["window"]["until"],
+        "--dispositions",
+        str(
+            dispositions_file(
+                tmp_path,
+                {
+                    "id": f"t{c1}",
+                    "verdict": "PUSH_BACK",
+                    "shape": "systemic",
+                    "root_cause": root,
+                    "reply": "metadata is not the scope's concern",
+                },
+            )
+        ),
+    )
+
+    c2 = scratch.comment(9, "line 9 has no trailing metadata either")
+    second = _round(scratch)
+    assert {f["id"] for f in second["findings"]} == {f"t{c2}"}
+    out = _apply(
+        scratch,
+        "--dispositions",
+        str(
+            dispositions_file(
+                tmp_path,
+                {
+                    "id": f"t{c2}",
+                    "verdict": "PUSH_BACK",
+                    "shape": "systemic",
+                    "root_cause": root,
+                    "reply": "same mechanism as round 1",
+                },
+            )
+        ),
+    ).json()
+    assert (out["decision"], out["stop_kind"], out["stop_reason"]) == (
+        "stop",
+        "escalate",
+        "systemic-repeat",
+    )
+    r = _kr(
+        scratch,
+        "report",
+        str(scratch.number),
+        "--tldr",
+        "two rounds, one mechanism",
+        "--kselfreview",
+        "na",
+    )
+    assert r.code == 0, (r.out, r.err)
+    assert "⚠️ needs human decision (stopped: systemic-repeat)" in r.out
+    assert "✅" not in r.out
+
+
 def test_apply_budget_stops_after_max_rounds(
     scratch: ScratchPR, tmp_path: Path
 ) -> None:

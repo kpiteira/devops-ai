@@ -118,6 +118,7 @@ without re-reading its own file.
 | stop | escalate | `systemic-on-pinned-surface` | any disposition `systemic` with `on_pinned_surface` |
 | stop | escalate | `discuss` | any `DISCUSS` |
 | stop | escalate | `stopped: <REASON>` | `--stop REASON` given (the model's own reason, e.g. `ci`) |
+| stop | escalate | `systemic-repeat` | any disposition `systemic` whose `root_cause` equals the `root_cause` of a `systemic` disposition recorded in the previous round of this run — per-site patches across rounds are never the answer (#49 rounds 6–11) |
 | stop | converged | `second-order` | the round's `signals.second_order` |
 | stop | converged | `no-new-findings` | `signals.no_new_findings` |
 | stop | converged | `repeats-only` | every disposition carries `repeat_of` |
@@ -178,7 +179,7 @@ the PR has no state block.
 
 **TL;DR:** <--tldr verbatim>
 
-**Verdict:** ✅ merge-ready | ⚠️ needs human decision | ❌ blocked
+**Verdict:** ✅ merge-ready (converged: <stop_reason>) | ⚠️ needs human decision (stopped: <stop_reason>) | ❌ blocked (<reason>)
 
 ### Rounds
 | Round | Reviewers | Effort | Findings | Suppressed | On original diff | On fix commits | Unknown | Unanchored | Systemic | Implemented | Pushed back | Out of scope | Discuss | Commits |
@@ -211,7 +212,11 @@ the PR has no state block.
 
 Verdict rule: ❌ when CI is failing or `mergeable` is CONFLICTING; else ⚠️ when any
 `DISCUSS` is recorded, the last `stop_kind` is `escalate`, or `unreviewed_commits` is
-non-empty with `--kselfreview na`; else ✅.
+non-empty with `--kselfreview na`; else ✅ — so ✅ follows a `converged` stop and nothing
+else, and the Verdict line names the signal: `✅ merge-ready (converged: <stop_reason>)`,
+`⚠️ needs human decision (stopped: <stop_reason>)`, `❌ blocked (<ci|conflicts>)`. Measured
+2026-09-14: three skill-driven reports wrote ✅ over a systemic-repeat stop because the
+skill's verdict line was a menu without a rule.
 
 ### `kreview --help`
 
@@ -289,6 +294,7 @@ skills' contents, also without running a command.
 | J7 | `::test_apply_stop_reason_from_the_model` | `--stop ci` with two IMPLEMENT in the second-order window: `stop` / `escalate` / `stopped: ci` — the model's reason outranks convergence | spawn fails (exit 2); no scratch repository, so it never skips |
 | J7 | `::test_apply_repeats_only_stops_the_loop` | round 2 whose every disposition carries `repeat_of` into round 1's ledger: `stop` / `converged` / `repeats-only`; and after two rounds **one** babysit comment exists, holding both (D13) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6, J7 | `::test_apply_refuses_a_repeat_of_outside_the_ledger` | the same round 2 with `repeat_of` naming an id no ledger entry carries: exit 2, stderr names the id, nothing posted and no round recorded — without this an arbitrary string converges the loop through `repeats-only` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J7 | `::test_apply_systemic_repeat_stops_the_loop` | round 2 carrying a `systemic` disposition whose `root_cause` equals round 1's: `stop` / `escalate` / `systemic-repeat`; and `report` on it renders `⚠️ needs human decision (stopped: systemic-repeat)` — the stop that three skill-driven reports called ✅ | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J7 | `::test_apply_budget_stops_after_max_rounds` | `--max-rounds 1` with one IMPLEMENT: `stop` / `escalate` / `budget` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J5, J7 | `::test_apply_next_chains_into_the_next_packet` | `apply --next --wait 120` with round 1's window pinned by `--until` and a comment landing after it: `next` holds the following packet with the new finding and the round-1 ledger; the state has 1 recorded round (round 2 is open, not yet applied) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J9 | `::test_report_renders_and_posts_from_state` | after a stop: the comment carries the Verdict, Rounds row, *Why the loop stopped*, paid rounds, and `status: stopped` in the block; TL;DR verbatim | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
