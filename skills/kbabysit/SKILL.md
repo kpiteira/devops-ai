@@ -432,7 +432,7 @@ Post the final report as a PR comment (durable record) **and** present it in cha
 **TL;DR:** <2-3 sentences: rounds run, "N of M findings pushed back, N out of scope",
 what materially improved, final state — merge-ready / needs decision on X / blocked on Y.>
 
-**Verdict:** ✅ merge-ready | ⚠️ needs human decision | ❌ blocked
+**Verdict:** ✅ merge-ready (converged: <signal>) | ⚠️ needs human decision (stopped: <signal>) | ❌ blocked (<reason>)
 
 ### Rounds
 | Round | Reviewers | Effort | Findings | Suppressed | On original diff | On fix commits | Unknown | Unanchored | Systemic | Implemented | Pushed back | Out of scope | Discuss | Commits |
@@ -475,6 +475,19 @@ that grows across re-entries, and there is no cumulative cap on it by design (#6
 **Re-entry:** further rounds on this PR go through `/kbabysit <n>` — from any seat, for any
 reason — which re-applies every stop rule in step 4.
 ```
+
+**The verdict is a function of the stop, not of the to-do list.** ✅ follows a
+*convergence* signal only — approved, no new findings, repeats-only, no in-scope
+IMPLEMENT, or a second-order round whose fix commits got their `kselfreview` pass. Every
+other stop — round budget, DISCUSS open, CI, systemic on pinned Surface, or a round that
+repeated last round's mechanism — is ⚠️ with the signal named in the verdict line itself,
+even when nothing is left for the human to decide: the reviewer was still finding
+first-order things when the loop chose to stop, and "nothing open for you" is not the
+same sentence as "the reviewer is done with this PR". ❌ is CI red or conflicts the loop
+could not clear. Measured 2026-09-14: three reports on #66, #75 and #77 carried ✅ over a
+`systemic — same mechanism as last round` stop, the human merged nothing and asked why he
+kept being told a PR was ready when it was not; the answer was that this line used to be
+a menu with no rule.
 
 The "what changed" section is the honest measure of the loop: if it's empty after round 1,
 say so — that's a signal the pre-PR gates are doing their job, not a failure of the loop.
