@@ -205,7 +205,11 @@ def test_babysit_loop_runs_in_an_opus_session_and_says_so() -> None:
     # repo's launch contract rather than a recipe of its own: add (with a group and the
     # Opus model) → start → send. Two review rounds on #75 found two separate elements
     # missing, one per round; this is what stops the third.
-    launch = skill.split("```bash", 1)[1].split("```", 1)[0]
+    # Anchored to its own section, not to "the first bash block in the file" — the
+    # skill has seven, and a positional split would go red for the unrelated reason
+    # that someone added a block above this one.
+    how = skill.split("## How this runs", 1)[1].split("\n## ", 1)[0]
+    launch = how.split("```bash", 1)[1].split("```", 1)[0]
     for step in (
         "agent-deck add",
         "-g ",
