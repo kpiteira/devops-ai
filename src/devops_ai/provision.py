@@ -16,7 +16,7 @@ from pathlib import Path
 from devops_ai.secrets import (
     ResolveContext,
     SecretResolutionError,
-    layered_env,
+    context_for,
     provider_for,
     resolve,
     resolve_all,
@@ -109,10 +109,7 @@ def _context(
     Sorting makes this order-independent: the two passes, not the key order,
     decide what a provider sees.
     """
-    env = layered_env(siblings or {})
-    if base_dir is None:
-        return ResolveContext(env=env)
-    return ResolveContext(base_dir=base_dir, env=env)
+    return context_for(siblings or {}, base_dir)
 
 
 def provision_files(

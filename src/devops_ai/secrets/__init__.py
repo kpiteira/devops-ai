@@ -9,13 +9,19 @@ from __future__ import annotations
 from .context import ResolveContext
 from .envfile import parse as parse_env_file
 from .envfile import read as read_env_file
-from .errors import ProviderError, SecretResolutionError
+from .environ import encode_env
+from .errors import (
+    EnvironmentEncodingError,
+    ProviderError,
+    SecretResolutionError,
+)
 from .resolver import (
     ERROR,
     LITERAL,
     OK,
     CheckResult,
     check,
+    context_for,
     layered_env,
     literals,
     provider_for,
@@ -23,16 +29,20 @@ from .resolver import (
     resolve_all,
     schemes,
 )
+from .writer import write
 
 __all__ = [
     "ERROR",
     "LITERAL",
     "OK",
     "CheckResult",
+    "EnvironmentEncodingError",
     "ProviderError",
     "ResolveContext",
     "SecretResolutionError",
     "check",
+    "context_for",
+    "encode_env",
     "layered_env",
     "literals",
     "parse_env_file",
@@ -41,4 +51,5 @@ __all__ = [
     "resolve",
     "resolve_all",
     "schemes",
+    "write",
 ]

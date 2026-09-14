@@ -122,7 +122,7 @@ create` calls.
 | M1 — ksecret with env, dotenv, 1Password | briefs/M1-ksecret-core.md | J1, J2, J3, J4, J5 | — | delivered | [c40452a](https://github.com/kpiteira/devops-ai/commit/c40452a) · [#32](https://github.com/kpiteira/devops-ai/pull/32) · [divergence](divergences/M1-2026-09-12.md) (resolved by #30) |
 | M2 — OpenBao provider | briefs/M2-openbao.md | J6 | M1 | delivered | [04fea7f](https://github.com/kpiteira/devops-ai/commit/04fea7f) · [#51](https://github.com/kpiteira/devops-ai/pull/51) |
 | M3 — Azure Key Vault provider | briefs/M3-azure-key-vault.md | J7 | M1 | delivered | [dc0bf28](https://github.com/kpiteira/devops-ai/commit/dc0bf28) · [#49](https://github.com/kpiteira/devops-ai/pull/49) |
-| M4 — write (optional) | briefs/M4-write.md | J8 | M2, M3 | pending | — |
+| M4 — write (optional) | briefs/M4-write.md | J8 | M2, M3 | delivered | [23516a1](https://github.com/kpiteira/devops-ai/commit/23516a1) · [#70](https://github.com/kpiteira/devops-ai/pull/70) |
 
 M2 and M3 are independent and may run in parallel. M4 is optional: it may be dropped
 at feature close without amendment if it proves heavy.
@@ -233,10 +233,53 @@ briefs and tests reference them. -->
   bare traceback — pre-existing, made reachable by KV-stored PEMs. Issue #50; out of
   M2's outcome. Karl 2026-09-13.
 - [x] 2026-09-13 (M3) decision, follow-up (issue #60): `akv://` vault and secret segments are to be
-  validated against Azure's own name rules (`^[a-zA-Z0-9-]{3,24}$` vault,
-  `^[0-9a-zA-Z-]+$` secret) before anything is spawned, refusing malformed references
+  validated against Azure's own name rules (`^[a-zA-Z0-9-]{3,24}\Z` — strict end of string, never `$`, which also matches before a trailing newline vault,
+  `^[0-9a-zA-Z-]+\Z` secret) before anything is spawned, refusing malformed references
   with a plain message. Root cause of PR #49 review rounds 6–11 (every one an echo of an
   unvalidated segment in `az`'s error text). Changes which references the provider
   accepts (pinned Surface). Acknowledged by Karl 2026-09-13; lands as a small PR after
   #49 (issue #60) — nothing is blocked meanwhile. Item 6 (disclosure residual on disabled-as-absent): keep the
-  RBAC diagnosis; residual accepted.
+  RBAC diagnosis; residual accepted. Delivered on branch `fix/issue-60-akv-validation`:
+  a pinned version is checked too — 32 hexadecimal characters, measured against twelve
+  real ids in the acceptance vault — and carries the `list-versions` guidance that az's
+  own refusal used to earn a round trip later. The downstream anchoring from rounds 6–11
+  stays; the one branch the source check made unreachable (Key Vault answering a non-id
+  version segment as a refused operation) is removed rather than left writing the same
+  sentence in a second place. Landed by [#67](https://github.com/kpiteira/devops-ai/pull/67) (`347a22d`); Karl 2026-09-13: rules stay looser than Key Vault's own (character set and length only — matching Azure exactly would be a spec change), and the 32-hex version rule is accepted as shipped (observer's live M3 acceptance run 6/6 at the PR head).
+- [x] 2026-09-13 (#58) outcome refinement: a spawned child receives the exact UTF-8 bytes
+  of every resolved value whatever the parent's locale, and that encoding never leaks a
+  value character. Under `LC_ALL=C` CPython encoded the child environment with the locale's
+  codec, so `ksecret run` could not pass a non-ASCII secret and the `UnicodeEncodeError`
+  quoted a character of it. Refusing to run under a non-UTF-8 locale was rejected (minimal
+  images lack `C.UTF-8`; containers and CI are what this is for). Shape: one shared
+  `secrets.encode_env()` at every spawn site, re-encoding only the entries the caller
+  declared (inherited variables such as `PATH` pass through as the parent holds them), and
+  the resolver refusing by name any resolved value with no UTF-8 encoding, for every
+  provider; both enforced by `tests/architecture/test_child_env_encoding.py`. Promise
+  confirmed by Karl 2026-09-13; delivered by [#62](https://github.com/kpiteira/devops-ai/pull/62)
+  (`bb7e4f8`).
+- [x] 2026-09-13 (#58) decision: a `$VAR` / `env://` reference whose inherited value is not
+  valid UTF-8 passes its raw bytes through to the child (`INHERITS_OS_BYTES` on the env
+  provider) — the one documented exception to the promise above. The alternative, refusing
+  by name, would break a working reference on a variable the user may not control.
+  Karl 2026-09-13: keep as shipped. Also accepted: the six locale tests skip on macOS with
+  the encoding named (#57's Linux integration job is the guard); `ksecret run` exits 1 with
+  a message on an unencodable value; the `op://`/`akv://` spawn sites changed as part of
+  the class fix.
+- [x] 2026-09-14 (M4, #70) decision: `ksecret write op://…` sends the JSON template on
+  `op`'s stdin rather than in a 0600 template file (the M4 brief's Surface pinned the
+  file; its Invariants already allowed stdin). Nothing touches disk and nothing survives
+  a SIGKILL; `op item create`/`edit` both document the piped form. Karl 2026-09-14: A —
+  keep stdin, amend the brief. Brief Surface, Invariants and Facts updated to match.
+- [x] 2026-09-14 (M4, #70) decision: a `ksecret write op://…` update sends the whole fetched
+  item back as the template, and the `op` CLI's JSON cannot represent a passkey, so a passkey
+  on the target item is lost; no detection is possible at that seam. Karl 2026-09-14: A —
+  README warning as shipped ("write to items that hold machine credentials, not ones a person
+  signs in with"); revisit at feature close.
+- [x] 2026-09-14 (M4, #70) decision: `ksecret write --if-absent akv://…` treats a *disabled*
+  Key Vault secret as absent and stores a new, enabled version over it — the same answer a
+  plain write gives and the M3 disabled-equals-not-found decision applied to writes. Karl
+  2026-09-14: A — accepted.
+- [x] 2026-09-14 (M4, #70) decision: `ksecret write op://<vault>/<item>/<field>` creates the
+  item titled with the `<item>` segment when nothing matches, including when the segment is
+  the 26-character ID of a deleted item. Karl 2026-09-14: A — accepted as predictable.

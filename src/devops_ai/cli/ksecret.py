@@ -1,8 +1,10 @@
 """ksecret CLI — resolve secret references, and run commands with them injected.
 
-Three verbs, one resolver. `read` answers about a single reference and prints its
-value only when asked to. `run` puts resolved values in a child's environment and
-writes nothing to disk. `check` reports what resolves without ever showing a value.
+Four verbs, one set of providers. `read` answers about a single reference and
+prints its value only when asked to. `run` puts resolved values in a child's
+environment and writes nothing to disk. `check` reports what resolves without
+ever showing a value. `write` takes a value on stdin — never as an argument,
+where the process table would carry it — and stores it at a reference.
 """
 
 from __future__ import annotations
@@ -17,9 +19,12 @@ from devops_ai.config import find_project_root, load_config
 from devops_ai.secrets import (
     ERROR,
     CheckResult,
+    EnvironmentEncodingError,
+    ProviderError,
     ResolveContext,
     SecretResolutionError,
-    layered_env,
+    context_for,
+    encode_env,
     provider_for,
     read_env_file,
     resolve,
@@ -27,6 +32,9 @@ from devops_ai.secrets import (
 )
 from devops_ai.secrets import (
     check as check_ref,
+)
+from devops_ai.secrets import (
+    write as write_secret,
 )
 from devops_ai.worktree import main_repo_root
 
@@ -66,6 +74,77 @@ def read(
     raise typer.Exit(0)
 
 
+@app.command()
+def write(
+    ref: str = typer.Argument(help="Secret reference to store the value at"),
+    if_absent: bool = typer.Option(
+        False,
+        "--if-absent",
+        help="Leave a secret that already exists alone, and print its reference",
+    ),
+) -> None:
+    """Store the value on stdin at a reference; print the canonical reference."""
+    try:
+        value = _stdin_value()
+    except ValueError as exc:
+        # Named through `_label`, never as the bare `ref`: a string no provider
+        # claims *is* its value, so echoing it here would leak the very thing
+        # the rest of this command refuses to print. A provisioning log holding
+        # many writes otherwise cannot tell which one refused its input.
+        typer.echo(f"ksecret write {_label(ref)}: {exc}", err=True)
+        raise typer.Exit(1) from None
+
+    try:
+        canonical = write_secret(ref, value, ResolveContext(), if_absent)
+    except ProviderError as exc:
+        typer.echo(f"ksecret write: {exc}", err=True)
+        raise typer.Exit(1) from None
+
+    # The reference, and only ever the reference: for `op://` it is not the one
+    # that was passed in, and it is what a caller should store from here on.
+    _emit(f"{canonical}\n")
+    raise typer.Exit(0)
+
+
+def _stdin_value() -> str:
+    """The value to store: stdin's bytes as UTF-8, less one trailing newline.
+
+    Read as bytes rather than through `sys.stdin`, whose decoder follows the
+    locale — under the `LC_ALL=C` of a container or a cron job, a text read
+    would fail on a non-ASCII value and say which character it choked on. One
+    trailing newline goes, because `printf '%s\\n'` and every shell pipeline
+    put one there; a second one is part of the value, and providers that cannot
+    store a line break say so themselves.
+
+    Stripping before the decode is safe whatever the bytes are: UTF-8 is
+    self-synchronising, so a trailing `0A` is a newline and never the tail of
+    some other character.
+    """
+    if sys.stdin.isatty():
+        # Without this the command is indistinguishable from a hang: nothing
+        # has been printed, and stdin is a terminal nobody has been asked to
+        # type into. On stderr, so the one line on stdout is still the
+        # reference and a pipeline is unaffected — and only when there is a
+        # person there to read it.
+        typer.echo(
+            "ksecret write: reading the value from stdin; end it with Ctrl-D.",
+            err=True,
+        )
+    stream = getattr(sys.stdin, "buffer", None)
+    raw = stream.read() if stream is not None else sys.stdin.read().encode("utf-8")
+    if raw.endswith(b"\n"):
+        raw = raw[:-1]
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        # Nothing of the input in the sentence — the exception being replaced
+        # quotes the bytes it choked on, and those are part of the secret.
+        raise ValueError(
+            "the value on stdin is not valid UTF-8 text. ksecret stores text; "
+            "encode a binary secret (base64, say) before writing it."
+        ) from None
+
+
 @app.command(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True}
 )
@@ -87,10 +166,9 @@ def run(
         typer.echo(f"ksecret run: {exc.strerror}: {exc.filename}", err=True)
         raise typer.Exit(1) from None
 
-    environ = layered_env(entries)
-    resolved, errors = resolve_all(
-        _references(entries), ResolveContext(env=environ)
-    )
+    context = context_for(entries)
+    environ = dict(context.env)
+    resolved, errors = resolve_all(_references(entries), context)
     if errors:
         for error in errors:
             typer.echo(error.message, err=True)
@@ -98,7 +176,16 @@ def run(
     environ.update(resolved)
 
     try:
-        completed = subprocess.run(command, env=environ)
+        # Only the names this run declared carry the UTF-8 promise. Everything
+        # else in `environ` was inherited from this process, and re-spelling it
+        # breaks the child: a PATH directory named with the byte E9 is not found
+        # by a child sent looking for C3 A9.
+        completed = subprocess.run(
+            command, env=encode_env(environ, utf8_keys=entries.keys())
+        )
+    except EnvironmentEncodingError as exc:
+        typer.echo(f"ksecret run: {exc}", err=True)
+        raise typer.Exit(1) from None
     except OSError as exc:
         typer.echo(
             f"ksecret run: cannot execute {command[0]}: {exc.strerror}", err=True
@@ -127,7 +214,7 @@ def check(
         raise typer.Exit(1) from None
 
 
-    context = ResolveContext(env=layered_env(entries))
+    context = context_for(entries)
 
     results = [check_ref(key, ref, context) for key, ref in entries.items()]
     results += [check_ref(_label(ref), ref, context) for ref in refs or []]
@@ -174,9 +261,7 @@ def _check_infra() -> list[CheckResult]:
             "ksecret check: cannot determine main repository root.", err=True
         )
         raise typer.Exit(1)
-    context = ResolveContext(
-        base_dir=base_dir, env=layered_env(config.secrets)
-    )
+    context = context_for(config.secrets, base_dir)
     return [
         check_ref(key, config.secrets[key], context)
         for key in sorted(config.secrets)

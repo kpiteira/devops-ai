@@ -31,7 +31,8 @@ The workflow for a new feature — **rigid about outcomes, silent about paths**:
 
 3. Land         /kobserve verify <pr> · /kobserve land <pr>
                  → Independent re-run of the blocking tests, "For the human" put to
-                   the human before merge; after his merge, spec row + teardown
+                   the human before merge; the spec row rides the PR branch so his
+                   merge carries it; after the merge, teardown
 
 4. Close        /kspec close reminders
                  → Fresh-context review: does the whole diff satisfy the INTENT?
@@ -239,6 +240,7 @@ ksecret read --print '$DATABASE_URL'            # printing a value is always exp
 ksecret run --env-file .env.prod -- docker compose up -d
 ksecret check --env-file .env.prod              # ok / literal / error — never a value
 ksecret check --infra                           # the current project's sandbox secrets
+openssl rand -hex 32 | ksecret write op://dev-vault/myapp/auth-token
 ```
 
 `ksecret run` reads each `--env-file` in two passes: literal lines go into the
@@ -278,12 +280,69 @@ for `op://`, and `az login` for `akv://` — no Azure SDK, no service principal,
 extra configuration. The `akv://` provider adds nothing to your `az` session and
 shells out to `az` with the environment it was given, so whichever way that session
 was established — including `az login --identity` on a host with a managed identity —
-is what reads the secret. `bao://` needs no CLI at all: it takes an address and a
+is what reads the secret. A reference's segments are checked for the shape Key Vault
+requires before `az` is called — a vault of 3 to 24 letters, digits and hyphens, a
+secret name of letters, digits and hyphens, a pinned version of 32 hexadecimal
+characters — so `akv://kv-1/my_secret` is refused by name rather than after a round
+trip that could only have failed. The check is deliberately looser than Azure's own
+rules, which also constrain where a vault name's hyphens sit and how long a secret
+name may be: those Azure still answers for. `bao://` needs no CLI at all: it takes an address and a
 token from the environment, described in its own section below.
 
 Resolution happens on the host, with your credentials — your `op` grant, your `az`
 session, your Vault token. A command started by `ksecret run` receives plain values in
 its environment and never talks to a vault itself.
+
+### Storing a secret (`ksecret write`)
+
+`ksecret write <ref>` takes the value on **stdin** and stores it wherever the
+reference points. Never as an argument: an argument is in the process table, readable
+by anything else on the machine for as long as the command runs. That rule holds all
+the way down — the value reaches OpenBao in a request body, 1Password as a JSON
+template on `op`'s own stdin, and Azure in a file only you can read, which `az` is
+given the path to and which is deleted as soon as it exits.
+
+```bash
+openssl rand -hex 32 | ksecret write op://dev-vault/myapp/auth-token
+# op://dev-vault/4bvbgcsdsvbuacj5kqbnlhn5qe/auth-token   ← store this one
+
+ksecret write --if-absent 'bao://kv/apps/myapp#api-key' < token.txt
+```
+
+One trailing newline is stripped, because every shell pipeline puts one there; a
+second one is part of the value. On success the only thing printed is **one line: the
+reference to keep** — never the value. For `dotenv://`, `bao://` and `akv://` that is
+the reference you passed in. For `op://` it is not: 1Password lets two items share a
+title, and an archived item keeps its title too, so a write answers with the item-ID
+form, which goes on pointing at what was written.
+
+`--if-absent` leaves a secret that is already there alone and prints its reference
+anyway — what a provisioning step wants on a re-run, where minting a second credential
+is the failure. Each provider asks its own backend: a vault that *refuses* to answer is
+an error, never an absence, so a denied read can never become an overwrite.
+
+| Reference | What a write does |
+|-----------|-------------------|
+| `dotenv://<path>#<KEY>` | sets or replaces `KEY`; every other line is kept byte for byte, including its line endings. A file that did not exist is created 0600; one that did keeps its own permissions |
+| `bao://<mount>/<path>#<key>` | a KV v2 **patch** — sets `<key>` and leaves the secret's other keys alone. The secret is created if it does not exist yet |
+| `akv://<vault>/<secret>` | stores a new version. A reference that pins a version is refused: a version is an address to read, and Key Vault mints the id for whatever is stored |
+| `op://<vault>/<item>/<field>` | creates the item (category Login) with that field, or sets the field on the item that is there |
+| `env://NAME`, `$NAME` | refused. A process cannot set a variable in the shell that started it, and the `.env` fallback is somebody else's file — name it with a `dotenv://` reference to write to it |
+
+Some values cannot be stored faithfully in some backends, and there `ksecret` refuses
+rather than store a near miss you would find out about later:
+
+- a `dotenv://` file is one line per key with no escapes, so a value containing a line
+  break has nowhere to go;
+- `az` reads the file it is handed as text, turning CRLF and CR into LF, so a value
+  carrying a carriage return would not read back as what was written.
+
+An `op://` update sends the whole item back, because a JSON template keeps only the
+fields it lists. Two consequences worth knowing: the item's other field values pass
+through this process (in memory, never to disk or to your terminal), and 1Password's
+own warning applies — **a passkey on the item does not survive a template edit**. Write
+to items that hold credentials, not to ones a person uses to sign in.
+
 
 ### OpenBao and HashiCorp Vault (`bao://`)
 
