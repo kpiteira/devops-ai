@@ -266,3 +266,8 @@ briefs and tests reference them. -->
   the encoding named (#57's Linux integration job is the guard); `ksecret run` exits 1 with
   a message on an unencodable value; the `op://`/`akv://` spawn sites changed as part of
   the class fix.
+- [x] 2026-09-14 (M4, #70) decision: `ksecret write op://…` sends the JSON template on
+  `op`'s stdin rather than in a 0600 template file (the M4 brief's Surface pinned the
+  file; its Invariants already allowed stdin). Nothing touches disk and nothing survives
+  a SIGKILL; `op item create`/`edit` both document the piped form. Karl 2026-09-14: A —
+  keep stdin, amend the brief. Brief Surface, Invariants and Facts updated to match.
