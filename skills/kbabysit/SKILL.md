@@ -479,15 +479,28 @@ reason — which re-applies every stop rule in step 4.
 **The verdict is a function of the stop, not of the to-do list.** ✅ follows a
 *convergence* signal only — approved, no new findings, repeats-only, no in-scope
 IMPLEMENT, or a second-order round whose fix commits got their `kselfreview` pass. Every
-other stop — round budget, DISCUSS open, CI, systemic on pinned Surface, or a round that
+other stop — round budget, DISCUSS open, systemic on pinned Surface, or a round that
 repeated last round's mechanism — is ⚠️ with the signal named in the verdict line itself,
 even when nothing is left for the human to decide: the reviewer was still finding
 first-order things when the loop chose to stop, and "nothing open for you" is not the
 same sentence as "the reviewer is done with this PR". ❌ is CI red or conflicts the loop
-could not clear. Measured 2026-09-14: three reports on #66, #75 and #77 carried ✅ over a
-`systemic — same mechanism as last round` stop, the human merged nothing and asked why he
-kept being told a PR was ready when it was not; the answer was that this line used to be
-a menu with no rule.
+could not clear — never ⚠️, because a branch whose gates are red is not a decision the
+human can make.
+
+**When more than one signal fires, ✅ needs all of them to be convergence signals — with
+one exception, which has to be named in the line.** A budget reached on a round that also
+converged was not the binding constraint, since the loop would have stopped anyway; it
+does not downgrade the verdict, and the line says so (#66's report got this right: "the
+budget was not the binding constraint: 2 of 3 rounds used"). Anything else firing
+alongside does downgrade it, because the two claims conflict — a second-order round that
+is *also* this round's repeat of last round's mechanism is a reviewer finding echo sites
+inside the fixes, not a reviewer that is done with the PR.
+
+Measured 2026-09-14: #66 and #75 wrote ✅ over a `systemic — same mechanism as last round`
+stop, and #77 wrote ✅ over a round that was second-order but had both the budget and that
+same systemic repeat firing with it. The human merged nothing and asked why he kept being
+told a PR was ready when it was not; the answer was that this line used to be a menu with
+no rule.
 
 The "what changed" section is the honest measure of the loop: if it's empty after round 1,
 say so — that's a signal the pre-PR gates are doing their job, not a failure of the loop.

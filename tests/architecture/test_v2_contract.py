@@ -243,6 +243,45 @@ def test_babysit_loop_runs_in_an_opus_session_and_says_so() -> None:
         assert step in launch, f"launch recipe is missing `{step}`"
 
 
+def test_babysit_verdict_is_a_function_of_the_stop() -> None:
+    """A verdict glyph with no rule attached is a menu, and menus get picked from.
+
+    2026-09-14: three reports wrote ✅ merge-ready over stops that were not convergence
+    — #66 and #75 over a `systemic — same mechanism as last round`, #77 over a
+    second-order round that also hit the budget and that same repeat. The human read ✅
+    as "the reviewer is done", and merged nothing. The rule that replaced the menu is
+    prose, which is exactly how the line became a menu in the first place.
+
+    Anchored per-paragraph rather than to the `## 5. Report` section: that section's
+    body is a fenced ``markdown`` template whose own ``## Babysit report`` heading ends
+    the section as ``section()`` computes it, so a section-scoped check here reads 109
+    characters that contain none of these obligations and passes no matter what.
+    """
+    skill = read("skills/kbabysit/SKILL.md")
+    # The template line itself carries the signal slots. Asserting `✅ merge-ready`
+    # file-wide would stay green with the template reverted to a bare glyph menu,
+    # because the rule paragraphs below quote the glyph too.
+    verdict_line = block(skill, "**Verdict:**")
+    for slot in ("(converged: <signal>)", "(stopped: <signal>)"):
+        assert slot in verdict_line, f"Verdict template must carry `{slot}`"
+    rule = block(skill, "**The verdict is a function of the stop")
+    assert "*convergence* signal only" in rule
+    # CI was once enumerated as ⚠️ *and* defined as ❌ in this same paragraph, which
+    # left a CI stop with no determinate verdict.
+    assert "never ⚠️" in rule, "CI must be ❌ alone — it was once in both lists"
+    # Rounds routinely end on several signals at once; without a precedence rule the
+    # convergence one could always be the one quoted.
+    multi = block(skill, "**When more than one signal fires")
+    assert "all of them to be convergence signals" in multi
+    # The exception's *reason*, which occurs once. "not the binding constraint" reads
+    # like the obligation but appears twice in this paragraph — once as the rule and
+    # once inside the quoted #66 report — so asserting it leaves the rule deletable
+    # with the quote alone keeping the test green.
+    assert "the loop would have stopped anyway" in multi, (
+        "the budget exception must keep the reason it is an exception"
+    )
+
+
 def test_observer_skill_exists_with_its_launch_guards() -> None:
     skill = read("skills/kobserve/SKILL.md")
     for phrase in (
