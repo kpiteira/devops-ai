@@ -113,8 +113,11 @@ reference. (`$HOME/.config` is claimed and refused as well, but by the other mes
 `<name> is not a valid variable name`, since what follows its `$` is a letter.) SPEC.md,
 the M1 grammar row and `test_dollar_shorthand_claims_only_names` all carry the
 three-character claim set — letter, `_`, `{` — while (c) above is left as it was put to
-Karl. **For Karl on this PR:** say if you want `${…}` treated as a literal instead; it is
-one Surface row and one test line.
+Karl. **For Karl on this PR:** say if you want `${…}` treated as a literal instead. The
+cost, counted rather than estimated: the SPEC amendment row, the M1 grammar row, and
+three lines of `test_dollar_shorthand_claims_only_names` (the `malformed` list, the
+`lines[:3]` slice and the `braces` assertion), plus `${…}` moving into that test's
+literal list.
 
 **2. A `ksecret write op://…` update loses a passkey on the target item** (M4, #70:
 "revisit at feature close"). An update sends the whole fetched item back as the template;

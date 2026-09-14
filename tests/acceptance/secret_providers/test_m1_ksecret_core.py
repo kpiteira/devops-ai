@@ -153,11 +153,14 @@ def test_dollar_shorthand_claims_only_names(project: Path) -> None:
     assert all("not a valid variable name" in line for line in lines[:3]), r.out
     assert "braces" in lines[3], r.out
     assert "not set" not in r.out, "a malformed name must not be looked up"
-    # A refusal names what it refused: `Malformed reference <ref>` is the pinned
-    # message, and with several refs on one line a reason alone says nothing about
-    # which of them is wrong.
+    # A refusal names what it refused, in the *message*: `check` already prefixes a
+    # positional argument with the reference itself, so asserting on the whole line
+    # would pass against a generic "not a valid variable name" for all four. Under
+    # --env-file the prefix is the env key, not the reference, and then the message
+    # is the only thing that says which reference is wrong.
     for ref, line in zip(malformed, lines, strict=True):
-        assert ref in line, f"{line!r} does not name {ref!r}"
+        assert " — " in line, line
+        assert f"Malformed reference {ref}" in line.split(" — ", 1)[1], line
     r = ksecret("read", "$MY-VAR", cwd=project, env=env)
     assert r.code == 1 and r.out == ""
     assert "not a valid variable name" in r.err

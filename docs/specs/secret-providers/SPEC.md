@@ -299,7 +299,7 @@ briefs and tests reference them. -->
   a real reference. **Karl acknowledged option (c) on 2026-09-14; (c) as put to him
   began the claim at a letter or underscore, so the `{` is the planner's addition and
   is pending his word on the close PR (#82).** If he declines it, `${…}` becomes a
-  literal: this row, one brief row and one test line. Changes the M1 Surface
+  literal; CLOSE.md carries what that costs. Changes the M1 Surface
   (`$NAME` row) and M1's blocking tests: `test_dollar_shorthand_claims_only_names` is
   new and J4's sandbox test declares a `$2b$…` literal; both measured failing on main
   `6edc786` for the right reason. Lands as a small PR after the close PR — issue #80 —
