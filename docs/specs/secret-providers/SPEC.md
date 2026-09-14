@@ -122,7 +122,7 @@ create` calls.
 | M1 — ksecret with env, dotenv, 1Password | briefs/M1-ksecret-core.md | J1, J2, J3, J4, J5 | — | delivered | [c40452a](https://github.com/kpiteira/devops-ai/commit/c40452a) · [#32](https://github.com/kpiteira/devops-ai/pull/32) · [divergence](divergences/M1-2026-09-12.md) (resolved by #30) |
 | M2 — OpenBao provider | briefs/M2-openbao.md | J6 | M1 | delivered | [04fea7f](https://github.com/kpiteira/devops-ai/commit/04fea7f) · [#51](https://github.com/kpiteira/devops-ai/pull/51) |
 | M3 — Azure Key Vault provider | briefs/M3-azure-key-vault.md | J7 | M1 | delivered | [dc0bf28](https://github.com/kpiteira/devops-ai/commit/dc0bf28) · [#49](https://github.com/kpiteira/devops-ai/pull/49) |
-| M4 — write (optional) | briefs/M4-write.md | J8 | M2, M3 | PR | [#70](https://github.com/kpiteira/devops-ai/pull/70) |
+| M4 — write (optional) | briefs/M4-write.md | J8 | M2, M3 | delivered | [23516a1](https://github.com/kpiteira/devops-ai/commit/23516a1) · [#70](https://github.com/kpiteira/devops-ai/pull/70) |
 
 M2 and M3 are independent and may run in parallel. M4 is optional: it may be dropped
 at feature close without amendment if it proves heavy.
@@ -271,3 +271,15 @@ briefs and tests reference them. -->
   file; its Invariants already allowed stdin). Nothing touches disk and nothing survives
   a SIGKILL; `op item create`/`edit` both document the piped form. Karl 2026-09-14: A —
   keep stdin, amend the brief. Brief Surface, Invariants and Facts updated to match.
+- [x] 2026-09-14 (M4, #70) decision: a `ksecret write op://…` update sends the whole fetched
+  item back as the template, and the `op` CLI's JSON cannot represent a passkey, so a passkey
+  on the target item is lost; no detection is possible at that seam. Karl 2026-09-14: A —
+  README warning as shipped ("write to items that hold machine credentials, not ones a person
+  signs in with"); revisit at feature close.
+- [x] 2026-09-14 (M4, #70) decision: `ksecret write --if-absent akv://…` treats a *disabled*
+  Key Vault secret as absent and stores a new, enabled version over it — the same answer a
+  plain write gives and the M3 disabled-equals-not-found decision applied to writes. Karl
+  2026-09-14: A — accepted.
+- [x] 2026-09-14 (M4, #70) decision: `ksecret write op://<vault>/<item>/<field>` creates the
+  item titled with the `<item>` segment when nothing matches, including when the segment is
+  the 26-character ID of a deleted item. Karl 2026-09-14: A — accepted as predictable.
