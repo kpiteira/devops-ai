@@ -106,13 +106,15 @@ Implementation is issue #80 — an Opus executor PR gated by M1's blocking comma
 archive waits for it.
 
 **One refinement inside (c) — the planner's, not Karl's.** The option as offered above
-begins the claim at a letter or underscore. As amended, `{` is claimed too: `${HOME}`
+begins the claim at a letter or underscore. As amended, `{` is claimed too, so `${HOME}`
 is refused by name ("braces are not part of the shorthand; write $NAME or env://NAME")
-rather than passing through as a literal, because it is the likeliest misspelling of a
-real reference. `$HOME/.config` is refused the same way. SPEC.md, the M1 grammar row
-and `test_dollar_shorthand_claims_only_names` all carry the three-character claim set
-(letter, `_`, `{`); (c) above is left as it was put to Karl. **For Karl on this PR:**
-say if you want `${…}` treated as a literal instead — one Surface row and one test line.
+rather than passing through as a literal — it is the likeliest misspelling of a real
+reference. (`$HOME/.config` is claimed and refused as well, but by the other message,
+`<name> is not a valid variable name`, since what follows its `$` is a letter.) SPEC.md,
+the M1 grammar row and `test_dollar_shorthand_claims_only_names` all carry the
+three-character claim set — letter, `_`, `{` — while (c) above is left as it was put to
+Karl. **For Karl on this PR:** say if you want `${…}` treated as a literal instead; it is
+one Surface row and one test line.
 
 **2. A `ksecret write op://…` update loses a passkey on the target item** (M4, #70:
 "revisit at feature close"). An update sends the whole fetched item back as the template;
