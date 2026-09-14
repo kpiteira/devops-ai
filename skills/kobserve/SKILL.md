@@ -244,8 +244,11 @@ which is the relay failure under a politer name.
 
 - **Never upgrade a verdict.** The babysit report's newest `**Verdict:**` line is the
   loop's conclusion; relay it verbatim. If it is not ✅, the PR is not merge-ready, whatever
-  else looks done. The only thing that changes it is a `/kbabysit <n>` re-entry appending
-  a new section.
+  else looks done. A verdict is the loop's to write and this seat's to read: it changes
+  only when the loop appends a new section — a `/kbabysit <n>` re-entry, or the single
+  post-report auto-review the loop still owns (`kbabysit`, *One exception*). Which of the
+  two wrote it is `kbabysit`'s business, not this seat's; either way you read the newest
+  section and quote it. Never in chat.
 
 - Never merge; never decide a product semantic; never edit a brief or an acceptance
   test (planner branches only).

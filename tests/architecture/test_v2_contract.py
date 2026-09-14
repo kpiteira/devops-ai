@@ -216,8 +216,8 @@ def test_observer_skill_exists_with_its_launch_guards() -> None:
     # Each of these three is absent from `verify` on main, so the block fails without
     # this change rather than merely describing it.
     verify = section(skill, "verify")
-    for phrase in ("**Verdict:** ✅ merge-ready", "**Why the loop stopped:**",
-                   "verbatim"):
+    for phrase in ("**newest section**", "**Verdict:** ✅ merge-ready",
+                   "**Why the loop stopped:**", "verbatim"):
         assert phrase in verify, f"`## verify` must carry {phrase!r}"
 
 
