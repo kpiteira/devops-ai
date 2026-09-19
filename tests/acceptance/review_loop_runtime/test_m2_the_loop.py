@@ -1879,6 +1879,10 @@ J10_CASES = [
     # hit wherever it stands, so a path whose basename is one, or one inside a quoted
     # argument, reads as an invocation: that is the precision the wider read trades away
     ("heredoc-body", "cat <<EOF\ngh api repos/x/y\nEOF", False, False),
+    # a here-string is not a heredoc opener, and `kbabysit` uses two today: if
+    # `_HEREDOC` read `<<<"$BODY"` as opening a body, everything after it in the fence
+    # would be swallowed. Ungraded until now, and true by the width of one `\w+`
+    ("here-string", 'grep -q scope <<<"$BODY"\ngh api repos/x/y', True, True),
     ("path-basename", "cat docs/notes/git", True, False),
     ("quoted-word-arg", 'printf "%s" "run jq on it"', True, False),
     # and what a correct rewrite contains: none of these may fail

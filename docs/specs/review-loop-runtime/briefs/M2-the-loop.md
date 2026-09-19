@@ -420,8 +420,11 @@ The `text`-fence and inline-span rows are the decision above working as intended
 code is prose. The other two are the fail-open shape the allowlist exists to prevent: an
 M2 executor who writes a shell block and forgets the ` ```bash ` label, or who generates
 a script through a heredoc, passes a gate that is supposed to fail closed, and nothing
-tells them. Neither is exercised today — the only unlabeled fence in either skill holds
-`/kbabysit <pr>` usage lines, and neither skill uses a heredoc.
+tells them. Neither is exercised today, measured rather than assumed: the only unlabeled fence in
+either skill holds `/kbabysit <pr>` usage lines (which read as no command, so widening
+the reader would not fail them), and neither skill opens a heredoc. Both skills do use
+here-strings (`<<<"$BODY"`), which `_HEREDOC` correctly declines to read as an opener —
+true by the width of one `\w+`, and graded from now on by the `here-string` row.
 
 **Not patched, deliberately.** This would be the sixth consecutive pass to change this
 one grader, and the boundary it would move is the one signed above on 2026-09-19. The
