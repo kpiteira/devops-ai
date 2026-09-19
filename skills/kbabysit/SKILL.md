@@ -1,12 +1,8 @@
 ---
 name: kbabysit
 description: Drive a PR from ready-for-review to merge-ready — request Copilot review, wait for it, triage and address comments via kreview against the PR's written review scope, re-request, and stop when the reviewer has finished with the PR (not with the fixes). Ends with a TL;DR report. Never merges, never triggers Claude reviews.
-context: fork
-agent: general-purpose
-background: false
-model: claude-opus-5
 metadata:
-  version: "0.4.0"
+  version: "0.5.0"
 ---
 
 # kbabysit — babysit a PR to merge-ready
@@ -26,41 +22,67 @@ what the PR was for. Truth is not the axis; scope is.
 
 **Arguments for this run:** `$ARGUMENTS` — empty means "the PR for the current branch".
 
-## How this runs — forked, on Opus
+## How this runs — in its own session, on Opus
 
-This skill's frontmatter carries `context: fork`, `agent: general-purpose`,
-`background: false` and `model: claude-opus-5`, so the loop always executes in a subagent
-on an Opus-grade model, never inline on the invoking session's model. Two reasons, both
-measured: **tier economics** — babysitting is polling plus bounded per-finding judgement,
-well within Opus-grade capability, and the invoking session's tier belongs to the
-intent/acceptance decisions this loop feeds, not to a re-review poll; and **context
-hygiene** — a run generates a lot of low-value output (poll results, review bodies, CI
-logs) that stays in the subagent instead of silting up a long-lived design or
-orchestration session. On 2026-09-03/04 the loop ran inline on a top-tier session because
-the skill named no execution tier (agent-memory #246, recorded in devops-ai #25); the human
-observed the same thing again on 2026-09-12 and re-signed the rule, which is why the tier
-is now in the frontmatter rather than in prose anyone can skip.
+This loop runs **in the session that invokes it**, and that session is an Opus-grade
+agent-deck session created from the PR's worktree:
+
+```bash
+agent-deck add <worktree> -t <project>/babysit-<pr> -g <project> -c claude --model claude-opus-5
+agent-deck session start <project>/babysit-<pr>
+sleep 3                                                          # the agent has to come up first
+agent-deck session send <project>/babysit-<pr> '/kbabysit <pr>'
+```
+
+**This is the repo's launch contract, not a recipe of its own** — the same three steps, in
+the same order, as `skills/kobserve/SKILL.md`, `skills/kworktree/SKILL.md` and
+`src/devops_ai/cli/impl.py` (`add_session` → `start_session` → `send_to_session`). Copy it
+from one of those rather than from memory; each element is there because something broke
+without it:
+
+- **`-g`** — a session added without a group inherits its parent's, and groups default to a
+  running-session cap of 1 that counts the parent, so a babysit launched from another
+  agent-deck session queues or errors instead of starting (pilot, 2026-09-06).
+- **`session start`** — `add` only registers the session; it does not run the tool. Send to
+  a session that was never started and the kickoff goes nowhere, so the babysit never
+  begins.
+- **the `sleep 3` before `send`** — an actual command, not a note: `send_to_session`
+  *executes* `time.sleep(delay)` with `delay=3` before sending
+  (`src/devops_ai/agent_deck.py:88-99`, "to allow the agent to start"), so a recipe that
+  only mentions the pause in a trailing comment reproduces the bug the wrapper exists to
+  avoid — the comment does not pause anything, and the kickoff goes to a session that is
+  not up yet. A busy target then times out at 60 s (`COMMAND_TIMEOUT`) and returns failure
+  rather than queueing. If the kickoff does not land, re-send it; nothing else in the loop
+  retries it for you.
+
+Two reasons for the tier and the visibility, both measured:
+
+- **Tier.** Babysitting is polling plus bounded per-finding judgement, executor-tier work;
+  the planner tier belongs to the intent and acceptance decisions this loop feeds. On
+  2026-09-03/04 the loop ran inline on a top-tier session because the skill named no tier
+  (agent-memory #246, devops-ai #25); the human saw it again on 2026-09-12 and #45 pinned
+  the tier in frontmatter with `context: fork` + `model: claude-opus-5`.
+- **Visibility.** The fork fixed the tier and hid the loop: a forked run leaves the
+  invoking session showing a status line and nothing else, with every round's reasoning in
+  a sidechain transcript nobody opens. Measured 2026-09-13 on devops-ai #72 and #66 — two
+  full babysits, two empty panes. The human's word on 2026-09-14: drop the fork. The tier
+  is now the session's, and step 0 checks it instead of the frontmatter forcing it.
 
 What that costs you, and how this skill pays it:
 
-- **The fork sees no conversation history** — only this file with `$ARGUMENTS` substituted.
-  So the PR number must either be passed explicitly (`/kbabysit 42`) or be resolvable from
-  the checkout. Step 0 reads the explicit number **first** and only falls back to
-  `gh pr view` — the other order silently babysits the branch's PR when you asked for a
-  different one — and stops outright if the two disagree, because the loop pushes fixes and
-  `kreview` resolves the PR from the checkout too. The fork starts in the invoking session's
-  working directory (verified 2026-09-12), so that fallback resolves correctly.
-- **`background: false`** makes the invoking turn wait for the report instead of collecting
-  it from a background task later. The ownership rule below — an unread review round is not
-  done — is the reason: a report that lands as a background notification after the session
-  moved on is exactly the unread round. It also makes interactive runs behave like `-p`
-  and SDK runs, which wait regardless. It needs Claude Code v2.1.218 or later; on an older
-  build the field is inert and the fork reports back as a background task instead — later,
-  but not lost.
-- **`kreview` runs inside this subagent**, per round, and is not itself forked — forking it
-  would hide each round's reasoning from the loop that has to decide whether to run another
-  one. Invoke it with the Skill tool (available to a `general-purpose` fork, verified
-  2026-09-12); if that tool is missing wherever this runs, read and follow
+- **The session sees no planner conversation** — only this file with `$ARGUMENTS`
+  substituted and whatever the kickoff said. So the PR number must either be passed
+  explicitly (`/kbabysit 42`) or be resolvable from the checkout. Step 0 reads the explicit
+  number **first** and only falls back to `gh pr view` — the other order silently babysits
+  the branch's PR when you asked for a different one — and stops outright if the two
+  disagree, because the loop pushes fixes and `kreview` resolves the PR from the checkout
+  too. A session created from the PR's worktree resolves correctly by construction.
+- **The report lands in this session's turn** and in the PR comment. The ownership rule
+  below — an unread review round is not done — is why the session that runs this loop has
+  no other job: nothing moves on before the report is read.
+- **`kreview` runs in this same session**, per round, never forked — forking it would hide
+  each round's reasoning from the loop that has to decide whether to run another one.
+  Invoke it with the Skill tool; if that tool is missing wherever this runs, read and follow
   `~/.claude/skills/kreview/SKILL.md` directly instead — same contract either way.
 
 **End state:** merge-ready (or explicitly blocked) + a detailed report with TL;DR. This skill
@@ -75,6 +97,32 @@ Copilot round sat overnight on a side PR nobody owned. For a milestone PR the ex
 ---
 
 ## 0. Preflight
+
+**Model first.** Say which model this session runs on — the harness names it — as a
+`MODEL:` line, and quote the harness's **exact model id** in it, because that id is what
+the condition is read against. Harnesses name a model twice, display name first and id
+second — this session's environment block, read 2026-09-14, gives "the model named Opus 5
+(1M context)" and "the exact model ID is `claude-opus-5[1m]`", so the honest line is
+`MODEL: Opus 5 (1M context) — claude-opus-5[1m]`. Re-derive it from your own environment
+rather than trusting that example; the point that survives a model change is the shape.
+An acceptance condition anchored to the *start* of that line would reject the very
+session this skill's own launch recipe creates. The rule is therefore about the id appearing, not
+about where: a `MODEL:` line **containing** a `claude-opus-…` id continues. Anything else
+— a Fable/Mythos planner session, a Sonnet or Haiku session, a session that resumed on a
+default after a restart —
+ends the run here: `MODEL: <id> — not the executor tier; launch an Opus agent-deck session
+from this PR's worktree and run /kbabysit <n> there`. The tier used to be forced by
+`context: fork` in this file's frontmatter; the fork hid the loop, so the check is yours
+now and this line is what keeps it from being skipped.
+
+**Re-run this gate on every resume, not just at step 0.** The frontmatter pin was
+re-applied to each fork, so it survived a restart; a one-shot preflight does not, and the
+model is a property that changes underneath a running loop. Measured in the pilot
+(`docs/designs/v2-contract/PILOT.md`, 2026-09-08): after a tmux restart
+`agent-deck session start` resumed a planner on Opus 4.8 instead of Fable — the session's
+model setting did not survive — and the rest of that session ran on the weaker model
+unnoticed until someone read the status bar. If this session was restarted or resumed
+mid-loop, state the `MODEL:` line again before the next round and apply the same stop.
 
 ```bash
 ARG_PR=$(printf '%s' "$ARGUMENTS" | sed 's/^#//' | grep -oE '^[0-9]+')      # explicit <pr-number>, if given
@@ -407,7 +455,7 @@ Post the final report as a PR comment (durable record) **and** present it in cha
 **TL;DR:** <2-3 sentences: rounds run, "N of M findings pushed back, N out of scope",
 what materially improved, final state — merge-ready / needs decision on X / blocked on Y.>
 
-**Verdict:** ✅ merge-ready | ⚠️ needs human decision | ❌ blocked
+**Verdict:** ✅ merge-ready (converged: <signal>) | ⚠️ needs human decision (stopped: <signal>) | ❌ blocked (<reason>)
 
 ### Rounds
 | Round | Reviewers | Effort | Findings | Suppressed | On original diff | On fix commits | Unknown | Unanchored | Systemic | Implemented | Pushed back | Out of scope | Discuss | Commits |
@@ -450,6 +498,35 @@ that grows across re-entries, and there is no cumulative cap on it by design (#6
 **Re-entry:** further rounds on this PR go through `/kbabysit <n>` — from any seat, for any
 reason — which re-applies every stop rule in step 4.
 ```
+
+**The verdict is a function of the stop, not of the to-do list.** ✅ follows a
+*convergence* signal only — approved, no new findings, repeats-only, no in-scope
+IMPLEMENT, or a second-order round whose fix commits got their `kselfreview` pass. Every
+other stop — round budget, DISCUSS open, systemic on pinned Surface, or a round that
+repeated last round's mechanism — is ⚠️ with the signal named in the verdict line itself,
+even when nothing is left for the human to decide: the reviewer was still finding
+first-order things when the loop chose to stop, and "nothing open for you" is not the
+same sentence as "the reviewer is done with this PR". ❌ is CI red or conflicts the loop
+could not clear — never ⚠️, because a branch whose gates are red is not a decision the
+human can make.
+
+**When more than one signal fires, ✅ needs all of them to be convergence signals — with
+one exception, which has to be named in the line.** A budget reached on a round that also
+converged was not the binding constraint, since the loop would have stopped anyway; it
+does not downgrade the verdict, and the line says so (#66's report got this right: "the
+budget was not the binding constraint: 2 of 3 rounds used"). Anything else firing
+alongside does downgrade it, because the two claims conflict — a second-order round that
+is *also* this round's repeat of last round's mechanism is a reviewer finding echo sites
+inside the fixes, not a reviewer that is done with the PR. **❌ outranks both**: if CI is
+red or conflicts are unresolved, that is the verdict no matter what else fired with it —
+"downgrade to ⚠️" is a rule about convergence signals meeting non-convergence ones, and a
+branch that does not build never reaches that question.
+
+Measured 2026-09-14: #66 and #75 wrote ✅ over a `systemic — same mechanism as last round`
+stop, and #77 wrote ✅ over a round that was second-order but had both the budget and that
+same systemic repeat firing with it. The human merged nothing and asked why he kept being
+told a PR was ready when it was not; the answer was that this line used to be a menu with
+no rule.
 
 The "what changed" section is the honest measure of the loop: if it's empty after round 1,
 say so — that's a signal the pre-PR gates are doing their job, not a failure of the loop.

@@ -48,7 +48,7 @@ Last updated: 2026-09-14
 ### v0.6 — Pilot, synthesis, and the review loop
 - v2 contract piloted end to end on khealth "challenges" (2026-09-01 → 09-11, `docs/designs/v2-contract/PILOT.md`), synthesised in `REVIEW.md`; contract, rules, skills and templates revised to v7 (PR #27); decisions T1–T5 signed in `docs/specs/v2-pilot-synthesis/SPEC.md`
 - `kobserve` observer seat: independent verification and the *For the human* gate before a milestone merges (PR #27)
-- Review loop redesigned on the data from two runaway loops (issue #33): written `## Review scope` required, OUT OF SCOPE disposition files issues, computed finding provenance, second-order stop, stopping as a state, push-back ratio reported (#34); a rebase resets the provenance boundary (#41); `kselfreview` moved into the repo (#39, #42); `kbabysit` runs forked on Opus via skill frontmatter, gated by the architecture tests (#45)
+- Review loop redesigned on the data from two runaway loops (issue #33): written `## Review scope` required, OUT OF SCOPE disposition files issues, computed finding provenance, second-order stop, stopping as a state, push-back ratio reported (#34); a rebase resets the provenance boundary (#41); `kselfreview` moved into the repo (#39, #42); `kbabysit` runs forked on Opus via skill frontmatter, gated by the architecture tests (#45; fork dropped 2026-09-14 — it hid the loop; the tier is the agent-deck session's now)
 - `secret-providers` M1 delivered: `ksecret` console script resolving `$VAR`/`env://`, `dotenv://` and `op://` references, kinfra `[sandbox.secrets]` on the same resolver (`docs/specs/secret-providers/`, PR #32)
 - CodeQL and Dependabot backlog cleared with reasons on every alert (#38, #43); integration tests skip instead of fail without Docker (#44)
 - Housekeeping: personal references out of skills (#47), tool-artifact lines out of docs (#48)
@@ -89,7 +89,7 @@ Carried from #17 (closed 2026-09-13); both wait on a second onboarded project to
 ### Skill Improvements
 
 - [ ] **Agent teams prototype** — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` enables parallel work within a milestone. Worth a spike for large milestones in `/kbuild`.
-- [ ] **Skill frontmatter features** — `context: fork` + `model:` are in use since #45 (`kbabysit`); `rules/effort-and-model-calibration.md` records the fields. Still unevaluated: `effort:` per skill, and dynamic context via `!command` syntax.
+- [ ] **Skill frontmatter features** — `context: fork` + `model:` were used by `kbabysit` from #45 to 2026-09-14 and dropped: a forked loop is invisible in the session running it. `rules/effort-and-model-calibration.md` records the fields and the lesson. Still unevaluated: `effort:` per skill, and dynamic context via `!command` syntax.
 - [ ] **Path-scoped rules** — `.claude/rules/` supports path globs in frontmatter. Could be useful for project-specific patterns (e.g., test conventions scoped to `tests/**/*.py`). Probably not needed for universal principles.
 
 ### Ecosystem

@@ -192,22 +192,145 @@ def test_pr_ownership_rule_reaches_the_babysitter() -> None:
     assert "owns" in read("skills/kbabysit/SKILL.md")
 
 
-def test_babysit_loop_is_pinned_to_a_forked_opus_subagent() -> None:
-    """The loop must not run inline on the invoking session's tier (issue #25).
+def test_babysit_loop_runs_in_an_opus_session_and_says_so() -> None:
+    """The loop must run on an Opus-grade invoking session (issue #25) — and must be
+    visible in the session that runs it (2026-09-14).
 
-    Twice observed running inline on a top-tier session because the tier lived in
-    prose. It lives in frontmatter now, and this is what keeps it there.
+    Twice observed running on whatever tier the invoking session happened to be,
+    because the tier lived in prose; #45 moved it to frontmatter as ``context: fork``
+    + ``model:``. The fork kept the tier and hid the loop: an agent-deck session
+    running a forked babysit shows a status line and nothing else, with every round in
+    a sidechain transcript (measured on #72 and #66). The human dropped the fork, so
+    the tier is now the invoking session's own and the skill's preflight is what
+    enforces it. This pins both halves of that: the frontmatter carries none of the
+    four execution fields, and the preflight states an accept condition *and* rejects
+    everything else — an informational ``MODEL:`` line that stopped nothing would be
+    no gate at all.
     """
-    frontmatter = read("skills/kbabysit/SKILL.md").split("---")[1]
+    skill = read("skills/kbabysit/SKILL.md")
+    frontmatter = skill.split("---")[1]
     fields = dict(
         line.split(":", 1) for line in frontmatter.splitlines() if ": " in line
     )
-    assert fields.get("context", "").strip() == "fork"
-    assert fields.get("agent", "").strip() == "general-purpose"
-    assert "opus" in fields.get("model", "").strip()
-    # Not cosmetic: background:true would deliver the report as a task notification
-    # long after the invoking turn, which is the unread round the skill forbids.
-    assert fields.get("background", "").strip() == "false"
+    # All four fields #45 added, not just the two that fork on their own: the shape
+    # this PR pins is a frontmatter with no execution pins in it whatsoever.
+    for field in ("context", "agent", "background", "model"):
+        assert field not in fields, f"execution pin `{field}:` is back in frontmatter"
+    preflight = skill.split("## 0. Preflight", 1)[1].split("## 1.", 1)[0]
+    # Scoped to the `**Model first.**` paragraph, not the whole preflight section. Both
+    # phrases below happen to be unique to that paragraph today, so a section-wide check
+    # does hold — but only by accident of the surrounding prose: the moment either
+    # phrase is used elsewhere in preflight, deleting the gate stops making this red.
+    # The block is the obligation; the section merely contains it.
+    model_gate = " ".join(block(preflight, "**Model first.**").split())
+    # The accept *condition*, as one clause — not a bare `claude-opus-`, which this
+    # block contains twice: once in the rule and once in the worked example of the
+    # harness's own line. Asserting the loose token leaves the rule deletable with the
+    # example alone holding the gate green (measured: that mutation passed).
+    #
+    # The clause also pins `containing`, which is the whole finding it came from: the
+    # harness line leads with a display name, so an acceptance condition anchored to
+    # the start of the line would reject the very session the launch recipe creates.
+    assert "**containing** a `claude-opus-…` id continues" in model_gate, (
+        "acceptance must be an id the line *contains*, not one it starts with"
+    )
+    # The rejection branch: the check has to end the run, not merely report a tier.
+    assert "ends the run here" in model_gate
+    assert "agent-deck" in model_gate
+    # A one-shot gate does not replace the frontmatter pin it removed: `model:` was
+    # re-applied to every fork and so survived a restart, while a check that runs only
+    # at step 0 does not. The pilot measured a session resuming on a different model
+    # after a tmux restart and running on unnoticed, which is this PR's regression to
+    # own, not a general observation.
+    assert "on every resume" in preflight, (
+        "the model gate must re-run after a restart, not only at step 0"
+    )
+    # The launch recipe is the mechanism the tier now rests on, so it has to be the
+    # repo's launch contract rather than a recipe of its own: add (with a group and the
+    # Opus model) → start → send. Two review rounds on #75 found two separate elements
+    # missing, one per round; this is what stops the third.
+    # Anchored to its own section, not to "the first bash block in the file" — the
+    # skill has seven, and a positional split would go red for the unrelated reason
+    # that someone added a block above this one.
+    how = skill.split("## How this runs", 1)[1].split("\n## ", 1)[0]
+    launch = how.split("```bash", 1)[1].split("```", 1)[0]
+    for step in (
+        "agent-deck add",
+        "-g ",
+        "--model claude-opus",
+        "agent-deck session start",
+        # An executable pause, not a comment about one. Round 2's report predicted this
+        # element would be the next one found missing and closed the class by writing
+        # the recipe down; it was still absent two rounds later, because prose about a
+        # delay does not delay anything. `sleep` is the token that has to be there.
+        "sleep 3",
+        "agent-deck session send",
+    ):
+        assert step in launch, f"launch recipe is missing `{step}`"
+    # ...and in the right order: the pause is worthless after the send it protects.
+    assert launch.index("sleep 3") < launch.index("agent-deck session send"), (
+        "the pause must come before the send it exists to protect"
+    )
+
+
+def test_babysit_verdict_is_a_function_of_the_stop() -> None:
+    """A verdict glyph with no rule attached is a menu, and menus get picked from.
+
+    2026-09-14: three reports wrote ✅ merge-ready over stops that were not convergence
+    — #66 and #75 over a `systemic — same mechanism as last round`, #77 over a
+    second-order round that also hit the budget and that same repeat. The human read ✅
+    as "the reviewer is done", and merged nothing. The rule that replaced the menu is
+    prose, which is exactly how the line became a menu in the first place.
+
+    Anchored per-paragraph rather than to the `## 5. Report` section: that section's
+    body is a fenced ``markdown`` template whose own ``## Babysit report`` heading ends
+    the section as ``section()`` computes it, so a section-scoped check here reads 109
+    characters that contain none of these obligations and passes no matter what.
+    """
+    skill = read("skills/kbabysit/SKILL.md")
+
+    # Every phrase below is matched against whitespace-collapsed text. These are
+    # assertions about prose, and prose wraps: "conflicts the loop could not clear"
+    # already spans a newline, so the literal substring is absent from a paragraph
+    # that plainly contains the rule. Collapsing first means these gates go red for
+    # the rule being gone and not for the paragraph being reflowed.
+    def flat(text: str) -> str:
+        return " ".join(text.split())
+
+    # The template line itself carries the signal slots. Asserting `✅ merge-ready`
+    # file-wide would stay green with the template reverted to a bare glyph menu,
+    # because the rule paragraphs below quote the glyph too.
+    verdict_line = flat(block(skill, "**Verdict:**"))
+    for slot in ("(converged: <signal>)", "(stopped: <signal>)"):
+        assert slot in verdict_line, f"Verdict template must carry `{slot}`"
+
+    rule = flat(block(skill, "**The verdict is a function of the stop"))
+    assert "*convergence* signal only" in rule
+    # CI was once enumerated as ⚠️ *and* defined as ❌ in this same paragraph, which
+    # left a CI stop with no determinate verdict. Both of ❌'s causes are pinned as a
+    # set: pinning only the CI half is how this gate shipped first, and `or conflicts
+    # the loop could not clear` could be deleted with every other assertion green.
+    assert "never ⚠️" in rule, "CI must be ❌ alone — it was once in both lists"
+    for cause in ("CI red", "conflicts the loop could not clear"):
+        assert cause in rule, f"❌ must keep its `{cause}` cause"
+
+    # Rounds routinely end on several signals at once; without a precedence rule the
+    # convergence one could always be the one quoted.
+    multi = flat(block(skill, "**When more than one signal fires"))
+    assert "all of them to be convergence signals" in multi
+    # ❌ outranks the downgrade rule. Without this, "anything else firing alongside
+    # downgrades to ⚠️" and "CI red is ❌, never ⚠️" both claim a converged-but-CI-red
+    # stop, and the verdict is whichever sentence the reader hits first.
+    assert "outranks" in multi, (
+        "❌ must take precedence over the multi-signal downgrade"
+    )
+    # The exception's *reason*, which occurs once. "not the binding constraint" reads
+    # like the obligation but appears twice in this paragraph — once as the rule and
+    # once inside the quoted #66 report — so asserting it leaves the rule deletable
+    # with the quote alone keeping the test green.
+    assert "the loop would have stopped anyway" in multi, (
+        "the budget exception must keep the reason it is an exception"
+    )
 
 
 def test_observer_skill_exists_with_its_launch_guards() -> None:
