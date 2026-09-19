@@ -1645,7 +1645,12 @@ _COMMAND_BREAK = re.compile(r"\$\(|&&|\|\||[|;&()`{}]")
 _REDIRECT = re.compile(r"\d?(?:<<<|<<-?|[<>]{1,2}&?)\s*\S*")
 # a loop or case header: what follows `in` is data, and the body starts after `do`
 _LOOP_HEADER = re.compile(r"^\s*(?:for|select|case)\s")
-# tokens that can precede the command word without being one
+# shell syntax that can precede the command word without being one: a console
+# prompt, negation, the keywords. Wrappers (`sudo`, `env`, `xargs`, `time`, `command`,
+# `nohup`, `exec`) are deliberately *not* here: stripping them is how the allowlist
+# failed open — `env -i gh …` lost `env`, could not classify `-i`, and yielded nothing,
+# which both graders read as "no command". A wrapper is a command the allowlist does
+# not name, and that is the whole verdict on it.
 _NOT_THE_COMMAND = {
     "$",
     "!",
@@ -1656,13 +1661,6 @@ _NOT_THE_COMMAND = {
     "while",
     "until",
     "do",
-    "sudo",
-    "time",
-    "exec",
-    "command",
-    "nohup",
-    "xargs",
-    "env",
     "fi",
     "done",
     "esac",
@@ -1703,12 +1701,14 @@ def _command_word(token: str) -> str | None:
 
 
 def _commands(snippet: str) -> list[list[str]]:
-    """The command of every segment of `snippet`: `[word, *args]`, prefixes stripped.
+    """The command of every segment of `snippet`: `[word, *args]`, keywords stripped.
 
     `REPO=$(gh repo view …)`, `if git merge-base …`, `… | jq '.x'` and `VAR=1 curl …`
     each yield their real command word; a grader that reads `words[0]` of the whole
     snippet sees none of them. Segments whose first token names no command
-    (`<sha>`, `--flag`, `…`, `/kbabysit`, a JSON fragment) yield nothing.
+    (`<sha>`, `--flag`, `…`, `/kbabysit`, a JSON fragment) yield nothing. A wrapper
+    (`sudo`, `env -i`, `timeout 5`) *is* the command word: what it runs is its argument,
+    and the allowlist judges it by its own name.
     """
     out: list[list[str]] = []
     for segment in _COMMAND_BREAK.split(snippet):
@@ -1728,15 +1728,18 @@ def _code(text: str) -> tuple[list[str], list[str]]:
     """(lines of labeled shell fences, every other code: other fences + inline spans).
 
     Fences close only on a marker at least as long as the one that opened them, so a
-    ````bash block wrapping a ``` example stays one block. Heredoc bodies and backslash-
-    continued lines are data, not commands, and are dropped; `#` comments too.
+    ````bash block wrapping a ``` example stays one block. Heredoc bodies are data and
+    `#` comments are prose: both are dropped. A backslash continuation is shell syntax,
+    not data: `kreview status 66 \\` followed by `| jq '.verdict'` is one command line
+    with a `jq` on it, so continued lines are joined into the line they continue (the
+    version that dropped them hid that `jq` from both graders — round 4 of #66).
     """
     shell: list[str] = []
     other: list[str] = []
     fence = ""
     in_shell = False
     heredoc: str | None = None
-    continued = False
+    joined = ""
     for line in text.splitlines():
         m = _FENCE.match(line)
         if not fence:
@@ -1746,7 +1749,7 @@ def _code(text: str) -> tuple[list[str], list[str]]:
             other.extend(re.findall(r"`([^`\n]+)`", line))
             continue
         if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
-            fence, heredoc, continued = "", None, False
+            fence, heredoc, joined = "", None, ""
             continue
         if heredoc is not None:
             if line.strip() == heredoc:
@@ -1756,12 +1759,12 @@ def _code(text: str) -> tuple[list[str], list[str]]:
             other.append(line)
             continue
         stripped = line.strip()
-        if stripped.startswith("#"):
+        if stripped.startswith("#") and not joined:
             continue
-        if continued:
-            continued = stripped.endswith("\\")
+        if stripped.endswith("\\"):
+            joined += stripped[:-1] + " "
             continue
-        continued = stripped.endswith("\\")
+        line, joined = joined + stripped, ""
         shell.append(line)
         hd = _HEREDOC.search(line)
         if hd:
@@ -1769,21 +1772,43 @@ def _code(text: str) -> tuple[list[str], list[str]]:
     return shell, other
 
 
+def _tokens(line: str) -> list[str]:
+    """Every command-shaped token of a shell line, in no particular position.
+
+    Separators, redirections and their targets are removed; what remains is read through
+    `_command_word`, so `"gh"`, `\\gh` and `/usr/bin/gh` are `gh` and `--json`, `'.x'`,
+    `tests/unit/test_git.py` are nothing. Position-free on purpose: four rounds each
+    found one more place a command word can stand (after an assignment, a keyword, a
+    pipe, a wrapper, a wrapper's option, a continuation), and a reader with no notion of
+    position has no next place to miss.
+    """
+    words = _REDIRECT.sub(" ", _COMMAND_BREAK.sub(" ", line)).split()
+    return [w for w in (_command_word(t) for t in words) if w]
+
+
 def _shell_invocations(text: str) -> list[str]:
     """Every fenced line or inline code span that *invokes* a forbidden command.
 
     The Surface pins "no `gh `, `git `, `awk`, `jq`, or `curl` invocation" anywhere in
-    code, so this is generic over spellings and over command positions (`_commands`).
-    An invocation is the command word *plus at least one argument*: a bare `gh` in a
-    code span names the CLI, and failing a correct rewrite for naming it is the
-    corrupted signal the test-quality rule forbids.
+    code. In a **labeled shell fence** the read is position-free: the forbidden word as
+    any token of the line (`_tokens`) is the finding, whatever wraps it — `env -i gh`,
+    `sudo -u bob gh`, a `jq` on a continued line. Elsewhere — inline spans, unlabeled
+    and non-shell fences — code is closer to prose (`use jq to filter` in a `text`
+    fence names a tool), so the read is by command position (`_commands`), and an
+    invocation is the command word *plus at least one argument*: a bare `gh` in a code
+    span names the CLI, and failing a correct rewrite for naming it is the corrupted
+    signal the test-quality rule forbids.
     """
     shell, other = _code(text)
-    return [
+    fenced = [
+        s.strip() for s in shell if any(t in FORBIDDEN_COMMANDS for t in _tokens(s))
+    ]
+    spans = [
         s.strip()
-        for s in shell + other
+        for s in other
         if any(len(w) >= 2 and w[0] in FORBIDDEN_COMMANDS for w in _commands(s))
     ]
+    return fenced + spans
 
 
 def _unlisted_commands(text: str) -> list[str]:
@@ -1792,8 +1817,11 @@ def _unlisted_commands(text: str) -> list[str]:
     The blocklist above names what the skills must stop doing; this names what they may
     still do, so a rewrite that reaches for a tool nobody listed — `timeout 5 gh …`,
     `eval`, `bash -c`, a `python` one-liner that shells out — fails closed instead of
-    passing until someone thinks of its spelling. Three rounds of review each found the
-    next position a blocklist did not read; an allowlist has no next position.
+    passing until someone thinks of its spelling. Fail-closed holds only while the
+    command word is read as written: the version that stripped wrappers before reading
+    it passed `env -i gh …` (round 4 of #66), because `-i` classified as nothing and
+    nothing is not on any list. So `env` is the command word here, and `env` is
+    unlisted.
     """
     shell, _ = _code(text)
     return [
@@ -1828,14 +1856,29 @@ J10_CASES = [
     ("pipe", "kreview status 66 --json | jq '.verdict'", True, True),
     ("env-prefix", "VAR=1 curl -s https://x", True, True),
     ("loop-body", "while gh api x; do sleep 1; done", True, True),
-    # wrappers the blocklist cannot see through, which is why the allowlist exists
-    ("wrapper", "timeout 5 gh api repos/x/y", False, True),
+    # the fifth position (round 4 of #66): a wrapper with options, and a continuation.
+    # Both escaped a reader that stripped wrappers and dropped continued lines; a
+    # position-free blocklist has nowhere for them to hide, and the allowlist names the
+    # wrapper itself
+    ("wrapper", "timeout 5 gh api repos/x/y", True, True),
+    ("wrapper-option", "env -i gh api repos/x/y", True, True),
+    ("wrapper-option-arg", "env -u HOME git push", True, True),
+    ("wrapper-xargs", "xargs -0 gh api repos/x/y", True, True),
+    ("wrapper-sudo-user", "sudo -u bob gh api repos/x/y", True, True),
+    ("wrapper-command-v", "command -v gh api", True, True),
+    ("wrapper-time", "time -p gh api repos/x/y", True, True),
+    ("continuation", "kreview status 66 \\\n  | jq '.verdict'", True, True),
+    ("continuation-comment", "kreview status 66 \\\n  # | jq '.verdict'", True, True),
+    # a command the blocklist cannot read out of a string: the allowlist names the
+    # interpreter, which is why both graders exist
     ("eval", 'eval "gh api repos/x/y"', False, True),
     ("interpreter", "bash -c 'gh api repos/x/y'", False, True),
     # and what a correct rewrite contains: none of these may fail
     ("allowed-tool", "kreview status 66 --json", False, False),
     ("allowed-gate", "make check", False, False),
     ("allowed-quoted-arg", 'cd "$REPO_ROOT"', False, False),
+    ("allowed-path-arg", "uv run pytest tests/unit/test_git.py", False, False),
+    ("allowed-continuation", "uv run pytest \\\n  tests/unit", False, False),
     ("slash-command", "/kbabysit 66", False, False),
     ("comment", "# gh api repos/x/y was the old way", False, False),
 ]
@@ -1850,11 +1893,13 @@ def test_j10_grader_reads_every_command_position(
     Measured 2026-09-13: `/usr/bin/gh api …` and its four siblings passed *both*
     graders, because a command word that is not a bare identifier yielded no command at
     all — so the fail-closed allowlist failed open on exactly the spellings it exists
-    to stop. The last five rows are the other half of the check: a grader that fails a
+    to stop. Measured 2026-09-14: `env -i gh api …` and five more wrapper forms, plus a
+    `jq` on a continued line, passed both again — same mechanism, one token to the
+    right. The `allowed-*` rows are the other half of the check: a grader that fails a
     correct rewrite is a corrupted signal, not a strict one.
     """
     fenced = f"```bash\n{line}\n```"
-    assert bool(_shell_invocations(fenced)) is blocked, (case, _commands(line))
+    assert bool(_shell_invocations(fenced)) is blocked, (case, _tokens(line))
     assert bool(_unlisted_commands(fenced)) is unlisted, (case, _commands(line))
 
 

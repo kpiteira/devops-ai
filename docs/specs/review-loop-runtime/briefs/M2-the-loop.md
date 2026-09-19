@@ -248,8 +248,8 @@ lives in prose.
 A **labeled shell fence** (` ```bash `, `sh`, `shell`, `zsh`, `console`) in those two
 skills invokes only: `kreview`, `kselfreview`, `make`, `uv`, and the shell's own
 plumbing — `cd`, `cat`, `echo`, `printf`, `sleep`, `mktemp`, `exit`, `set`, `true`,
-`false`. Comments, heredoc bodies and continuation lines are not invocations. The list
-is closed on purpose: the two skills are judgement and guardrails, and a step that needs
+`false`. Comments and heredoc bodies are not invocations; a `\` continuation is part of
+the line it continues, not data. The list is closed on purpose: the two skills are judgement and guardrails, and a step that needs
 another command is either the tool's job (a `kreview` gap — the escape valve) or not a
 step. Unlabeled fences (usage lines such as `/kbabysit <pr>`) and the ` ```markdown `
 report template are held to the blocklist above only.
@@ -319,7 +319,7 @@ skills' contents, also without running a command.
 | J1 (M1) | `::test_status_stops_on_draft` | a draft PR: `pr.draft` true, `verdict` `stop: draft`, exit 3 | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_stops_on_empty_scope` | a PR whose `## Review scope` heading has nothing under it: `scope` `{empty, ""}`, `verdict` `stop: scope-empty`, exit 3 | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_stops_on_scope_missing` | an **open** PR with no `## Review scope` heading: `scope` `{missing, ""}`, `verdict` `stop: scope-missing`, exit 3 — M1 grades the field and the precedence `closed` outranks it, never the verdict, because every M1 fixture is merged or closed | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J10 | `::test_skills_contain_no_gh_or_git_commands` | two graders over both skills: (1) **blocklist** — no fenced line or inline code span invokes `gh`, `git`, `awk`, `jq`, or `curl` in any command position (after an assignment, a shell keyword, a pipe, inside `$( )`); an invocation is the command word plus at least one argument, so prose naming the `gh` CLI passes; (2) **allowlist, fail-closed** — every command word in a labeled shell fence is one of the Surface's list, so `timeout 5 gh …`, `eval`, `bash -c` or a tool nobody thought of fails by name instead of passing until its spelling is added (four rounds each found the next position a blocklist did not read). **The claim that "an allowlist has no next position" was made here and is false** — round 4 measured a fifth, below. Both graders read the command word through its spelling: `"gh"`, `\gh`, `/usr/bin/gh`, `./tools/gh` and `tools/gh` all name `gh`, and `$TOOL` — unresolvable by reading — is named by the allowlist rather than skipped. Fences close on a marker at least as long as their opener; heredoc bodies, `\` continuations and `#` comments are skipped. Also: `kbabysit` names all four subcommands, has no `context: fork`, and keeps its preflight `MODEL:` check; `kobserve` names `kreview status` | fails on main, and without running a command: blocklist 15 lines in `kbabysit`, 20 in `kreview`; allowlist 17 and 66 (measured 2026-09-13 against this branch's skills, which are main's — `git diff main -- skills/` is empty) |
+| J10 | `::test_skills_contain_no_gh_or_git_commands` | two graders over both skills: (1) **blocklist** — in a labeled shell fence, `gh`, `git`, `awk`, `jq` or `curl` as *any token* of a line is an invocation, whatever precedes it (an assignment, a keyword, a pipe, `$( )`, a wrapper, a wrapper's option, a continuation): the read is position-free, so there is no next position (decided 2026-09-19, below); in inline spans and unlabeled or non-shell fences the read is by command position and an invocation is the command word plus at least one argument, so prose naming the `gh` CLI passes; (2) **allowlist, fail-closed** — the first word of every command in a labeled shell fence is one of the Surface's list, read as written: a wrapper (`sudo`, `env`, `timeout`, `xargs`, `command`, `time`, `eval`, `bash -c`) *is* the command word and is unlisted, so it fails by its own name instead of passing until someone reads past it. Both graders read the command word through its spelling: `"gh"`, `\gh`, `/usr/bin/gh`, `./tools/gh` and `tools/gh` all name `gh`, and `$TOOL` — unresolvable by reading — is named by the allowlist rather than skipped. Fences close on a marker at least as long as their opener; heredoc bodies and `#` comments are skipped; `\` continuations are joined into their line. Also: `kbabysit` names all four subcommands, has no `context: fork`, and keeps its preflight `MODEL:` check; `kobserve` names `kreview status` | fails on main, and without running a command: blocklist 15 lines in `kbabysit`, 23 in `kreview`; allowlist 43 and 79 (measured 2026-09-19 at `47c428e` against this branch's skills, which are main's — `git diff origin/main -- skills/` is empty) |
 
 Plus the standing gates: `make check` exits 0.
 
@@ -346,11 +346,13 @@ allowlist exists to stop.
 - `kreview report` without `--post` as the model's preview before posting.
 - A `--reviewer` other than Copilot for human-only repositories.
 
-### Residual, open for Karl — J10's grader fails open at the next position (round 4)
+### Decided 2026-09-19 — J10's grader reads tokens, not positions
 
-Measured 2026-09-14 against the grader on `5c4c5cb`, not inferred. `_commands()` stops
-at the first token it cannot classify and yields nothing for the whole segment, so an
-option-bearing wrapper hides the forbidden command from the **blocklist** entirely:
+Round 4 (Balanced) measured a fifth escape class against the grader on `5c4c5cb`.
+`_commands()` stripped wrapper words (`env`, `sudo`, `xargs`, …) before reading the
+command, then stopped at the first token it could not classify and yielded nothing for
+the whole segment, so an option-bearing wrapper hid the forbidden command from the
+**blocklist** entirely:
 
 | input | `_commands()` | blocklist |
 |---|---|---|
@@ -364,18 +366,30 @@ option-bearing wrapper hides the forbidden command from the **blocklist** entire
 | `command -v gh api` | `[]` | **escapes** |
 | `time -p gh api x` | `[]` | **escapes** |
 
-And a `\` continuation is dropped as data, so a fence containing `kreview status 66 \`
-followed by `| jq '.verdict'` yields no invocation at all: the `jq` is invisible to both
-graders. Raised by Copilot as three findings (two threads on the test, one on this
-brief's own "continuations are skipped" sentence).
+And a `\` continuation was dropped as data, so a fence containing `kreview status 66 \`
+followed by `| jq '.verdict'` yielded no invocation at all: the `jq` was invisible to
+both graders. Raised by Copilot as three findings (two threads on the test, one on this
+brief's own "continuations are skipped" sentence). Same root cause the 2026-09-13
+self-review had closed one round earlier, at its next position; per `kbabysit` §4 and
+this spec's own systemic-repeat rule, round 4 escalated instead of patching a fifth time.
 
-This is the **same root cause** the 2026-09-13 self-review closed one round earlier —
-"I cannot classify this token" and "there is no command here" return the same empty
-answer — at its next position, and it is the fifth revision this one grader would take.
-Per `kbabysit` §4 and this spec's own systemic-repeat rule, that repeat is an escalation,
-not another patch, so **round 4 did not touch the grader**. The decision is Karl's:
-patch again (scan past unclassifiable tokens), replace the hand-rolled parser with a
-real lexer, narrow the gate, or leave it until M2 gives it real skill text to grade.
+**Decision (Karl, 2026-09-19):** the grader stops parsing shell positions. In a labeled
+shell fence the blocklist reads every token of a line and fails on a forbidden word
+wherever it stands; the allowlist reads the first word of each command as written, so a
+wrapper is judged by its own name and is unlisted; continuations are joined into the
+line they continue. Every escape in the table above, and the continuation, is a row of
+`J10_CASES` (`::test_j10_grader_reads_every_command_position`), with two `allowed-*` rows
+proving a path argument (`tests/unit/test_git.py`) and a continued `uv run` line do not
+fail. Prose code (inline spans, unlabeled and non-shell fences) keeps the
+command-position read, because `use jq to filter` in a `text` fence is not an invocation.
+*Rejected:* patching the parser to scan past unclassifiable tokens — one more position,
+and the sixth revision of the same reader; replacing it with a lexer (`shlex`) — a lexer
+tokenizes `env -i gh` correctly and leaves the wrapper-stripping mistake intact, since the
+escapes lived in what the grader did with the tokens, not in how it split them; deferring
+to M2 — leaves the grader unmeasured until an executor is already running under it.
+What remains outside the blocklist's read is a command inside a string (`eval "gh …"`,
+`bash -c '…'`), which the allowlist catches by the interpreter's name; both rows stay in
+the case table with the two verdicts differing on purpose.
 
 ## Invariants
 
