@@ -249,10 +249,14 @@ A **labeled shell fence** (` ```bash `, `sh`, `shell`, `zsh`, `console`) in thos
 skills invokes only: `kreview`, `kselfreview`, `make`, `uv`, and the shell's own
 plumbing — `cd`, `cat`, `echo`, `printf`, `sleep`, `mktemp`, `exit`, `set`, `true`,
 `false`. Comments and heredoc bodies are not invocations; a `\` continuation is part of
-the line it continues, not data. The list is closed on purpose: the two skills are judgement and guardrails, and a step that needs
-another command is either the tool's job (a `kreview` gap — the escape valve) or not a
-step. Unlabeled fences (usage lines such as `/kbabysit <pr>`) and the ` ```markdown `
-report template are held to the blocklist above only.
+the line it continues, not data. The list is closed on purpose: the two skills are
+judgement and guardrails, and a step that needs another command is either the tool's job
+(a `kreview` gap — the escape valve) or not a step. Unlabeled fences (usage lines such as `/kbabysit <pr>`) and the ` ```markdown `
+report template are held to the blocklist's **command-position** read only, and to no
+allowlist at all: measured 2026-09-19, `gh api x` there is still a finding but
+`env -i gh api x` is held by neither list
+(`::test_j10_prose_code_keeps_the_command_position_read`). Labelling a fence is what
+buys it the position-free read.
 
 The model's own commits and pushes (D5: the tool never pushes) are **prose** in the
 skills — "commit the fix, push, then apply" — never a fenced `git` line; `apply`'s
@@ -378,18 +382,65 @@ shell fence the blocklist reads every token of a line and fails on a forbidden w
 wherever it stands; the allowlist reads the first word of each command as written, so a
 wrapper is judged by its own name and is unlisted; continuations are joined into the
 line they continue. Every escape in the table above, and the continuation, is a row of
-`J10_CASES` (`::test_j10_grader_reads_every_command_position`), with two `allowed-*` rows
-proving a path argument (`tests/unit/test_git.py`) and a continued `uv run` line do not
-fail. Prose code (inline spans, unlabeled and non-shell fences) keeps the
-command-position read, because `use jq to filter` in a `text` fence is not an invocation.
+`J10_CASES` (`::test_j10_grader_reads_every_command_position`), with `allowed-*` rows
+proving a continued `uv run` line and a path argument (`tests/unit/test_git.py`) do not
+fail — the latter only because its basename is `test_git.py`. **The wider read costs
+precision, and the cost is pinned rather than claimed away:** a forbidden word is a hit
+wherever it stands, so `cat docs/notes/git` (basename) and `printf "%s" "run jq on it"`
+(inside a quoted argument) are findings in a shell fence. Both are `J10_CASES` rows.
+Prose code (inline spans, unlabeled and non-shell fences) keeps the command-position
+read, because `use jq to filter` in a `text` fence is not an invocation.
 *Rejected:* patching the parser to scan past unclassifiable tokens — one more position,
 and the sixth revision of the same reader; replacing it with a lexer (`shlex`) — a lexer
 tokenizes `env -i gh` correctly and leaves the wrapper-stripping mistake intact, since the
 escapes lived in what the grader did with the tokens, not in how it split them; deferring
 to M2 — leaves the grader unmeasured until an executor is already running under it.
-What remains outside the blocklist's read is a command inside a string (`eval "gh …"`,
-`bash -c '…'`), which the allowlist catches by the interpreter's name; both rows stay in
-the case table with the two verdicts differing on purpose.
+What remains outside the blocklist's read, measured 2026-09-19 rather than reasoned:
+a command inside a string (`eval "gh …"`, `bash -c '…'`) — which the allowlist does
+catch, by the interpreter's name, and both rows stay in the case table with the two
+verdicts differing on purpose — and three the allowlist does **not** catch, because they
+are deliberately not code it reads: a heredoc body, a `#` comment, and prose code
+(above). Each is a `J10_CASES` or prose-code row, so this list is re-derivable instead of
+asserted. Two of those three have no second line of defence, and they are open for Karl
+below.
+
+### Open for Karl — the gate reads labeled shell fences, and code hides in two others
+
+Not a position (that class is closed above) but the read's **reach**, measured
+2026-09-19 through the real graders, not reasoned:
+
+| code | blocklist | allowlist |
+|---|---|---|
+| `env -i gh api x` in a ` ```bash ` fence | catches | catches |
+| `env -i gh api x` in an **unlabeled** ` ``` ` fence | misses | does not run |
+| `env -i gh api x` in a ` ```text ` fence or an inline span | misses | does not run |
+| `gh api x` inside a **heredoc body** in a ` ```bash ` fence | misses | does not run |
+
+The `text`-fence and inline-span rows are the decision above working as intended — that
+code is prose. The other two are the fail-open shape the allowlist exists to prevent: an
+M2 executor who writes a shell block and forgets the ` ```bash ` label, or who generates
+a script through a heredoc, passes a gate that is supposed to fail closed, and nothing
+tells them. Neither is exercised today — the only unlabeled fence in either skill holds
+`/kbabysit <pr>` usage lines, and neither skill uses a heredoc.
+
+**Not patched, deliberately.** This would be the sixth consecutive pass to change this
+one grader, and the boundary it would move is the one signed above on 2026-09-19. The
+options, which are not equal:
+
+- **Require the rewrite to label its fences** — a J10 assertion that no unlabeled fence
+  in the two skills contains a command, which is one line and changes no reader. It
+  closes the plausible half and leaves heredocs alone.
+- **Read unlabeled fences as shell.** Closes the same half by widening the reader; costs
+  the usage-line fence a false positive unless `/kbabysit <pr>` keeps reading as no
+  command (it does today).
+- **Read heredoc bodies too.** Ends the class rather than its plausible half, and gives
+  up the "heredoc bodies are data" rule that `cat <<EOF` relies on.
+- **Accept both and say so.** The gate grades text we write, not adversarial input; the
+  table above is then the documentation, and the two rows are known holes.
+
+My read, unchanged from run 4 and now with a second measurement behind it: option 1 is
+the only one that buys anything an M2 executor would actually hit, and the rest is
+polish on a grader whose subject does not exist yet.
 
 ## Invariants
 

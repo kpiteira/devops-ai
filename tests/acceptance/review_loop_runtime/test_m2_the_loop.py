@@ -1873,10 +1873,20 @@ J10_CASES = [
     # interpreter, which is why both graders exist
     ("eval", 'eval "gh api repos/x/y"', False, True),
     ("interpreter", "bash -c 'gh api repos/x/y'", False, True),
+    # what the position-free read costs, pinned so the brief's claims re-derive. A
+    # heredoc body is data and escapes *both* lists (the allowlist reads `cat`, which is
+    # allowed) — the same deliberate hole as `comment`, below. And a forbidden word is a
+    # hit wherever it stands, so a path whose basename is one, or one inside a quoted
+    # argument, reads as an invocation: that is the precision the wider read trades away
+    ("heredoc-body", "cat <<EOF\ngh api repos/x/y\nEOF", False, False),
+    ("path-basename", "cat docs/notes/git", True, False),
+    ("quoted-word-arg", 'printf "%s" "run jq on it"', True, False),
     # and what a correct rewrite contains: none of these may fail
     ("allowed-tool", "kreview status 66 --json", False, False),
     ("allowed-gate", "make check", False, False),
     ("allowed-quoted-arg", 'cd "$REPO_ROOT"', False, False),
+    # passes because the basename is `test_git.py`, not `git` — `path-basename` above
+    # is the other side of this boundary, and neither row proves paths at large are safe
     ("allowed-path-arg", "uv run pytest tests/unit/test_git.py", False, False),
     ("allowed-continuation", "uv run pytest \\\n  tests/unit", False, False),
     ("slash-command", "/kbabysit 66", False, False),
@@ -1901,6 +1911,35 @@ def test_j10_grader_reads_every_command_position(
     fenced = f"```bash\n{line}\n```"
     assert bool(_shell_invocations(fenced)) is blocked, (case, _tokens(line))
     assert bool(_unlisted_commands(fenced)) is unlisted, (case, _commands(line))
+
+
+PROSE_CODE = [
+    ("unlabeled-fence", "```\n{}\n```"),
+    ("text-fence", "```text\n{}\n```"),
+    ("inline-span", "see `{}` above"),
+]
+
+
+@pytest.mark.parametrize(("where", "template"), PROSE_CODE)
+def test_j10_prose_code_keeps_the_command_position_read(
+    where: str, template: str
+) -> None:
+    """The boundary of the 2026-09-19 decision, measured rather than asserted in prose.
+
+    Position-free reading applies to labeled shell fences only; elsewhere code is closer
+    to prose (`use jq to filter` in a `text` fence names a tool), so the read is by
+    command position. The consequence is the part the brief has to state and this test
+    has to pin: a plain invocation is still caught there, but a **wrapper form is held
+    by neither list** — the allowlist does not run outside labeled shell fences at all.
+    The parametrized table above cannot reach this, because its fixture wraps every line
+    in a ```bash fence.
+    """
+    plain = template.format("gh api repos/x/y")
+    assert _shell_invocations(plain), f"{where}: a plain invocation must still be read"
+
+    wrapped = template.format("env -i gh api repos/x/y")
+    assert not _shell_invocations(wrapped), f"{where}: expected the weaker read"
+    assert not _unlisted_commands(wrapped), f"{where}: the allowlist is fence-scoped"
 
 
 def test_skills_contain_no_gh_or_git_commands() -> None:
