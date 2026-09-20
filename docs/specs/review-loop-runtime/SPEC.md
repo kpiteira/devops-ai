@@ -96,12 +96,15 @@ two skills shrink to the judgement and the guardrails they exist for.
   (ancestor of head `8fbb0be`), 26 threads.
 - A thread's `line` is `null` once it is outdated; `originalLine` and
   `originalCommit` are the anchors that survive, and blame runs at that commit.
-- Copilot's review body is a headline, one summary sentence, and `<details>` blocks
-  (*Pull request overview*, *File summaries*, *Review details*). The suppressed
-  section and the footer (`**Files reviewed:**`, `**Comments generated:**`,
-  `**Review effort level:**`) live inside *Review details*. Copilot never submits an
-  `APPROVED` review: its approval is a `COMMENTED` review whose headline reads
-  *Approval recommended*.
+- Copilot's review body has two formats. Up to 2026-09-14 (v1, every fixture PR): a
+  headline, one summary sentence, and `<details>` blocks (*Pull request overview*,
+  *File summaries*, *Review details*); the suppressed section and the footer
+  (`**Files reviewed:**`, `**Comments generated:**`, `**Review effort level:**`) live
+  inside *Review details*. From 2026-09-20 (v2, first seen on #66 review 5260930892):
+  a `<!-- ccr-overview-v2 -->` marker, `**Review effort:**` as a header line, no
+  suppressed section, and `Open`/`Resolved since last review` lists of the threads.
+  M1's brief defines both. Copilot never submits an `APPROVED` review: its approval
+  is a `COMMENTED` review whose headline reads *Approval recommended*.
 - The kbabysit fork sees no conversation history — a packet must be self-contained.
 - Precedent: `ksecret` is the package's second console script
   (`src/devops_ai/cli/ksecret.py`, typer, `_emit` writes UTF-8 bytes); a new script
@@ -199,4 +202,6 @@ two skills shrink to the judgement and the guardrails they exist for.
   repository together with `draft` and `scope-empty` (M1 brief D15, M2 Blocking).
   *Rejected:* keeping CI red as a fact plus the skill's "fix CI first" sentence.
   Decided and acknowledged by Karl 2026-09-13.
+- [x] 2026-09-20 (M2) decision-change: `kreview report` refuses a running loop (exit 5, both forms); the `manual` stop reason is gone. A report with no stop reached the verdict rule's `else ✅` while the rule's own next sentence said ✅ follows a `converged` stop and nothing else (#66 run 6, Copilot). *Rejected:* a non-✅ verdict for a manual report — it keeps a mid-loop report as a supported path, and a mid-loop report is what the 2026-09-14 trust incidents were. Decided by Karl 2026-09-20 ("I agree with the first"), acknowledged the same moment.
+- [x] 2026-09-20 (M1) decision-change: the round packet reads both Copilot body formats, keyed on the `<!-- ccr-overview-v2 -->` marker: `reviews[].format`, `effort` from either effort line, `summary` stripped of both formats' furniture, `suppressed_check` `{0, 0}` on a v2 window; blocking tests on #66's own v1 (round 4) and v2 (round 5) reviews. Found by #66 run 6: Copilot changed its format on 2026-09-20 and every fixture is v1, so M1's tests would have stayed green over a tool blind on its first real round. *Rejected:* mapping `Open`/`Resolved since last review` onto `suppressed` — different concept, and the threads they list are findings already. Decided by Karl 2026-09-20 ("amend m1"), acknowledged the same moment.
 - [x] 2026-09-14 (M2) decision-change: `kbabysit` drops `context: fork` + `model:` from its frontmatter; the loop runs in the Opus agent-deck session that invokes it, and preflight states the model and stops on the wrong one. J10's grader asserts the absence of the fork and the presence of the check instead of the pin. *Rejected:* keeping the fork — it hid every round in a sidechain transcript (measured on #72 and #66). Decided by Karl 2026-09-14 ("drop the fork"), acknowledged the same moment.

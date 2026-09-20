@@ -175,10 +175,15 @@ the current run whose `requested_at` is set.
 
 Renders the report below from the state block and the live PR; `--post` rewrites the
 babysit comment with it and sets `status: stopped` (with `stopped.at` now and the last
-round's `stop_reason`, or `manual` when the last decision was `continue`); without
-`--post` it prints only. `--changed` repeats, one line each (may be given zero times:
-the section then says *nothing — pre-PR gates held*). Exit 0; 1 on API error; 3 when
-the PR has no state block.
+round's `stop_reason`); without `--post` it prints only. **A report follows a stop and
+never precedes one** (decided 2026-09-20): when the state block's last decision is
+`continue` — no round of this run decided `stop` — both forms exit 5, stderr says the
+loop is still running and names `apply --stop REASON` as the way to record the stop
+this report would describe. There is no `manual` stop reason: the verdict rule below
+is a function of the stop, and a report with no stop had a path to ✅ that the rule
+forbids. `--changed` repeats, one line each (may be given zero times: the section then
+says *nothing — pre-PR gates held*). Exit 0; 1 on API error; 3 when the PR has no
+state block; 5 when the loop is running.
 
 ```markdown
 ## Babysit report — PR #N
@@ -206,9 +211,9 @@ the PR has no state block.
 ### Systemic root causes
 - <root cause — on pinned Surface (yours to decide) | closed in <commit> | filed as #issue>, or "none found"
 
-**Why the loop stopped:** <stop_reason of the last round, or "manual">
+**Why the loop stopped:** <stop_reason of the last round>
 **Push-backs:** N of M findings · **CI:** green/red · **Merge conflicts:** none/yes
-**Reviewer effort level:** <distinct efforts>; when Lite: "raising it is a repository setting: Settings → Copilot → Code review → Review effort level"
+**Reviewer effort level:** <distinct efforts>; when Lite: "raising it is the repository's Copilot code-review setting, or a per-request choice in the GitHub UI — not something `gh` can set"
 **Fix commits since last review:** <kselfreview_range's commits, or none> · **kselfreview on them:** done / n/a
 **Paid rounds:** N this run · N total on this PR (all runs) — no cumulative cap by design (#61 item 7)
 **Re-entry:** further rounds on this PR go through `/kbabysit <n>` — from any seat, for any reason
@@ -219,7 +224,8 @@ the PR has no state block.
 Verdict rule: ❌ when CI is failing or `mergeable` is CONFLICTING; else ⚠️ when any
 `DISCUSS` is recorded, the last `stop_kind` is `escalate`, or `unreviewed_commits` is
 non-empty with `--kselfreview na`; else ✅ — so ✅ follows a `converged` stop and nothing
-else, and the Verdict line names the signal: `✅ merge-ready (converged: <stop_reason>)`,
+else (a running loop has no report to apply the rule to: exit 5, above), and the Verdict
+line names the signal: `✅ merge-ready (converged: <stop_reason>)`,
 `⚠️ needs human decision (stopped: <stop_reason>)`, `❌ blocked (<ci|conflicts>)`. Measured
 2026-09-14: three skill-driven reports wrote ✅ over a systemic-repeat stop because the
 skill's verdict line was a menu without a rule.
@@ -322,6 +328,7 @@ skills' contents, also without running a command.
 | J7 | `::test_apply_systemic_repeat_stops_the_loop` | round 2 carrying a `systemic` disposition whose `root_cause` equals round 1's: `stop` / `escalate` / `systemic-repeat`; and `report` on it renders `⚠️ needs human decision (stopped: systemic-repeat)` — the stop that three skill-driven reports called ✅ | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J7 | `::test_apply_budget_stops_after_max_rounds` | `--max-rounds 1` with one IMPLEMENT: `stop` / `escalate` / `budget` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J5, J7 | `::test_apply_next_chains_into_the_next_packet` | `apply --next --wait 120` with round 1's window pinned by `--until` and a comment landing after it: `next` holds the following packet with the new finding and the round-1 ledger; the state has 1 recorded round (round 2 is open, not yet applied) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J9 | `::test_report_refuses_while_running` | after an `apply` that decided `continue`: `report --post` exits 5 with stderr naming `apply --stop`, the babysit comment is byte-identical afterwards (still `"status": "running"`, no `**Verdict:**`), `report` without `--post` exits 5 too, and `status` still says `running` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J9 | `::test_report_renders_and_posts_from_state` | after a stop: the comment carries the Verdict, Rounds row, *Why the loop stopped*, paid rounds, and `status: stopped` in the block; TL;DR verbatim | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J9 | `::test_report_renders_every_changed_line_in_order` | `--changed` given **twice**: both lines appear in *What changed because of review*, in the order given, and the `nothing — pre-PR gates held` fallback does not — the only other report test omits the option, so an implementation that ignored `--changed` entirely passed the suite while J9 makes those lines the model's whole contribution to the section | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J8 | `::test_reentry_is_advised_and_gated` | after the report: `status` → `stopped`, `reentry` is `selfreview` after an unreviewed push; `apply` → exit 5; `apply --reenter` → run 2, `running`, and the next packet shows the budget reset (`used_this_run` 1, not 2) with run 1's dispositions still in `ledger` (A9) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |

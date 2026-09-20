@@ -3,8 +3,10 @@
 The J1/J2/J3 tests run the real console script against the real GitHub API on merged PRs
 of this repository. The numbers they assert were measured on 2026-09-13 with the shell
 in kreview 0.4.0 §1 (spec: Discovered context). A merged PR's commits are immutable; its
-reviews and comments are not, so every `round` call here passes `--until MEASURED_UNTIL`
-and reads a frozen window rather than "everything up to now".
+reviews and comments are not, so every `round` call here passes an `--until` — the
+2026-09-13 cutoff `MEASURED_UNTIL` for #49 and #27, and each `W66_*` window's own end
+for the two body-format fixtures on #66 (measured 2026-09-20) — and reads a frozen
+window rather than "everything up to now".
 
 The two J4 tests at the bottom run no command and touch no API: J4 delivers text in
 `README.md` and the two `SKILL.md` files, so they read those files from disk.
@@ -31,12 +33,17 @@ from tests.acceptance.review_loop_runtime.conftest import (
     PR49_SUPPRESSED_TOTAL,
     PR49_THREAD_FINDING,
     PR49_THREADS,
+    PR66,
+    PR66_V1_BALANCED_REVIEW,
+    PR66_V2_REVIEW,
     REPO,
     ROOT,
     W27_FIRST,
     W27_SIXTH,
     W49_APPROVAL,
     W49_SECOND_ORDER,
+    W66_V1_BALANCED,
+    W66_V2,
     findings_by_id,
     git,
     kreview,
@@ -303,6 +310,79 @@ def test_round_sixth_review_on_27_is_not_second_order() -> None:
     original = [f for f in p["findings"] if f["provenance"] == "original"]
     assert [(f["path"], f["line"]) for f in original] == [PR27_SIXTH_ORIGINAL]
     assert original[0]["blame_sha"].startswith("ed2338dd")
+
+
+def test_round_v2_body_on_66() -> None:
+    """Copilot's v2 body (2026-09-20) reads as a review, not as a parse failure.
+
+    Every other fixture on this file is v1, so without this window the tool could
+    parse only the format Copilot no longer emits and stay green (#66 run 6). The
+    `Open (6)` list enumerates threads that are findings already: counted once.
+    """
+    r = kreview(
+        "round",
+        str(PR66),
+        "--repo",
+        REPO,
+        "--json",
+        "--include-resolved",
+        *window_args(W66_V2),
+    )
+    assert r.code == 0, (r.out, r.err)
+    p = r.json()
+    assert [rv["id"] for rv in p["reviews"]] == [PR66_V2_REVIEW]
+    review = p["reviews"][0]
+    assert review["author"] == COPILOT
+    assert review["format"] == "v2"
+    assert review["effort"] == "Balanced"
+    assert review["commit"].startswith("f07e9c0")
+    assert "Changes recommended" in review["summary"]
+    for furniture in (
+        "<details",
+        "<picture",
+        "Review effort",
+        "Open (6)",
+        "ccr-overview",
+    ):
+        assert furniture not in review["summary"], furniture
+    assert p["suppressed_check"] == {"declared": 0, "parsed": 0}
+
+    assert len(p["findings"]) == 6
+    assert {f["source"] for f in p["findings"]} == {"thread"}
+    sig = p["signals"]
+    assert sig["findings"] == sig["line_anchored"] == 6
+    assert sig["suppressed"] == 0
+    # blame at f07e9c0 against the boundary ec14ebb (the first submitted review, still
+    # an ancestor): two findings on 22c1209, four on review-fix commits (a1c6575,
+    # 6b8d9d5, 16a4334) — measured 2026-09-20 with git directly
+    assert sig["on_original"] == 2
+    assert sig["on_review_fix"] == 4
+    assert sig["unknown"] == 0
+    assert sig["second_order"] is False
+    assert sig["effort"] == ["Balanced"]
+
+
+def test_round_v1_balanced_body_on_66() -> None:
+    """The v1 path survives the v2 one, and `Balanced` is read from a v1 footer."""
+    r = kreview(
+        "round",
+        str(PR66),
+        "--repo",
+        REPO,
+        "--json",
+        "--include-resolved",
+        *window_args(W66_V1_BALANCED),
+    )
+    assert r.code == 0, (r.out, r.err)
+    p = r.json()
+    assert [rv["id"] for rv in p["reviews"]] == [PR66_V1_BALANCED_REVIEW]
+    review = p["reviews"][0]
+    assert review["format"] == "v1"
+    assert review["effort"] == "Balanced"
+    assert "Review effort level" not in review["summary"]
+    assert p["suppressed_check"] == {"declared": 1, "parsed": 1}
+    assert p["signals"]["suppressed"] == 1
+    assert p["signals"]["effort"] == ["Balanced"]
 
 
 def test_round_thread_finding_carries_anchor_and_replies() -> None:

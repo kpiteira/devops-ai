@@ -1405,6 +1405,60 @@ def test_status_stops_on_checkout_mismatch(scratch: ScratchPR) -> None:
 # ------------------------------------------------------------ J9/J8: report, re-entry
 
 
+def test_report_refuses_while_running(scratch: ScratchPR, tmp_path: Path) -> None:
+    """A report follows a stop and never precedes one (decided 2026-09-20).
+
+    An `apply` that decided `continue` leaves the loop running; a report on it had a
+    path to ✅ (no DISCUSS, no escalate stop, CI green) that the verdict rule's own
+    next sentence forbids. Both forms exit 5 and the comment is untouched.
+    """
+    c_fix = scratch.comment(3, "line 3 should say three")
+    sha = scratch.push_fix("three")
+    r = _kr(
+        scratch,
+        "apply",
+        str(scratch.number),
+        "--json",
+        "--dispositions",
+        str(
+            dispositions_file(
+                tmp_path,
+                {
+                    "id": f"t{c_fix}",
+                    "verdict": "IMPLEMENT",
+                    "shape": "isolated",
+                    "commit": sha,
+                    "reply": "line 3 now says three",
+                },
+            )
+        ),
+    )
+    assert r.code == 0, (r.out, r.err)
+    assert r.json()["decision"] == "continue"
+    before = scratch.babysit_comment()
+    assert before is not None
+    assert '"status": "running"' in before
+
+    for form in (["--post"], []):
+        r = _kr(
+            scratch,
+            "report",
+            str(scratch.number),
+            *form,
+            "--tldr",
+            "posted too early",
+            "--kselfreview",
+            "na",
+        )
+        assert r.code == 5, (form, r.out, r.err)
+        assert "apply --stop" in r.err
+        assert "posted too early" not in r.out
+    assert scratch.babysit_comment() == before
+    assert "**Verdict:**" not in before
+    s = _kr(scratch, "status", str(scratch.number), "--json").json()
+    assert s["babysit"]["status"] == "running"
+
+
 def test_report_renders_and_posts_from_state(
     scratch: ScratchPR, tmp_path: Path
 ) -> None:
@@ -1699,7 +1753,9 @@ def _closes(m: re.Match[str] | None, fence: str) -> bool:
     it as the end dropped every following line out of both graders (round 5 of #66).
     """
     return bool(
-        m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence)
+        m
+        and m.group(1)[0] == fence[0]
+        and len(m.group(1)) >= len(fence)
         and not m.group(2)
     )
 
@@ -2073,8 +2129,9 @@ def test_j10_case_inventory_matches_this_brief() -> None:
     this PR keeps closing at new sites. Now it is graded, so the brief cannot drift from
     the table without a red test naming both numbers.
     """
-    brief = (ROOT / "docs" / "specs" / "review-loop-runtime" / "briefs"
-             / "M2-the-loop.md").read_text()
+    brief = (
+        ROOT / "docs" / "specs" / "review-loop-runtime" / "briefs" / "M2-the-loop.md"
+    ).read_text()
     for phrase, name in (
         (f"**{len(J10_CASES)}** crafted cases", "J10_CASES"),
         (f"`J10_REACH_CASES` holds {len(J10_REACH_CASES)} cases", "J10_REACH_CASES"),

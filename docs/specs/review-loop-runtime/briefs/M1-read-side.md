@@ -50,7 +50,7 @@ JSON form, every key present:
 | `checkout` | `{branch, matches_pr}` — `matches_pr` true when the local `HEAD` is `head_sha` or the current branch is `head_ref`; both `null` outside a clone of the repo |
 | `scope` | `{status: present\|missing\|empty, text}` — `text` is the `## Review scope` section body (up to the next `## ` heading) with leading and trailing blank lines removed, inner lines verbatim; `""` when the heading is absent or when it exists with only blank lines under it (`empty`) |
 | `ci` | `{status: passing\|failing\|pending\|none, checks: [{name, status: passing\|failing\|pending\|skipped}]}` for `head_sha`; `failing` if any check failed, else `pending` if any is running, else `passing`, `none` with no checks |
-| `reviews` | `{copilot_total, copilot_reviewed_head, copilot_requested, effort_levels, effort_parse_failed, last_reviewed_sha, unreviewed_commits}` — `copilot_total` counts submitted (not PENDING) reviews by a login containing `copilot`, which is the PR's paid-round total; `copilot_reviewed_head` is true when one of those reviews carries `commit_id` `head_sha` (what kbabysit step 1 asks before requesting); `copilot_requested` is true when a review request to the Copilot reviewer is pending on the PR — both are booleans, both false when no Copilot review or request exists; `effort_levels` is the sorted distinct set parsed from `**Review effort level:** X` footers; `effort_parse_failed` is true when Copilot reviews exist and none carries the footer; `last_reviewed_sha` is the commit of the latest submitted review (any reviewer), `null` without one; `unreviewed_commits` lists the commits in `last_reviewed_sha..head_sha`, oldest first, and is `[]` when `last_reviewed_sha` is `null` |
+| `reviews` | `{copilot_total, copilot_reviewed_head, copilot_requested, effort_levels, effort_parse_failed, last_reviewed_sha, unreviewed_commits}` — `copilot_total` counts submitted (not PENDING) reviews by a login containing `copilot`, which is the PR's paid-round total; `copilot_reviewed_head` is true when one of those reviews carries `commit_id` `head_sha` (what kbabysit step 1 asks before requesting); `copilot_requested` is true when a review request to the Copilot reviewer is pending on the PR — both are booleans, both false when no Copilot review or request exists; `effort_levels` is the sorted distinct set parsed from each Copilot body's effort line — `**Review effort level:** X` (a v1 footer) or `**Review effort:** X` (a v2 header line; *Copilot's two body formats*, below); `effort_parse_failed` is true when Copilot reviews exist and none carries either line; `last_reviewed_sha` is the commit of the latest submitted review (any reviewer), `null` without one; `unreviewed_commits` lists the commits in `last_reviewed_sha..head_sha`, oldest first, and is `[]` when `last_reviewed_sha` is `null` |
 | `boundary` | `{sha, status: ok\|none\|none-reachable\|missing}` — the provenance boundary (definition under `round`) |
 | `automation` | `{claude_review}` — true when a check run or workflow on `head_sha` is named like `Claude Code Review` / `claude-code-action` |
 | `babysit` | `{report_present, comment_id, status: none\|running\|stopped, run, rounds, paid_rounds_this_run}` — from the issue comment whose body starts with `## Babysit report`; `status`/`run`/`rounds`/`paid_rounds_this_run` come from the state block M2 introduces and are `none`/`0`/`0`/`null` when the comment carries none |
@@ -77,8 +77,8 @@ JSON form:
 | `scope` | as in `status` |
 | `window` | `{since, until}` as resolved |
 | `boundary` | `{sha, status}` — the commit of the **earliest submitted review** (any reviewer) that is an ancestor of `head_sha`; review commits absent from the clone are fetched by SHA first; `none` when the PR has no submitted review, `none-reachable` when reviews exist but none is an ancestor (all pre-rebase), `missing <sha>` when a review commit cannot be fetched |
-| `reviews` | `[{id, author, state, submitted_at, commit, effort, summary}]` in the window, oldest first; `effort` is the footer's word or `null`; `summary` is the body with every `<details>…</details>` block removed and trimmed |
-| `suppressed_check` | `{declared, parsed}` — `declared` is the sum of `N` over every `Suppressed comments (N)` heading in the window's review bodies; `parsed` is the number of entries the parser produced |
+| `reviews` | `[{id, author, state, submitted_at, commit, format, effort, summary}]` in the window, oldest first; `format` is `v2` when the body's first line is `<!-- ccr-overview-v2 -->`, else `v1`; `effort` is the word of the body's effort line (either format) or `null`; `summary` is the body with every `<details>…</details>` block, every `<picture>…</picture>` element, every HTML comment, and the `**Review effort…:**` and `**Findings:**` lines removed, then trimmed — in both formats it is the headline and the assessment sentence |
+| `suppressed_check` | `{declared, parsed}` — `declared` is the sum of `N` over every `Suppressed comments (N)` heading in the window's review bodies; `parsed` is the number of entries the parser produced. A v2 body has no such heading, so a window of v2 reviews reads `{0, 0}`: not a parser failure, a format that declares nothing |
 | `findings` | one entry per line-anchored finding, oldest first — see below |
 | `comments` | `[{id: "c<id>", author, created_at, body}]` — issue comments in the window, excluding the comment that carries the babysit report |
 | `signals` | `{findings, line_anchored, suppressed, on_original, on_review_fix, unknown, second_order, no_new_findings, approved, ci, effort, copilot_total}` |
@@ -108,6 +108,31 @@ provenance, provenance_detail, blame_sha, thread, repeat_candidates}`:
   failed`, `not in this PR's history`).
 - `repeat_candidates` — ids of findings on this PR earlier than the window on the
   same `path` within 5 lines of `line`.
+
+**Copilot's two body formats** (a fact, both measured on this repository's PR #66):
+
+- **v1** — every Copilot review submitted up to 2026-09-14: a headline, one summary
+  sentence, `<details>` blocks (*Pull request overview*, *File summaries*, *Review
+  details*); the `### Suppressed comments (N)` section and the footer (`**Files
+  reviewed:**`, `**Comments generated:**`, `**Review effort level:** X`) live inside
+  *Review details*. Rounds 1–4 of #66 (reviews 5192489979 … 5194046823) and every
+  review on #49 and #27.
+- **v2** — observed from 2026-09-20 (#66 review 5260930892 on `f07e9c0`): the body's
+  first line is the marker `<!-- ccr-overview-v2 -->`; then `## Copilot review
+  overview`, a `### <emoji> <assessment>` headline (*Changes recommended*), one
+  sentence, `**Review effort:** X` as a header line, a `**Findings:** N · N · N` line
+  whose severities are `<picture>` images, and two `<details>` blocks — `Open (N)` and
+  `Resolved since last review (N)` — listing the PR's **review threads** by title with
+  a severity image each (`Open (6)` on a round with 6 threads). There is no suppressed
+  section and no footer. Whether Copilot still withholds low-confidence comments under
+  v2 is not observable from the body; the tool reports what the body declares.
+
+The parser reads both, keyed on the marker, because the blocking tests' fixtures
+(#49, #27, #66 rounds 1–4) are v1 and every review from here on is v2 — a parser that
+read only the fixtures' format would keep M1's tests green and go blind on the first
+real round (found by #66 run 6, 2026-09-20). The `Open`/`Resolved` lists are not
+findings: the threads they enumerate are already `source: thread` findings, and a
+finding counted twice would move the second-order stop.
 
 A **review-level remark** — prose in a review body carrying no `path:line` — is not a
 finding and gets no id: it reaches the model as that review's `summary`, which the model
@@ -181,6 +206,8 @@ residual, not papered over with a `>=`.
 | J2, J3 | `::test_round_window_approval_only_on_49` | the 14:34:49Z review alone: 0 findings, `no_new_findings` true, `approved` false (Copilot approves in a COMMENTED review), summary says *Approval recommended* | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2, J3 | `::test_round_first_review_on_27_is_all_original` | window to 15:09Z: boundary `84197e4`, 11 findings (8 suppressed + 3 threads), all `original` | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2, J3 | `::test_round_sixth_review_on_27_is_not_second_order` | window of the 16:13:32Z review: 5 findings (4 suppressed + 1 thread), 4 review-fix, 1 original (`skills/kworktree/SKILL.md:136` → `ed2338dd`), `second_order` false — the thread-only reading called this round second-order | spawn fails: `Failed to spawn: kreview` (exit 2) |
+| J2, J3 | `::test_round_v2_body_on_66` | the 2026-09-20T15:24:46Z review alone (`--include-resolved`, since its threads were resolved by the round that answered them): `format` `v2`, `effort` `Balanced`, `summary` holds *Changes recommended* and none of `<details>`, `<picture`, `Review effort`, `Open (6)`, the marker; `suppressed_check` `{0, 0}`; 6 findings, all `source: thread`; against the boundary `ec14ebb` (the first submitted review, still an ancestor of the head) 2 are `original` (blame `22c1209`) and 4 `review-fix` (`a1c6575`, `6b8d9d5`, `16a4334`), `second_order` false — measured 2026-09-20 with `git blame` at each thread's `originalCommit`; run 6's babysit report counted all 6 as original against round 4's head, which is not this brief's rule; `signals.effort` `["Balanced"]` | spawn fails: `Failed to spawn: kreview` (exit 2) |
+| J2, J3 | `::test_round_v1_balanced_body_on_66` | the 2026-09-14T04:52:59Z review alone: `format` `v1`, `effort` `Balanced` from a v1 footer, `suppressed_check` `{1, 1}`, `signals.suppressed` 1 — the v1 path survives the v2 one, and Balanced is not a v2-only word | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2 | `::test_round_thread_finding_carries_anchor_and_replies` | `t3998793921`: `azurekeyvault.py`, line 162, anchor `23ee88a`, resolved, outdated, a reply by the author | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2 | `::test_round_repeat_candidates_by_path_and_line` | `s5191010581-2` (line 160) lists `t3998793921` (line 162, earlier) as a repeat candidate | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2 | `::test_round_comments_exclude_the_babysit_report` | at the cutoff: 12 comments on #49 (13 minus the babysit report), ids `c<id>`, none starting `## Babysit report` | spawn fails: `Failed to spawn: kreview` (exit 2) |
@@ -249,7 +276,7 @@ left to be discovered as holes.
 
 - Requesting or waiting for a review, replying, resolving, filing issues, the state
   block, the report — M2. `round` in M1 is a snapshot of what exists.
-- Any reviewer body format other than Copilot's and a human's plain comment.
+- Any reviewer body format other than Copilot's two (above) and a human's plain comment.
 
 ## Working environment
 
@@ -257,8 +284,9 @@ left to be discovered as holes.
   `check` job; the contract-integrity guard (briefs and `tests/acceptance/**` writable
   only on `spec/*`/`replan/*` — an `impl/*` PR must not touch them); the
   public-surface report (advisory); CodeQL (reporting only). Copilot reviews every PR
-  automatically at creation, at the repository's effort setting; later rounds need an
-  explicit re-request.
+  automatically at creation; later rounds need an explicit re-request. The effort level
+  is the repository's setting (Balanced on this repository since 2026-09-20) or, per
+  request, a choice in the GitHub UI — `gh` cannot set it.
 - Toolchain: `uv sync --all-groups --all-extras` (`make setup`). The acceptance tests
   call `uv run --project <root> kreview`, which needs no tool install; `uv tool install
   -e . --reinstall` puts the script on PATH for humans and skills.

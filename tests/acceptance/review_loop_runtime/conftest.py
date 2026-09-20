@@ -64,6 +64,17 @@ W27_SIXTH = ("2026-09-12T16:13:00Z", "2026-09-12T16:14:00Z")  # review 518707744
 PR27_SIXTH_ORIGINAL = ("skills/kworktree/SKILL.md", 136)  # blames to ed2338dd
 
 PR10 = 10  # merged before the review-scope rule: no `## Review scope`
+
+# --- measured on 2026-09-20: Copilot's two body formats, both on this spec's own PR --
+# #66 is this feature's spec PR. Its round-4 review is the last v1 body on this
+# repository and its round-5 review the first v2 one, so the two windows below freeze
+# one of each; both are read with --include-resolved, since the rounds that answered
+# them resolved their threads.
+PR66 = 66
+PR66_V1_BALANCED_REVIEW = 5194046823  # 2026-09-14T04:52:59Z, commit 5c4c5cb, v1
+PR66_V2_REVIEW = 5260930892  # 2026-09-20T15:24:46Z, commit f07e9c0, v2 marker
+W66_V1_BALANCED = ("2026-09-14T04:52:00Z", "2026-09-14T04:53:00Z")
+W66_V2 = ("2026-09-20T15:24:00Z", "2026-09-20T15:25:00Z")
 # closed without merging, and scope-less: grades `closed` ahead of `scope-missing`
 PR19 = 19
 
