@@ -251,12 +251,17 @@ plumbing — `cd`, `cat`, `echo`, `printf`, `sleep`, `mktemp`, `exit`, `set`, `t
 `false`. Comments and heredoc bodies are not invocations; a `\` continuation is part of
 the line it continues, not data. The list is closed on purpose: the two skills are
 judgement and guardrails, and a step that needs another command is either the tool's job
-(a `kreview` gap — the escape valve) or not a step. Unlabeled fences (usage lines such as `/kbabysit <pr>`) and the ` ```markdown `
-report template are held to the blocklist's **command-position** read only, and to no
-allowlist at all: measured 2026-09-19, `gh api x` there is still a finding but
-`env -i gh api x` is held by neither list
+(a `kreview` gap — the escape valve) or not a step. Labelled non-shell fences (the
+` ```markdown ` report template) and inline spans are held to the blocklist's
+**command-position** read only, and to no allowlist at all: measured 2026-09-19,
+`gh api x` there is still a finding but `env -i gh api x` is held by neither list
 (`::test_j10_prose_code_keeps_the_command_position_read`). Labelling a fence is what
-buys it the position-free read.
+buys it the position-free read, so (decided 2026-09-20) **an unlabeled fence names no
+command** — usage lines such as `/kbabysit <pr>` read as none and keep their bare fence;
+a bare fence holding `kreview status 66` fails by name until it is labeled — and **no
+labeled shell fence opens a heredoc**: a heredoc body is data to every grader, and the
+two skills have nothing to write one for, since posting and filing are the tool's job.
+A here-string (`<<<"$BODY"`) is not a heredoc and stays allowed.
 
 The model's own commits and pushes (D5: the tool never pushes) are **prose** in the
 skills — "commit the fix, push, then apply" — never a fenced `git` line; `apply`'s
@@ -323,7 +328,7 @@ skills' contents, also without running a command.
 | J1 (M1) | `::test_status_stops_on_draft` | a draft PR: `pr.draft` true, `verdict` `stop: draft`, exit 3 | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_stops_on_empty_scope` | a PR whose `## Review scope` heading has nothing under it: `scope` `{empty, ""}`, `verdict` `stop: scope-empty`, exit 3 | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_stops_on_scope_missing` | an **open** PR with no `## Review scope` heading: `scope` `{missing, ""}`, `verdict` `stop: scope-missing`, exit 3 — M1 grades the field and the precedence `closed` outranks it, never the verdict, because every M1 fixture is merged or closed | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J10 | `::test_skills_contain_no_gh_or_git_commands` | two graders over both skills: (1) **blocklist** — in a labeled shell fence, `gh`, `git`, `awk`, `jq` or `curl` as *any token* of a line is an invocation, whatever precedes it (an assignment, a keyword, a pipe, `$( )`, a wrapper, a wrapper's option, a continuation): the read is position-free, so there is no next position (decided 2026-09-19, below); in inline spans and unlabeled or non-shell fences the read is by command position and an invocation is the command word plus at least one argument, so prose naming the `gh` CLI passes; (2) **allowlist, fail-closed** — the first word of every command in a labeled shell fence is one of the Surface's list, read as written: a wrapper (`sudo`, `env`, `timeout`, `xargs`, `command`, `time`, `eval`, `bash -c`) *is* the command word and is unlisted, so it fails by its own name instead of passing until someone reads past it. Both graders read the command word through its spelling: `"gh"`, `\gh`, `/usr/bin/gh`, `./tools/gh` and `tools/gh` all name `gh`, and `$TOOL` — unresolvable by reading — is named by the allowlist rather than skipped. Fences close on a marker at least as long as their opener; heredoc bodies and `#` comments are skipped; `\` continuations are joined into their line. Also: `kbabysit` names all four subcommands, has no `context: fork`, and keeps its preflight `MODEL:` check; `kobserve` names `kreview status` | fails on main, and without running a command: blocklist 15 lines in `kbabysit`, 23 in `kreview`; allowlist 43 and 79 (measured 2026-09-19 at `47c428e` against this branch's skills, which are main's — `git diff origin/main -- skills/` is empty) |
+| J10 | `::test_skills_contain_no_gh_or_git_commands` | two graders over both skills: (1) **blocklist** — in a labeled shell fence, `gh`, `git`, `awk`, `jq` or `curl` as *any token* of a line is an invocation, whatever precedes it (an assignment, a keyword, a pipe, `$( )`, a wrapper, a wrapper's option, a continuation): the read is position-free, so there is no next position (decided 2026-09-19, below); in inline spans and unlabeled or non-shell fences the read is by command position and an invocation is the command word plus at least one argument, so prose naming the `gh` CLI passes; (2) **allowlist, fail-closed** — the first word of every command in a labeled shell fence is one of the Surface's list, read as written: a wrapper (`sudo`, `env`, `timeout`, `xargs`, `command`, `time`, `eval`, `bash -c`) *is* the command word and is unlisted, so it fails by its own name instead of passing until someone reads past it. Both graders read the command word through its spelling: `"gh"`, `\gh`, `/usr/bin/gh`, `./tools/gh` and `tools/gh` all name `gh`, and `$TOOL` — unresolvable by reading — is named by the allowlist rather than skipped. Fences close on a marker at least as long as their opener; heredoc bodies and `#` comments are skipped; `\` continuations are joined into their line. (3) **reach** (decided 2026-09-20) — no unlabeled fence in either skill names a command (`_unlabeled_fence_commands`), and no labeled shell fence opens a heredoc (`_heredoc_openers`); their own cases are `J10_REACH_CASES` (`::test_j10_reach_assertions_read_what_they_claim`). Also: `kbabysit` names all four subcommands, has no `context: fork`, and keeps its preflight `MODEL:` check; `kobserve` names `kreview status` | fails on main, and without running a command: blocklist 15 lines in `kbabysit`, 23 in `kreview`; allowlist 43 and 79 (measured 2026-09-19 at `47c428e` against this branch's skills, which are main's — `git diff origin/main -- skills/` is empty; re-measured 2026-09-20 after the trailing-comment rule, unchanged); the reach assertions pass on main (0 unlabeled-fence commands, 0 heredocs in either skill, measured 2026-09-20) — they are a constraint the rewrite keeps, not a job it delivers |
 
 Plus the standing gates: `make check` exits 0.
 
@@ -401,10 +406,9 @@ catch, by the interpreter's name, and both rows stay in the case table with the 
 verdicts differing on purpose — and three the allowlist does **not** catch, because they
 are deliberately not code it reads: a heredoc body, a `#` comment, and prose code
 (above). Each is a `J10_CASES` or prose-code row, so this list is re-derivable instead of
-asserted. Two of those three have no second line of defence, and they are open for Karl
-below.
+asserted. Two of those three had no second line of defence; they are decided below.
 
-### Open for Karl — the gate reads labeled shell fences, and code hides in two others
+### Decided 2026-09-20 — the gate's reach: label the fence, write no heredoc
 
 Not a position (that class is closed above) but the read's **reach**, measured
 2026-09-19 through the real graders, not reasoned:
@@ -426,24 +430,24 @@ the reader would not fail them), and neither skill opens a heredoc. Both skills 
 here-strings (`<<<"$BODY"`), which `_HEREDOC` correctly declines to read as an opener —
 true by the width of one `\w+`, and graded from now on by the `here-string` row.
 
-**Not patched, deliberately.** This would be the sixth consecutive pass to change this
-one grader, and the boundary it would move is the one signed above on 2026-09-19. The
-options, which are not equal:
+Run 5 did not patch it — a sixth consecutive change to one grader, on a boundary signed
+the same day, is an escalation — and put four options to Karl.
 
-- **Require the rewrite to label its fences** — a J10 assertion that no unlabeled fence
-  in the two skills contains a command, which is one line and changes no reader. It
-  closes the plausible half and leaves heredocs alone.
-- **Read unlabeled fences as shell.** Closes the same half by widening the reader; costs
-  the usage-line fence a false positive unless `/kbabysit <pr>` keeps reading as no
-  command (it does today).
-- **Read heredoc bodies too.** Ends the class rather than its plausible half, and gives
-  up the "heredoc bodies are data" rule that `cat <<EOF` relies on.
-- **Accept both and say so.** The gate grades text we write, not adversarial input; the
-  table above is then the documentation, and the two rows are known holes.
-
-My read, unchanged from run 4 and now with a second measurement behind it: option 1 is
-the only one that buys anything an M2 executor would actually hit, and the rest is
-polish on a grader whose subject does not exist yet.
+**Decision (Karl, 2026-09-20):** two assertions, no change to any reader. (1) **An
+unlabeled fence names no command**: `_unlabeled_fence_commands` runs the command-position
+read over every bare ` ``` ` fence and fails on any command word, allowed or not — the
+message says to label it. Usage lines (`/kbabysit <pr>`) and placeholders read as no
+command, so the one bare fence either skill has today stays as it is. (2) **No labeled
+shell fence opens a heredoc**: `_heredoc_openers` fails on an opener, so there is no body
+for the graders to be blind to. The two skills have nothing to write a heredoc for —
+posting a comment and filing an issue are `kreview`'s job — and a here-string is not an
+opener. Both pass on main (measured: 0 and 0), so they constrain the rewrite rather than
+grade a job; each has its own case table (`J10_REACH_CASES`).
+*Rejected:* reading unlabeled fences as shell — closes the same half by widening the
+reader, and a reader is what every one of the five escapes lived in; reading heredoc
+bodies — gives up "a heredoc body is data" to grade a construct the skills should not
+contain; accepting both holes as documentation — the executor who forgets a label is the
+plausible case, and being told is cheaper than a review round finding it.
 
 ## Invariants
 

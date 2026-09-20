@@ -1669,6 +1669,8 @@ _NOT_THE_COMMAND = {
     "readonly",
 }
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*=")
+# a `#` that begins a word starts a comment (POSIX); `"$#"`, `'#'` and `${#x}` do not
+_COMMENT = re.compile(r"(^|\s)#.*$")
 _COMMAND_WORD = re.compile(r"^[A-Za-z_][\w.-]*$")
 _QUOTED = re.compile(r"""^(["'])(.+)\1$""")
 # `/kbabysit` is a slash command, not a path: one leading slash and no directory
@@ -1711,7 +1713,7 @@ def _commands(snippet: str) -> list[list[str]]:
     and the allowlist judges it by its own name.
     """
     out: list[list[str]] = []
-    for segment in _COMMAND_BREAK.split(snippet):
+    for segment in _COMMAND_BREAK.split(_COMMENT.sub(" ", snippet)):
         if _LOOP_HEADER.match(segment):
             continue
         # split() on any whitespace: a space-only split misses `git\tstatus`
@@ -1782,7 +1784,7 @@ def _tokens(line: str) -> list[str]:
     pipe, a wrapper, a wrapper's option, a continuation), and a reader with no notion of
     position has no next place to miss.
     """
-    words = _REDIRECT.sub(" ", _COMMAND_BREAK.sub(" ", line)).split()
+    words = _REDIRECT.sub(" ", _COMMAND_BREAK.sub(" ", _COMMENT.sub(" ", line))).split()
     return [w for w in (_command_word(t) for t in words) if w]
 
 
@@ -1868,7 +1870,10 @@ J10_CASES = [
     ("wrapper-command-v", "command -v gh api", True, True),
     ("wrapper-time", "time -p gh api repos/x/y", True, True),
     ("continuation", "kreview status 66 \\\n  | jq '.verdict'", True, True),
-    ("continuation-comment", "kreview status 66 \\\n  # | jq '.verdict'", True, True),
+    # after `\`, a line beginning with `#` is a comment in the shell, so this `jq` never
+    # runs; the row first asserted the opposite (2026-09-19) and the comment rule
+    # measured 2026-09-20 corrected it
+    ("continuation-comment", "kreview status 66 \\\n  # | jq '.verdict'", False, False),
     # a command the blocklist cannot read out of a string: the allowlist names the
     # interpreter, which is why both graders exist
     ("eval", 'eval "gh api repos/x/y"', False, True),
@@ -1895,6 +1900,15 @@ J10_CASES = [
     ("allowed-continuation", "uv run pytest \\\n  tests/unit", False, False),
     ("slash-command", "/kbabysit 66", False, False),
     ("comment", "# gh api repos/x/y was the old way", False, False),
+    # a trailing comment ends the line for both graders: measured 2026-09-20, the
+    # `(default 3, …)` in kbabysit's usage line read as a command named `default`
+    (
+        "trailing-comment",
+        "make check   # gh api x was the old way (default 3)",
+        False,
+        False,
+    ),
+    ("hash-in-quotes", 'printf "%s" "#" "$#"', False, False),
 ]
 
 
@@ -1946,6 +1960,78 @@ def test_j10_prose_code_keeps_the_command_position_read(
     assert not _unlisted_commands(wrapped), f"{where}: the allowlist is fence-scoped"
 
 
+def _unlabeled_fence_commands(text: str) -> list[str]:
+    """Every line of an *unlabeled* fence that names a command, allowed or not.
+
+    The position-free read and the allowlist cover labeled shell fences only, so a
+    shell block whose author forgot the ` ```bash ` label would pass both graders and
+    be told nothing (measured 2026-09-19: `env -i gh api x` in a bare ` ``` ` fence is
+    held by neither list). Decided 2026-09-20: a fence that holds a command is labeled.
+    Usage lines (`/kbabysit <pr>`) name no command and keep their bare fence.
+    """
+    out: list[str] = []
+    fence, unlabeled = "", False
+    for line in text.splitlines():
+        m = _FENCE.match(line)
+        if not fence:
+            if m:
+                fence, unlabeled = m.group(1), not m.group(2)
+            continue
+        if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+            fence = ""
+            continue
+        if unlabeled and _commands(line):
+            out.append(line.strip())
+    return out
+
+
+def _heredoc_openers(text: str) -> list[str]:
+    """Every labeled shell-fence line that opens a heredoc.
+
+    A heredoc body is data to both graders, so a script generated through one is code no
+    grader reads. Decided 2026-09-20: the two skills open none — posting and filing are
+    the tool's job, so the rewrite has nothing to write a body for. A here-string
+    (`<<<"$BODY"`) is not an opener and stays allowed (the `here-string` row).
+    """
+    shell, _ = _code(text)
+    return [s.strip() for s in shell if _HEREDOC.search(s)]
+
+
+# The reach assertions' own cases: what each must flag, and what it must leave alone
+J10_REACH_CASES = [
+    ("unlabeled-command", "```\nkreview status 66 --json\n```", True, False),
+    ("unlabeled-forbidden", "```\nenv -i gh api repos/x/y\n```", True, False),
+    ("unlabeled-usage", "```\n/kbabysit <pr-number>\n/kbabysit\n```", False, False),
+    (
+        "unlabeled-usage-comment",
+        "```\n/kbabysit <pr> max-rounds: 5   # raise the budget (default 3)\n```",
+        False,
+        False,
+    ),
+    ("unlabeled-placeholder", "```\n<sha> — <one line>\n```", False, False),
+    ("labeled-command", "```bash\nkreview status 66 --json\n```", False, False),
+    ("text-fence-prose", "```text\nuse jq to filter\n```", False, False),
+    ("heredoc", "```bash\ncat <<EOF\ngh api repos/x/y\nEOF\n```", False, True),
+    ("heredoc-quoted", "```bash\ncat <<'EOF' > f\nx\nEOF\n```", False, True),
+    ("here-string", '```bash\ncat <<<"$BODY"\n```', False, False),
+    ("heredoc-unlabeled", "```\ncat <<EOF\nx\nEOF\n```", True, False),
+]
+
+
+@pytest.mark.parametrize(("case", "text", "unlabeled", "heredoc"), J10_REACH_CASES)
+def test_j10_reach_assertions_read_what_they_claim(
+    case: str, text: str, unlabeled: bool, heredoc: bool
+) -> None:
+    """The two 2026-09-20 assertions, falsified before they grade the real skills.
+
+    `unlabeled` is whether the fence-label rule fires, `heredoc` whether the no-heredoc
+    rule does. A usage fence and a placeholder fence must stay silent, a labeled fence
+    is the other graders' business, and a here-string is not a heredoc.
+    """
+    assert bool(_unlabeled_fence_commands(text)) is unlabeled, case
+    assert bool(_heredoc_openers(text)) is heredoc, case
+
+
 def test_skills_contain_no_gh_or_git_commands() -> None:
     for name in ("kbabysit", "kreview"):
         text = (ROOT / "skills" / name / "SKILL.md").read_text()
@@ -1956,6 +2042,18 @@ def test_skills_contain_no_gh_or_git_commands() -> None:
             f"{name}: a shell fence invokes something outside the allowlist "
             f"(ALLOWED_IN_SHELL_FENCES): {unlisted[:5]} — a rewrite that needs it is "
             "the escape valve, not an edit here"
+        )
+        # the two graders above read labeled shell fences; code that hides from them
+        # (decided 2026-09-20) is a label away, or a heredoc that has no reason to exist
+        unlabeled = _unlabeled_fence_commands(text)
+        assert unlabeled == [], (
+            f"{name}: an unlabeled fence holds a command, which neither grader reads — "
+            f"label it ```bash: {unlabeled[:5]}"
+        )
+        heredocs = _heredoc_openers(text)
+        assert heredocs == [], (
+            f"{name}: a shell fence opens a heredoc, whose body no grader reads — "
+            f"posting and filing are the tool's job: {heredocs[:5]}"
         )
     kbabysit = (ROOT / "skills" / "kbabysit" / "SKILL.md").read_text()
     for sub in ("kreview status", "kreview round", "kreview apply", "kreview report"):
