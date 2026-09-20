@@ -35,7 +35,11 @@ blocking: uv run pytest tests/acceptance/review_loop_runtime/test_m2_the_loop.py
 
 ## Surface
 
-Everything in M1 holds. Additions:
+Everything in M1 holds, with **one exception**: M1's invariant that "`kbabysit` keeps its
+frontmatter pin" (M1 *Invariants*) is superseded by the 2026-09-14 amendment, which drops
+`context: fork` and `model:` — see *Skill rewrites* below, where M2 also retargets the
+`make check` gate that asserts the pin. Without this sentence an executor reading "every-
+thing in M1 holds" is handed two requirements it cannot both satisfy. Additions:
 
 ### `kreview round … [--request] [--reviewer LOGIN] [--wait SECONDS]`
 
@@ -335,12 +339,19 @@ Plus the standing gates: `make check` exits 0.
 **J10's parser is itself graded.** Every other row here is decided by an API; J10's is
 decided by a parser this repository wrote, and a parser that misreads a command position
 returns green for the wrong reason. `::test_j10_grader_reads_every_command_position`
-holds 21 crafted cases: the six path- and quote-spellings of a command word and the one
-indirection (`$TOOL`); the six positions earlier rounds widened the blocklist to reach
-(plain, assignment, shell keyword, pipe, env prefix, loop body); the three wrappers only
-the allowlist can see (`timeout`, `eval`, `bash -c`); and five lines a correct rewrite
-contains that must **not** fail — `kreview`, `make`, a quoted argument, `/kbabysit`, a
-comment. It is not blocking — it grades the test file, so it
+holds **41** crafted cases (`::test_j10_case_inventory_matches_this_brief` fails when
+this number stops matching `len(J10_CASES)`, because the last three passes each found it
+stale): nine spellings of a command word — path, quoted, escaped, and the escapes and
+quotes *inside* a word (`g\h`, `g"h"`, `"g"h`, round 5) — plus the one indirection
+(`$TOOL`); six positions (plain, assignment, shell keyword, pipe, env prefix, loop body);
+seven wrapper forms (`timeout`, and the six option-bearing ones round 4 measured); six of
+line structure (continuation, continued comment, trailing comment, a `#` inside quotes, a
+nested info marker, a here-string); four deliberate silences — `eval` and `bash -c`, which
+only the allowlist names, and a heredoc body and a comment, which neither reads; two
+deliberate false positives that price the position-free read (`cat docs/notes/git`,
+`printf "%s" "run jq on it"`); and six lines a correct rewrite contains that must **not**
+fail. `J10_REACH_CASES` holds 11 cases for the two reach assertions, and `PROSE_CODE` 3 for
+the command-position surfaces. It is not blocking — it grades the test file, so it
 passes on main — and it is what lets the row above be trusted rather than believed. It
 replaces the earlier claim that the parser "was falsified on crafted cases", which named
 a number no reader could re-derive; the cases are now in the repository. Measured

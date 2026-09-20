@@ -1673,17 +1673,43 @@ _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*=")
 _COMMENT = re.compile(r"(^|\s)#.*$")
 _COMMAND_WORD = re.compile(r"^[A-Za-z_][\w.-]*$")
 _QUOTED = re.compile(r"""^(["'])(.+)\1$""")
+# the shell removes quotes and `\` escapes anywhere in a word, not only around or in
+# front of it: `g\h`, `g"h"` and `"g"h` all execute `gh`. Enumerating the spellings we
+# had seen is what let `g\h api x` through both graders (round 5 of #66); this applies
+# the rule instead, so there is no next spelling for the same reason there is no next
+# position. Quotes are removed only when the token's own quotes are **balanced**:
+# `_COMMAND_BREAK` splits on `|` without knowing about quoting, so a jq expression
+# (`'[.[] | select(…)] | length'`) arrives here as fragments, and unquoting `length'`
+# would invent a command named `length` in a line that has none — a grader that fails a
+# correct rewrite is the corrupted signal the test-quality rule forbids
+_ESCAPE = re.compile(r"\\(.)")
+_QUOTE = re.compile(r"""["']""")
 # `/kbabysit` is a slash command, not a path: one leading slash and no directory
 _SLASH_COMMAND = re.compile(r"^/[^/]+$")
 _FENCE = re.compile(r"^\s*(`{3,}|~{3,})\s*([A-Za-z]*)")
 _HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?")
 
 
+def _closes(m: re.Match[str] | None, fence: str) -> bool:
+    """Whether marker `m` closes the block opened by `fence`.
+
+    Same character, at least as long — so a ````bash block wrapping a ``` example stays
+    one block — **and no info string**: CommonMark closing fences carry none, so a
+    ` ```text ` line inside a ` ```bash ` block is content, not the end of it. Treating
+    it as the end dropped every following line out of both graders (round 5 of #66).
+    """
+    return bool(
+        m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence)
+        and not m.group(2)
+    )
+
+
 def _command_word(token: str) -> str | None:
     """The command a segment's first token names, or `None` when it names none.
 
-    `"gh"`, `\\gh`, `/usr/bin/gh`, `./tools/gh` and `tools/gh` all invoke `gh`, and a
-    grader that accepts only bare identifiers calls every one of them "not a command".
+    `"gh"`, `\\gh`, `g\\h`, `g"h"`, `/usr/bin/gh`, `./tools/gh`, `tools/gh` all invoke
+    `gh`, and a grader that accepts only bare identifiers calls every one of them "not a
+    command".
     That drops the segment from **both** graders below, so the fail-closed allowlist
     fails open on precisely the spellings an allowlist exists to stop: the first
     version of it passed `/usr/bin/gh api …` silently. `$TOOL` cannot be resolved by
@@ -1691,10 +1717,9 @@ def _command_word(token: str) -> str | None:
     the allowlist must name it rather than skip it. `/kbabysit <pr>` still names no
     command: a slash command is one leading slash with no directory, not a path.
     """
-    quoted = _QUOTED.match(token)
-    if quoted:
-        token = quoted.group(2)
-    token = token.removeprefix("\\")
+    token = _ESCAPE.sub(lambda m: m.group(1), token)
+    if token.count('"') % 2 == 0 and token.count("'") % 2 == 0:
+        token = _QUOTE.sub("", token)
     if token.startswith("$") and len(token) > 1:
         return token
     if "/" in token and not _SLASH_COMMAND.match(token):
@@ -1750,7 +1775,7 @@ def _code(text: str) -> tuple[list[str], list[str]]:
                 continue
             other.extend(re.findall(r"`([^`\n]+)`", line))
             continue
-        if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+        if _closes(m, fence):
             fence, heredoc, joined = "", None, ""
             continue
         if heredoc is not None:
@@ -1875,9 +1900,17 @@ J10_CASES = [
     # measured 2026-09-20 corrected it
     ("continuation-comment", "kreview status 66 \\\n  # | jq '.verdict'", False, False),
     # a command the blocklist cannot read out of a string: the allowlist names the
-    # interpreter, which is why both graders exist
+    # interpreter, which is why both graders exist. The token `"gh` has one quote, so
+    # the balanced-quote rule leaves it unclassifiable — deliberately: the alternative
+    # invents commands out of jq fragments (see `_QUOTE`)
     ("eval", 'eval "gh api repos/x/y"', False, True),
     ("interpreter", "bash -c 'gh api repos/x/y'", False, True),
+    # the spellings the enumeration missed: an escape or a quote *inside* the word
+    ("internal-escape", "g\\h api repos/x/y", True, True),
+    ("internal-quote", 'g"h" api repos/x/y', True, True),
+    ("split-quote", '"g"h api repos/x/y', True, True),
+    # a same-length marker carrying an info string is content, not a closing fence
+    ("nested-info-marker", "kreview status 66\n```text\ngh api repos/x/y", True, True),
     # what the position-free read costs, pinned so the brief's claims re-derive. A
     # heredoc body is data and escapes *both* lists (the allowlist reads `cat`, which is
     # allowed) — the same deliberate hole as `comment`, below. And a forbidden word is a
@@ -1977,7 +2010,7 @@ def _unlabeled_fence_commands(text: str) -> list[str]:
             if m:
                 fence, unlabeled = m.group(1), not m.group(2)
             continue
-        if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+        if _closes(m, fence):
             fence = ""
             continue
         if unlabeled and _commands(line):
@@ -2030,6 +2063,26 @@ def test_j10_reach_assertions_read_what_they_claim(
     """
     assert bool(_unlabeled_fence_commands(text)) is unlabeled, case
     assert bool(_heredoc_openers(text)) is heredoc, case
+
+
+def test_j10_case_inventory_matches_this_brief() -> None:
+    """The brief's case count is a claim about this file: re-derive it, do not read it.
+
+    Three consecutive passes found this number stale (21 while the table held 25, then
+    37, then 41) — a hard-coded count in prose that nothing checks is the defect class
+    this PR keeps closing at new sites. Now it is graded, so the brief cannot drift from
+    the table without a red test naming both numbers.
+    """
+    brief = (ROOT / "docs" / "specs" / "review-loop-runtime" / "briefs"
+             / "M2-the-loop.md").read_text()
+    for phrase, name in (
+        (f"**{len(J10_CASES)}** crafted cases", "J10_CASES"),
+        (f"`J10_REACH_CASES` holds {len(J10_REACH_CASES)} cases", "J10_REACH_CASES"),
+        (f"`PROSE_CODE` {len(PROSE_CODE)} for", "PROSE_CODE"),
+    ):
+        assert phrase in brief, (
+            f"the brief does not state {name}'s real size: expected {phrase!r}"
+        )
 
 
 def test_skills_contain_no_gh_or_git_commands() -> None:

@@ -381,7 +381,15 @@ def test_round_leaves_the_clone_untouched() -> None:
         git("branch", "--list", cwd=ROOT),
         git("status", "--porcelain", cwd=ROOT),
     )
-    assert kreview("round", str(PR49), "--repo", REPO, "--json").code == 0
+    # --until, like every other `round` call here: without it a later review on #49
+    # (or a malformed suppressed section, which exits 4) fails this immutability test
+    # for a reason that has nothing to do with the clone
+    assert (
+        kreview(
+            "round", str(PR49), "--repo", REPO, "--json", "--until", MEASURED_UNTIL
+        ).code
+        == 0
+    )
     after = (
         git("rev-parse", "HEAD", cwd=ROOT),
         git("branch", "--list", cwd=ROOT),

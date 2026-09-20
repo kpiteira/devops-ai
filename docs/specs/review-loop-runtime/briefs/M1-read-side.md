@@ -240,7 +240,9 @@ left to be discovered as holes.
   itself (D1). Nothing the tool prints is a secret.
 - No new entry in `[project.dependencies]`.
 - The judgement sections of both skills are moved intact; `kbabysit` keeps its
-  frontmatter pin (`tests/architecture/test_v2_contract.py`).
+  frontmatter pin (`tests/architecture/test_v2_contract.py`) — **for M1 only**: the
+  2026-09-14 amendment drops that pin in M2, which retargets the same gate. A reader of
+  M1 alone would otherwise carry this invariant into the milestone that removes it.
 - `ksecret` and `kinfra` are untouched.
 
 ## Non-goals
