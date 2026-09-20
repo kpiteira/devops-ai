@@ -78,7 +78,8 @@ two skills shrink to the judgement and the guardrails they exist for.
   2026-09-13: model-driven first, delegating as much as possible to the command;
   revisit after the close measurement.
 - Changing what a disposition means or how judgement is made. Copilot's effort level
-  (a repository setting, the human's).
+  (the repository's Copilot code-review setting, or a per-request choice in the GitHub
+  UI — either way the human's, and neither reachable from `gh`).
 - Reviewer formats other than Copilot's and a human's; hosts other than GitHub.
 - `kselfreview` is unchanged; the tool prints the range it is invoked with.
 - The observer seat's other jobs (`kobserve launch`/`verify`/`land`).
