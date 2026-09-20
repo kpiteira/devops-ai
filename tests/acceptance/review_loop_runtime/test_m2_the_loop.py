@@ -1740,7 +1740,25 @@ _ESCAPE = re.compile(r"\\(.)")
 _QUOTE = re.compile(r"""["']""")
 # `/kbabysit` is a slash command, not a path: one leading slash and no directory
 _SLASH_COMMAND = re.compile(r"^/[^/]+$")
-_FENCE = re.compile(r"^\s*(`{3,}|~{3,})\s*([A-Za-z]*)")
+# group 2 is the **whole** info string, not its alphabetic prefix. `([A-Za-z]*)` matched
+# the empty string on ` ```123 ` and ` ``` || true `, and `_closes` reads "no info
+# string"
+# as "closer" — so a content line with a non-alphabetic tail ended the block and every
+# command after it left both graders (round 6 of #66). The predicate was an enumeration
+# of the info strings we had pictured; CommonMark's rule is that a closer carries only
+# trailing whitespace, and that is what is read now
+_FENCE = re.compile(r"^\s*(`{3,}|~{3,})[ \t]*(.*)$")
+
+
+def _info(m: re.Match[str] | None) -> str:
+    """The fence's info string, trimmed — `""` when it has none."""
+    return m.group(2).strip() if m else ""
+
+
+def _fence_lang(m: re.Match[str]) -> str:
+    """The language word of an opening fence: the info string's first word, lowered."""
+    info = _info(m)
+    return info.split()[0].lower() if info else ""
 _HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?")
 
 
@@ -1756,7 +1774,7 @@ def _closes(m: re.Match[str] | None, fence: str) -> bool:
         m
         and m.group(1)[0] == fence[0]
         and len(m.group(1)) >= len(fence)
-        and not m.group(2)
+        and not _info(m)
     )
 
 
@@ -1827,7 +1845,7 @@ def _code(text: str) -> tuple[list[str], list[str]]:
         m = _FENCE.match(line)
         if not fence:
             if m:
-                fence, in_shell = m.group(1), m.group(2).lower() in _SHELL_FENCE_LANGS
+                fence, in_shell = m.group(1), _fence_lang(m) in _SHELL_FENCE_LANGS
                 continue
             other.extend(re.findall(r"`([^`\n]+)`", line))
             continue
@@ -1965,8 +1983,16 @@ J10_CASES = [
     ("internal-escape", "g\\h api repos/x/y", True, True),
     ("internal-quote", 'g"h" api repos/x/y', True, True),
     ("split-quote", '"g"h api repos/x/y', True, True),
-    # a same-length marker carrying an info string is content, not a closing fence
+    # a same-length marker carrying an info string is content, not a closing fence —
+    # any info string, not only an alphabetic one, which is what round 6 measured
     ("nested-info-marker", "kreview status 66\n```text\ngh api repos/x/y", True, True),
+    ("nested-digit-marker", "kreview status 66\n```123\ngh api repos/x/y", True, True),
+    (
+        "nested-nonalpha-marker",
+        "kreview status 66\n``` || true\ngh api repos/x/y",
+        True,
+        True,
+    ),
     # what the position-free read costs, pinned so the brief's claims re-derive. A
     # heredoc body is data and escapes *both* lists (the allowlist reads `cat`, which is
     # allowed) — the same deliberate hole as `comment`, below. And a forbidden word is a
@@ -2064,7 +2090,7 @@ def _unlabeled_fence_commands(text: str) -> list[str]:
         m = _FENCE.match(line)
         if not fence:
             if m:
-                fence, unlabeled = m.group(1), not m.group(2)
+                fence, unlabeled = m.group(1), not _info(m)
             continue
         if _closes(m, fence):
             fence = ""
