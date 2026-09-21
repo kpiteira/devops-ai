@@ -368,8 +368,11 @@ auto-review repos the push already triggered it).
 
 **The loop stops when it has converged (above) or when it is diverging (next), and on
 nothing else** — Karl, 2026-09-20, after six paid rounds on #66 stopped four times on
-rules that ended nothing, each stop a re-entry he had to word. A decision that is his is a
-wait, not a stop.
+rules that ended nothing, each stop a re-entry he had to word. Both families below end the
+run and post the report — what differs is what the verdict claims. A **diverging** stop
+says the loop is going nowhere; a **waiting** stop says the next move is the human's.
+Neither claims the reviewer is done with the PR, which is what ✅ means and why only a
+convergence signal earns it.
 
 **Stop — diverging** when any of:
 - **A root cause is back for the third time.** A `systemic` finding is researched across
@@ -443,8 +446,10 @@ rule on this page.
 
 Rounds are counted per babysit run, and a re-invocation on the same PR inherits thread
 history (kreview reads prior replies, so push-backs stay remembered) and the same review
-scope. **There is no budget, so be honest about what bounds the sequence.** Three things
-do, and none of them is a cumulative cap:
+scope. **There is no budget unless the human states one for that run, so be honest about
+what bounds the sequence.** An explicit `max-rounds:` bounds the run it was given to and
+nothing after it; a re-entry that is not given one again has no ceiling. Three things bound
+the sequence itself, and none of them is a cumulative cap:
 
 - **Re-entry needs an explicit trigger** — the human's words, or new commits someone
   pushed. It is never the loop's own idea.
