@@ -47,7 +47,7 @@ JSON form, every key present:
 | Key | Value |
 |-----|-------|
 | `pr` | `{number, state: open\|closed\|merged, draft, head_sha, head_ref, base_ref, mergeable: MERGEABLE\|CONFLICTING\|UNKNOWN, author}` |
-| `checkout` | `{branch, matches_pr}` — `matches_pr` true when the local `HEAD` is `head_sha` or the current branch is `head_ref`; both `null` outside a clone of the repo |
+| `checkout` | `{branch, matches_pr}` — `matches_pr` true when the local `HEAD` **is** `head_sha`; a branch whose name equals `head_ref` is not enough — a stale or locally-ahead checkout of it describes a different tree than the packet does, and the loop pushes fixes from this checkout; both `null` outside a clone of the repo |
 | `scope` | `{status: present\|missing\|empty, text}` — `text` is the `## Review scope` section body (up to the next `## ` heading) with leading and trailing blank lines removed, inner lines verbatim; `""` when the heading is absent or when it exists with only blank lines under it (`empty`) |
 | `ci` | `{status: passing\|failing\|pending\|none, checks: [{name, status: passing\|failing\|pending\|skipped}]}` for `head_sha`; `failing` if any check failed, else `pending` if any is running, else `passing`, `none` with no checks |
 | `reviews` | `{copilot_total, copilot_reviewed_head, copilot_requested, effort_levels, effort_parse_failed, last_reviewed_sha, unreviewed_commits}` — `copilot_total` counts submitted (not PENDING) reviews by a login containing `copilot`, which is the PR's paid-round total; `copilot_reviewed_head` is true when one of those reviews carries `commit_id` `head_sha` (what kbabysit step 1 asks before requesting); `copilot_requested` is true when a review request to the Copilot reviewer is pending on the PR — both are booleans, both false when no Copilot review or request exists; `effort_levels` is the sorted distinct set parsed from each Copilot body's effort line — `**Review effort level:** X` (a v1 footer) or `**Review effort:** X` (a v2 header line; *Copilot's two body formats*, below); `effort_parse_failed` is true when Copilot reviews exist and none carries either line; `last_reviewed_sha` is the commit of the latest submitted review (any reviewer), `null` without one; `unreviewed_commits` lists the commits in `last_reviewed_sha..head_sha`, oldest first, and is `[]` when `last_reviewed_sha` is `null` |
@@ -78,7 +78,7 @@ JSON form:
 | `window` | `{since, until}` as resolved |
 | `boundary` | `{sha, status}` — the commit of the **earliest submitted review** (any reviewer) that is an ancestor of `head_sha`; review commits absent from the clone are fetched by SHA first; `none` when the PR has no submitted review, `none-reachable` when reviews exist but none is an ancestor (all pre-rebase), `missing <sha>` when a review commit cannot be fetched |
 | `reviews` | `[{id, author, state, submitted_at, commit, format, effort, summary}]` in the window, oldest first; `format` is `v2` when the body's first line is `<!-- ccr-overview-v2 -->`, else `v1`; `effort` is the word of the body's effort line (either format) or `null`; `summary` is the body with every `<details>…</details>` block, every `<picture>…</picture>` element, every HTML comment, and the `**Review effort…:**` and `**Findings:**` lines removed, then trimmed — in both formats it is the headline and the assessment sentence |
-| `suppressed_check` | `{declared, parsed}` — `declared` is the sum of `N` over every `Suppressed comments (N)` heading in the window's review bodies; `parsed` is the number of entries the parser produced. A v2 body has no such heading, so a window of v2 reviews reads `{0, 0}`: not a parser failure, a format that declares nothing |
+| `suppressed_check` | `{declared, parsed}` — `declared` is the sum of `N` over every `Suppressed comments (N)` (v1) **and** `Previously missed (N)` (v2) heading in the window's review bodies; `parsed` is the number of entries the parser produced. A v2 body has no such heading, so a window of v2 reviews reads `{0, 0}`: not a parser failure, a format that declares nothing |
 | `findings` | one entry per line-anchored finding, oldest first — see below |
 | `comments` | `[{id: "c<id>", author, created_at, body}]` — issue comments in the window, excluding the comment that carries the babysit report |
 | `signals` | `{findings, line_anchored, suppressed, on_original, on_review_fix, unknown, second_order, no_new_findings, approved, ci, effort, copilot_total}` |
@@ -92,7 +92,7 @@ provenance, provenance_detail, blame_sha, thread, repeat_candidates}`:
   comment's URL); `thread` is `{id, resolved, outdated, replies: [{author, created_at,
   body}]}` with every later comment of the thread as a reply. Resolved threads are
   excluded unless `--include-resolved`; outdated threads are included and flagged.
-- `source: suppressed` — one per entry of a `Suppressed comments` section in a review
+- `source: suppressed` — under **v2**, one per nested `<details>` entry of a `Previously missed (N)` section: `path` is the entry's `` `path:line` `` line with **U+200B stripped**, `line` its number, `body` the entry's text after that line, `id` `s<review-id>-<n>` by position, `anchor_commit` the review's `commit`. Under **v1**, one per entry of a `Suppressed comments` section in a review
   body in the window: a section starts at a heading whose text begins `Suppressed
   comments` and ends at a line beginning `- **Files reviewed` or at the body's end; an
   entry starts at a line that is exactly `**<path>:<line>**` outside a code fence and
@@ -121,11 +121,20 @@ provenance, provenance_detail, blame_sha, thread, repeat_candidates}`:
   first line is the marker `<!-- ccr-overview-v2 -->`; then `## Copilot review
   overview`, a `### <emoji> <assessment>` headline (*Changes recommended*), one
   sentence, `**Review effort:** X` as a header line, a `**Findings:** N · N · N` line
-  whose severities are `<picture>` images, and two `<details>` blocks — `Open (N)` and
+  whose severities are `<picture>` images, and `<details>` blocks — `Open (N)` and
   `Resolved since last review (N)` — listing the PR's **review threads** by title with
-  a severity image each (`Open (6)` on a round with 6 threads). There is no suppressed
-  section and no footer. Whether Copilot still withholds low-confidence comments under
-  v2 is not observable from the body; the tool reports what the body declares.
+  a severity image each (`Open (6)` on a round with 6 threads). There is no footer.
+- A v2 body **may also carry** `<details><summary><strong>Previously missed (N)</strong>
+  </summary>`, v2's equivalent of v1's `Suppressed comments` — it opens with the line
+  "In code that hasn't changed since last review" and holds one nested `<details>` per
+  finding: `<summary>` is a severity `<picture>` plus the title, then a line
+  `` `path:line` `` **whose path is written with U+200B zero-width spaces between its
+  segments**, then the finding's body. Measured on #66 review `5261175937`
+  (`14402fe`): `Previously missed (7)`, seven findings, none of them in any thread.
+  The section is easy to miss twice over — the heading shares no wording with v1's,
+  and a path grep for `skills/kbabysit/SKILL.md` does not match
+  `skills/​kbabysit/​SKILL.md`. It was missed on this PR: run 8 reported that round
+  as 3 findings and 0 suppressed; it was 10 and 7.
 
 The parser reads both, keyed on the marker, because the blocking tests' fixtures
 (#49, #27, #66 rounds 1–4) are v1 and every review from here on is v2 — a parser that
@@ -206,7 +215,8 @@ residual, not papered over with a `>=`.
 | J2, J3 | `::test_round_window_approval_only_on_49` | the 14:34:49Z review alone: 0 findings, `no_new_findings` true, `approved` false (Copilot approves in a COMMENTED review), summary says *Approval recommended* | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2, J3 | `::test_round_first_review_on_27_is_all_original` | window to 15:09Z: boundary `84197e4`, 11 findings (8 suppressed + 3 threads), all `original` | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2, J3 | `::test_round_sixth_review_on_27_is_not_second_order` | window of the 16:13:32Z review: 5 findings (4 suppressed + 1 thread), 4 review-fix, 1 original (`skills/kworktree/SKILL.md:136` → `ed2338dd`), `second_order` false — the thread-only reading called this round second-order | spawn fails: `Failed to spawn: kreview` (exit 2) |
-| J2, J3 | `::test_round_v2_body_on_66` | the 2026-09-20T15:24:46Z review alone (`--include-resolved`, since its threads were resolved by the round that answered them): `format` `v2`, `effort` `Balanced`, `summary` holds *Changes recommended* and none of `<details>`, `<picture`, `Review effort`, `Open (6)`, the marker; `suppressed_check` `{0, 0}`; 6 findings, all `source: thread`; against the boundary `ec14ebb` (the first submitted review, still an ancestor of the head) 2 are `original` (blame `22c1209`) and 4 `review-fix` (`a1c6575`, `6b8d9d5`, `16a4334`), `second_order` false — measured 2026-09-20 with `git blame` at each thread's `originalCommit`; run 6's babysit report counted all 6 as original against round 4's head, which is not this brief's rule; `signals.effort` `["Balanced"]` | spawn fails: `Failed to spawn: kreview` (exit 2) |
+| J2, J3 | `::test_round_v2_body_on_66` | the 2026-09-20T15:24:46Z review alone (`--include-resolved`, since its threads were resolved by the round that answered them): `format` `v2`, `effort` `Balanced`, `summary` holds *Changes recommended* and none of `<details>`, `<picture`, `Review effort`, `Open (6)`, the marker; `suppressed_check` `{0, 0}` — this body carries no `Previously missed` section, which is a fact about this review and not about v2; 6 findings, all `source: thread`; against the boundary `ec14ebb` (the first submitted review, still an ancestor of the head) 2 are `original` (blame `22c1209`) and 4 `review-fix` (`a1c6575`, `6b8d9d5`, `16a4334`), `second_order` false — measured 2026-09-20 with `git blame` at each thread's `originalCommit`; run 6's babysit report counted all 6 as original against round 4's head, which is not this brief's rule; `signals.effort` `["Balanced"]` | spawn fails: `Failed to spawn: kreview` (exit 2) |
+| J2, J3 | `::test_round_v2_previously_missed_on_66` | the 2026-09-20T17:13:14Z review alone (`--include-resolved`): `format` `v2`, `commit` `14402fe`, `summary` free of `Previously missed`; `suppressed_check` `{7, 7}`; **10** findings — 3 threads + **7** `source: suppressed` — `on_original` 7, `on_review_fix` 3, `unknown` 0, `second_order` false; no finding's `path` contains U+200B; the first suppressed finding is `docs/specs/review-loop-runtime/briefs/M1-read-side.md:50` with `anchor_commit` `14402fe`. Blamed at `14402fe` against boundary `ec14ebb`: six suppressed on `22c1209`, `test_m2_the_loop.py:1727` on `f07e9c0` | fails on main: `Failed to spawn: kreview` (exit 2). Measured 2026-09-21; run 8 of this PR's babysit read the same review as 3 findings and 0 suppressed |
 | J2, J3 | `::test_round_v1_balanced_body_on_66` | the 2026-09-14T04:52:59Z review alone: `format` `v1`, `effort` `Balanced` from a v1 footer, `suppressed_check` `{1, 1}`, `signals.suppressed` 1 — the v1 path survives the v2 one, and Balanced is not a v2-only word | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2 | `::test_round_thread_finding_carries_anchor_and_replies` | `t3998793921`: `azurekeyvault.py`, line 162, anchor `23ee88a`, resolved, outdated, a reply by the author | spawn fails: `Failed to spawn: kreview` (exit 2) |
 | J2 | `::test_round_repeat_candidates_by_path_and_line` | `s5191010581-2` (line 160) lists `t3998793921` (line 162, earlier) as a repeat candidate | spawn fails: `Failed to spawn: kreview` (exit 2) |
@@ -263,8 +273,12 @@ left to be discovered as holes.
 ## Invariants
 
 - The tool never modifies `HEAD`, the index, the working tree, or a local branch.
-- No token in argv or environment of any process the tool spawns: `gh` authenticates
-  itself (D1). Nothing the tool prints is a secret.
+- The tool puts no token in the argv or the environment of any process it spawns, and
+  never reads, logs or prints one: `gh` authenticates itself (D1). It does **not** claim
+  the child environment is token-free — `gh` is normally authenticated by a `GH_TOKEN`
+  or `GITHUB_TOKEN` the caller already exported (CI always is), and a subprocess
+  inherits it; stripping those would break the mechanism D1 chose. The invariant is
+  about what this tool adds and what it emits. Nothing the tool prints is a secret.
 - No new entry in `[project.dependencies]`.
 - The judgement sections of both skills are moved intact; `kbabysit` keeps its
   frontmatter pin (`tests/architecture/test_v2_contract.py`) — **for M1 only**: the

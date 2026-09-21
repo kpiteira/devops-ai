@@ -103,8 +103,11 @@ two skills shrink to the judgement and the guardrails they exist for.
   *File summaries*, *Review details*); the suppressed section and the footer
   (`**Files reviewed:**`, `**Comments generated:**`, `**Review effort level:**`) live
   inside *Review details*. From 2026-09-20 (v2, first seen on #66 review 5260930892):
-  a `<!-- ccr-overview-v2 -->` marker, `**Review effort:**` as a header line, no
-  suppressed section, and `Open`/`Resolved since last review` lists of the threads.
+  a `<!-- ccr-overview-v2 -->` marker, `**Review effort:**` as a header line,
+  `Open`/`Resolved since last review` lists of the threads, and — when Copilot has
+  them — a `Previously missed (N)` section, v2's suppressed comments, whose entry
+  paths carry U+200B zero-width spaces. Measured on #66 review 5261175937: seven,
+  in no thread, and missed by this loop for a round.
   M1's brief defines both. Copilot never submits an `APPROVED` review: its approval
   is a `COMMENTED` review whose headline reads *Approval recommended*.
 - The kbabysit fork sees no conversation history — a packet must be self-contained.

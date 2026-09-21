@@ -35,6 +35,7 @@ from tests.acceptance.review_loop_runtime.conftest import (
     PR49_THREADS,
     PR66,
     PR66_V1_BALANCED_REVIEW,
+    PR66_V2_MISSED_REVIEW,
     PR66_V2_REVIEW,
     REPO,
     ROOT,
@@ -44,6 +45,7 @@ from tests.acceptance.review_loop_runtime.conftest import (
     W49_SECOND_ORDER,
     W66_V1_BALANCED,
     W66_V2,
+    W66_V2_MISSED,
     findings_by_id,
     git,
     kreview,
@@ -360,6 +362,53 @@ def test_round_v2_body_on_66() -> None:
     assert sig["unknown"] == 0
     assert sig["second_order"] is False
     assert sig["effort"] == ["Balanced"]
+
+
+def test_round_v2_previously_missed_on_66() -> None:
+    """A v2 body's `Previously missed` section is suppressed findings, and was missed.
+
+    v2 renames v1's `Suppressed comments` and writes each entry's path with U+200B
+    zero-width spaces between its segments, so a v1 grep finds nothing *and* the
+    declared-vs-parsed guard agrees at 0 = 0 — the one check that exists to catch a
+    blind parser cannot see this. Measured on this PR: run 8 read review 5261175937 as
+    3 findings, 0 suppressed. It carries seven more, none of them in any thread, six of
+    them on the original diff.
+    """
+    r = kreview(
+        "round",
+        str(PR66),
+        "--repo",
+        REPO,
+        "--json",
+        "--include-resolved",
+        *window_args(W66_V2_MISSED),
+    )
+    assert r.code == 0, (r.out, r.err)
+    p = r.json()
+    assert [rv["id"] for rv in p["reviews"]] == [PR66_V2_MISSED_REVIEW]
+    review = p["reviews"][0]
+    assert review["format"] == "v2"
+    assert review["commit"].startswith("14402fe")
+    assert "Previously missed" not in review["summary"]
+
+    assert p["suppressed_check"] == {"declared": 7, "parsed": 7}
+    assert len(p["findings"]) == 10
+    sig = p["signals"]
+    assert (sig["findings"], sig["line_anchored"], sig["suppressed"]) == (10, 10, 7)
+    # 3 threads (1 original, 2 review-fix) + 7 suppressed (6 original, 1 review-fix):
+    # blamed at 14402fe against boundary ec14ebb, the six on 22c1209 and
+    # `test_m2_the_loop.py:1727` on f07e9c0
+    assert (sig["on_original"], sig["on_review_fix"], sig["unknown"]) == (7, 3, 0)
+    assert sig["second_order"] is False
+
+    suppressed = [f for f in p["findings"] if f["source"] == "suppressed"]
+    assert len(suppressed) == 7
+    # the zero-width spaces are stripped, or every path here is unmatchable
+    assert not any("\u200b" in f["path"] for f in p["findings"])
+    first = suppressed[0]
+    assert first["path"] == "docs/specs/review-loop-runtime/briefs/M1-read-side.md"
+    assert first["line"] == 50
+    assert first["anchor_commit"].startswith("14402fe")
 
 
 def test_round_v1_balanced_body_on_66() -> None:

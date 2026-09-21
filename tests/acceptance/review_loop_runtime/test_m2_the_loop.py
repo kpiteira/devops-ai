@@ -1067,6 +1067,10 @@ def test_apply_refuses_a_repeat_of_outside_the_ledger(
     """
     c1 = scratch.comment(3, "line 3 should say three")
     first = _round(scratch)
+    # round 1 implements: a push-back-only round converges on `no-in-scope-implement`
+    # and `apply` persists the stop, so the second apply below would exit 5 for a
+    # missing `--reenter` and never reach the `repeat_of` validation under test
+    sha = scratch.push_fix("three")
     _apply(
         scratch,
         "--since",
@@ -1079,9 +1083,10 @@ def test_apply_refuses_a_repeat_of_outside_the_ledger(
                 tmp_path,
                 {
                     "id": f"t{c1}",
-                    "verdict": "PUSH_BACK",
+                    "verdict": "IMPLEMENT",
                     "shape": "isolated",
-                    "reply": "three is not the scope's concern",
+                    "commit": sha,
+                    "reply": "line 3 now says three",
                 },
             )
         ),

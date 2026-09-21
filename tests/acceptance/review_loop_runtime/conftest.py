@@ -75,6 +75,11 @@ PR66_V1_BALANCED_REVIEW = 5194046823  # 2026-09-14T04:52:59Z, commit 5c4c5cb, v1
 PR66_V2_REVIEW = 5260930892  # 2026-09-20T15:24:46Z, commit f07e9c0, v2 marker
 W66_V1_BALANCED = ("2026-09-14T04:52:00Z", "2026-09-14T04:53:00Z")
 W66_V2 = ("2026-09-20T15:24:00Z", "2026-09-20T15:25:00Z")
+# the v2 review that carries a `Previously missed (7)` section — v2's suppressed
+# comments, which this loop missed for a round (run 8 reported 3 findings, 0
+# suppressed; it was 10 and 7)
+PR66_V2_MISSED_REVIEW = 5261175937  # 2026-09-20T17:13:14Z, commit 14402fe
+W66_V2_MISSED = ("2026-09-20T17:13:00Z", "2026-09-20T17:14:00Z")
 # closed without merging, and scope-less: grades `closed` ahead of `scope-missing`
 PR19 = 19
 

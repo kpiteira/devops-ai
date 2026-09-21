@@ -73,7 +73,7 @@ one object per finding and per issue comment the model treats as a finding:
 | `root_cause` | iff `systemic` | one line naming the class |
 | `on_pinned_surface` | `systemic` only, default false | the class fix changes something **this seat may not change**: for an executor, the brief it builds against; for a planner on its own spec PR, a decision the human signed (the spec's Decisions and Amendments). A gap in a Surface the same seat wrote is that seat's to fix, and is not pinned |
 | `repeat_of` | optional | id of the prior finding this one re-raises (from `ledger`) |
-| `commit` | `IMPLEMENT` | the fix commit; must be reachable from the PR head |
+| `commit` | `IMPLEMENT` | the fix commit; must be **in the PR's own range** — reachable from `head_sha` and not from the base branch. "Reachable from the PR head" alone admits every ancestor of the base, so an `IMPLEMENT` could name a commit that is not part of this PR and still have its thread resolved as ``Fixed in `<sha>` `` |
 | `reply` | `IMPLEMENT`, `PUSH_BACK`, `DISCUSS`; optional for `OUT_OF_SCOPE` | IMPLEMENT: one line on what changed; PUSH_BACK/DISCUSS: the reasoning |
 | `scope_outcome` | `OUT_OF_SCOPE` | which review-scope outcome the fix does not serve |
 | `issue_title` | `OUT_OF_SCOPE` | the issue's title |
@@ -108,7 +108,11 @@ without re-reading its own file.
   ```
 
   Reviewer text never passes through a shell. Two findings with the same `root_cause`
-  and `OUT_OF_SCOPE` file **one** issue, its body listing every site.
+  and `OUT_OF_SCOPE` file **one** issue, its body listing every site. `isolated`
+  dispositions carry no `root_cause` and so group with nothing: each `isolated`
+  `OUT_OF_SCOPE` finding files its own issue, however similar its title looks. Grouping
+  is by `root_cause` and by nothing else — matching on titles would merge two unrelated
+  findings whose authors happened to phrase them alike.
 - Apply is idempotent per finding: a finding whose reply from this round is already
   posted (a partial earlier run) is not replied to again, and a class whose
   `OUT_OF_SCOPE` issue this round already filed is not filed a second time — the two
@@ -186,12 +190,21 @@ The last thing in the babysit report comment's body:
   "root_cause", "on_pinned_surface", "repeat_of", "commit", "issue", "reply_url",
   "source", "path", "line", "provenance" } ], "decision", "stop_kind", "stop_reason",
   "commits": [ fix commits named this round ] } ],
-  "stopped": { "at", "reason", "kind" } | null, "kselfreview": "pending" | "done" | "na" }
+  "stopped": { "at", "reason", "kind" } | null }
 -->
 ```
 
 `status` reads it into `babysit.*`; `paid_rounds_this_run` is the number of rounds of
-the current run whose `requested_at` is set.
+the current run whose `requested_at` is set **and whose `reviewer` is the Copilot
+reviewer** — `--reviewer LOGIN` requests a human, who costs nothing, and counting one
+would inflate the number this report exists to keep honest. **`--kselfreview` is a `report` input, not
+persisted state**: D14 gives `report` no writes, `apply` never receives the flag, and
+nothing read the field — `status` maps the block into `babysit.*`, which does not carry
+it. It is used where it is given: the rendered *kselfreview on them* line and the
+verdict rule's `--kselfreview na` clause. *Rejected:* letting `report --post` write this
+one field, which re-opens the split D14 closed — the stop is written by whoever decides
+it, and a command that writes "no state except this" is the sentence that made
+`status: stopped` depend on the model in the first place.
 
 ### `kreview report <pr> --tldr TEXT --changed TEXT… --kselfreview done|na [--post]`
 
@@ -351,7 +364,7 @@ skills' contents, also without running a command.
 | J6, J7 | `::test_apply_refuses_a_repeat_of_outside_the_ledger` | the same round 2 with `repeat_of` naming an id no ledger entry carries: exit 2, stderr names the id, nothing posted and no round recorded — without this an arbitrary string converges the loop through `repeats-only` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J7 | `::test_apply_systemic_third_time_diverges` | three rounds each carrying a `systemic` IMPLEMENT with the same `root_cause` (a class fix pushed each time): round 2 → `continue` with `repeat_root_causes` naming it — a second occurrence is the model's class fix, not a stop; round 3 → `stop` / `diverging` / `systemic-third-time`; and `report` on it renders `⚠️ needs human decision (diverging: systemic-third-time)` — the stop that three skill-driven reports called ✅ | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J7 | `::test_apply_no_progress_diverges` | three rounds, each one new finding on the original diff, each an isolated IMPLEMENT with a fix pushed: rounds 1 and 2 `continue`, round 3 `stop` / `diverging` / `no-progress` (`on_original` 1 ≥ 1 ≥ 1, the second consecutive non-decrease) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J7 | `::test_apply_budget_stops_after_max_rounds` | an explicit `--max-rounds 1` with one IMPLEMENT: `stop` / `escalate` / `budget`; without the flag `signals.budget.max_rounds` is `null` (asserted on the first packet of `::test_round_wait_returns_when_the_review_lands` and after `--next` and `--reenter`) — the only budget is one the human gives | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J7 | `::test_apply_budget_stops_after_max_rounds` | an explicit `--max-rounds 1` with one IMPLEMENT: `stop` / `escalate` / `budget`; without the flag `signals.budget.max_rounds` is `null` (asserted on the first packet of `::test_round_wait_returns_when_a_review_arrives` and after `--next` and `--reenter`) — the only budget is one the human gives | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J5, J7 | `::test_apply_next_chains_into_the_next_packet` | `apply --next --wait 120` with round 1's window pinned by `--until` and a comment landing after it: `next` holds the following packet with the new finding and the round-1 ledger; the state has 1 recorded round (round 2 is open, not yet applied) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J9 | `::test_report_refuses_while_running` | after an `apply` that decided `continue`: `report --post` exits 5 with stderr naming `apply --stop`, the babysit comment is byte-identical afterwards (still `"status": "running"`, no `**Verdict:**`), `report` without `--post` exits 5 too, and `status` still says `running` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J9 | `::test_report_renders_and_posts_from_state` | after a stop: the comment carries the Verdict, Rounds row, *Why the loop stopped*, paid rounds, and `status: stopped` in the block; TL;DR verbatim | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
@@ -562,7 +575,7 @@ plausible case, and being told is cheaper than a review round finding it.
   re-entry the human had to word.
 - **D13** — The babysit comment is one comment, rewritten, from the first apply (A8).
   *Rejected:* one comment per round — the ledger would be scattered.
-- **D14** — A round with no `IMPLEMENT` stops even if the model wanted another look:
+- **D15** — A round with no `IMPLEMENT` stops even if the model wanted another look:
   there is nothing new to review. *Rejected:* a `--force-next` — that is the runaway
   loop's verb.
 
