@@ -199,8 +199,9 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
     an older one and the broken-parser path would never be reached.
 
     `Lite` is GitHub's default, and it is what all 25 Copilot reviews across #49 and #51
-    reported on 2026-09-13 (13 and 12, measured). **It is a
-    repository/organization setting, not a request-time parameter** — verified against
+    reported on 2026-09-13 (13 and 12, measured); this repo's default has been `Balanced`
+    since 2026-09-20. **It is a repository/organization setting, and the one per-request
+    control is the web UI's dropdown — nothing this skill can reach** — verified against
     [Configuring Copilot code
     review](https://docs.github.com/en/copilot/how-tos/copilot-on-github/set-up-copilot/configure-code-review):
     the setting is named **"Review effort level"** (`Lite` | `Balanced`) and lives at
@@ -484,7 +485,7 @@ Post the final report as a PR comment (durable record) **and** present it in cha
 **TL;DR:** <2-3 sentences: rounds run, "N of M findings pushed back, N out of scope",
 what materially improved, final state — merge-ready / needs decision on X / blocked on Y.>
 
-**Verdict:** ✅ merge-ready (converged: <signal>) | ⚠️ needs human decision (stopped: <signal>) | ❌ blocked (<reason>)
+**Verdict:** ✅ merge-ready (converged: <signal>) | ⚠️ needs human decision (diverging: <signal>) | ⚠️ needs human decision (stopped: <signal>) | ❌ blocked (<reason>)
 
 ### Rounds
 | Round | Reviewers | Effort | Findings | Suppressed | On original diff | On fix commits | Unknown | Unanchored | Systemic | Implemented | Pushed back | Out of scope | Discuss | Commits |
@@ -533,9 +534,12 @@ reason — which re-applies every stop rule in step 4.
 **The verdict is a function of the stop, not of the to-do list.** ✅ follows a
 *convergence* signal only — approved, no new findings, repeats-only, no in-scope
 IMPLEMENT, or a second-order round whose fix commits got their `kselfreview` pass. Every
-other stop — diverging (a root cause back a third time, no progress, oscillation), DISCUSS
-open, systemic on pinned Surface, an explicit `max-rounds:` — is ⚠️ with the signal named
-in the verdict line itself,
+other stop is ⚠️ with the signal named in the verdict line itself, in the form its family
+takes: a **diverging** stop (a root cause back a third time, no progress, oscillation) is
+`⚠️ needs human decision (diverging: <signal>)`, and a **waiting** stop (DISCUSS open,
+systemic on pinned Surface, an explicit `max-rounds:`) is
+`⚠️ needs human decision (stopped: <signal>)`. The two read differently on purpose — one
+says the loop is going nowhere, the other says the next move is yours — and both are ⚠️
 even when nothing is left for the human to decide: the reviewer was still finding
 first-order things when the loop chose to stop, and "nothing open for you" is not the
 same sentence as "the reviewer is done with this PR". ❌ is CI red or conflicts the loop
