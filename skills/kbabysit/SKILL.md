@@ -383,7 +383,8 @@ wait, not a stop.
   diff did not fall (and is not zero — a round with nothing on the original diff is
   second-order, a convergence). The reviewer is finding as much as before.
 - **Oscillation.** The same reviewer suggests X and then suggests reverting X: freeze that
-  file's feedback as DISCUSS and stop naming it.
+  file's feedback as DISCUSS, then stop — and name the oscillation in the report, both as
+  the *Why the loop stopped* signal and as the file it froze.
 
 **Stop — wait on the human** when any of:
 - **A `systemic` finding whose root cause sits on pinned Surface** — Surface this seat may
@@ -532,8 +533,9 @@ round that also converged was not the binding constraint, since the loop would h
 does not downgrade the verdict, and the line says so (#66's report got this right: "the
 budget was not the binding constraint: 2 of 3 rounds used"). Anything else firing
 alongside does downgrade it, because the two claims conflict — a second-order round that
-is *also* this round's repeat of last round's mechanism is a reviewer finding echo sites
-inside the fixes, not a reviewer that is done with the PR. **❌ outranks both**: if CI is
+is *also* a root cause back a third time is a reviewer finding echo sites inside the
+fixes, not a reviewer that is done with the PR. A *second* occurrence is not a signal at
+all and downgrades nothing: it is a wider class fix and a sentence in the report. **❌ outranks both**: if CI is
 red or conflicts are unresolved, that is the verdict no matter what else fired with it —
 "downgrade to ⚠️" is a rule about convergence signals meeting non-convergence ones, and a
 branch that does not build never reaches that question.
