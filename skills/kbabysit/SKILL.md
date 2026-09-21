@@ -199,8 +199,8 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
     an older one and the broken-parser path would never be reached.
 
     `Lite` is GitHub's default, and it is what all 25 Copilot reviews across #49 and #51
-    reported on 2026-09-13 (13 and 12, measured); this repo's default has been `Balanced`
-    since 2026-09-20. **It is a repository/organization setting, and the one per-request
+    reported on 2026-09-13 (13 and 12, measured). This repo's default is now `Balanced`:
+    all four Copilot rounds on #85 reported it (2026-09-21, read off each review body). **It is a repository/organization setting, and the one per-request
     control is the web UI's dropdown — nothing this skill can reach** — verified against
     [Configuring Copilot code
     review](https://docs.github.com/en/copilot/how-tos/copilot-on-github/set-up-copilot/configure-code-review):
