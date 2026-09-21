@@ -21,8 +21,9 @@ blocking: uv run pytest tests/acceptance/review_loop_runtime/test_m2_the_loop.py
   observable name), and records the round in the PR, so that the model's only writes are
   its fix commits.
 - **J7** — When a round is applied, the tool decides continue or stop from the round's
-  data and the model's tags, naming the rule that fired, so that no stop rule depends on
-  a model remembering it.
+  data and the model's tags, naming the rule that fired, **and records that decision in
+  the same write that records the round**, so that no stop rule depends on a model
+  remembering it — neither to apply it nor to persist it.
 - **J8** — When any session, from any seat, runs `kreview status` on a PR with a
   posted report, it sees the loop's state and the re-entry advice, and `apply` refuses
   to spend a round on a stopped PR without an explicit `--reenter`, so that re-entry
