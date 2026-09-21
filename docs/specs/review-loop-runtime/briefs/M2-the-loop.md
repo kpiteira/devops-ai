@@ -53,7 +53,7 @@ thing in M1 holds" is handed two requirements it cannot both satisfy. Additions:
   issue comment is created, later than the request time (or than `since` without
   `--request`), else at the deadline. The packet gains `no_show` (true when the deadline
   passed with nothing new) and `elapsed_s`. Polling interval is at most 30 s.
-- The packet's `signals` gain `budget: {max_rounds, used_this_run}` and the packet
+- The packet's `signals` gain `budget: {max_rounds, used_this_run}` (`max_rounds` is `null` unless `--max-rounds` was given for this run) and the packet
   gains `ledger: {<finding-id>: {verdict, reply_url, issue}}` for every finding a prior
   round of this PR recorded, so `repeat_candidates` can be read against their
   dispositions.
@@ -70,7 +70,7 @@ one object per finding and per issue comment the model treats as a finding:
 | `verdict` | always | `IMPLEMENT` \| `PUSH_BACK` \| `DISCUSS` \| `OUT_OF_SCOPE` |
 | `shape` | always | `isolated` \| `systemic` |
 | `root_cause` | iff `systemic` | one line naming the class |
-| `on_pinned_surface` | `systemic` only, default false | the root cause sits on Surface a brief or spec pins |
+| `on_pinned_surface` | `systemic` only, default false | the class fix changes something **this seat may not change**: for an executor, the brief it builds against; for a planner on its own spec PR, a decision the human signed (the spec's Decisions and Amendments). A gap in a Surface the same seat wrote is that seat's to fix, and is not pinned |
 | `repeat_of` | optional | id of the prior finding this one re-raises (from `ledger`) |
 | `commit` | `IMPLEMENT` | the fix commit; must be reachable from the PR head |
 | `reply` | `IMPLEMENT`, `PUSH_BACK`, `DISCUSS`; optional for `OUT_OF_SCOPE` | IMPLEMENT: one line on what changed; PUSH_BACK/DISCUSS: the reasoning |
@@ -117,23 +117,44 @@ without re-reading its own file.
   the in-progress report: `## Babysit report — PR #N`, `**Status:** in progress — round
   R of run K`, the Rounds table so far.
 
+`DISCUSS` is for a decision the human owns — a signed decision, a product semantic, a
+trade-off the spec leaves to him — and for nothing else: everything a seat may decide,
+it decides, so that a DISCUSS is always a wait on him and never a way to stop early.
+
 **Decision**, evaluated after the actions, first rule that holds, in this order:
 
 | `decision` | `stop_kind` | `stop_reason` | Rule |
 |------------|-------------|---------------|------|
-| stop | escalate | `systemic-on-pinned-surface` | any disposition `systemic` with `on_pinned_surface` |
-| stop | escalate | `discuss` | any `DISCUSS` |
-| stop | escalate | `stopped: <REASON>` | `--stop REASON` given (the model's own reason, e.g. `ci`) |
-| stop | escalate | `systemic-repeat` | any disposition `systemic` whose `root_cause` equals the `root_cause` of a `systemic` disposition recorded in the previous round of this run — per-site patches across rounds are never the answer (#49 rounds 6–11) |
+| stop | escalate | `systemic-on-pinned-surface` | any disposition `systemic` with `on_pinned_surface` — the class fix changes what this seat may not change |
+| stop | escalate | `discuss` | any `DISCUSS` — a decision the human owns |
+| stop | escalate | `stopped: <REASON>` | `--stop REASON` given (the model's own reason, e.g. `ci`, or an oscillating reviewer) |
+| stop | diverging | `systemic-third-time` | a disposition `systemic` whose `root_cause` was recorded as `systemic` in **two** earlier rounds of this PR (any run): the class fix was made and did not hold, and made again — the loop is going nowhere |
+| stop | diverging | `no-progress` | for the **second consecutive round**, `signals.on_original ≥ 1` and not fewer than the previous round's: the reviewer keeps finding as much on the original diff as before |
 | stop | converged | `second-order` | the round's `signals.second_order` |
 | stop | converged | `no-new-findings` | `signals.no_new_findings` |
 | stop | converged | `repeats-only` | every disposition carries `repeat_of` |
 | stop | converged | `no-in-scope-implement` | no `IMPLEMENT` disposition |
-| stop | escalate | `budget` | rounds used in this run ≥ `max_rounds` (default 3; `--max-rounds` sets this run's) |
+| stop | escalate | `budget` | `--max-rounds N` was given for this run and rounds used in it ≥ N — there is no default budget |
 | continue | — | — | otherwise |
 
+A `systemic` root cause seen for the **second** time is not a stop: it is the model's to
+research across every site and close as one class fix — or, when the class is too big
+for the loop, to file as one issue — and the output's `repeat_root_causes` names it so
+the report can say the first fix did not hold. Decided 2026-09-20 (Karl): the loop stops
+when it has converged or when it is diverging, and on nothing else; a decision the
+human owns is a wait (`escalate`), not a verdict on the loop. Before this the table
+stopped on the second occurrence (`systemic-repeat`) and on a default budget of 3 —
+six paid rounds on #66 stopped four times on rules that ended nothing.
+
 Output (JSON): `{round, run, posted: {replies, resolved, issues: [#…]}, decision,
-stop_kind, stop_reason, kselfreview_range, next}`. With `--next` and `decision:
+stop_kind, stop_reason, repeat_root_causes, kselfreview_range, next}` —
+`repeat_root_causes` lists this round's `systemic` root causes already recorded on this
+PR, `[]` when none. **A `stop` decision is persisted by `apply` itself**: the same write
+that records the round sets `status: stopped` and `stopped: {at, reason, kind}`, so
+`status` reads `stopped` from that moment and the re-entry gate holds whether or not a
+report ever follows (decided 2026-09-20; before, only `report --post` wrote the stop,
+so a stop rule depended on the model remembering to post — the thing J7 exists to
+prevent). With `--next` and `decision:
 continue`, the tool requests the next review, waits `--wait` (default 300), and `next`
 is the following round's packet; otherwise `next` is `null`. `--reviewer` is passed to
 that round unchanged (default `copilot`; `none` requests nobody and only waits), so a
@@ -145,8 +166,8 @@ ignored.
   `--since`/`--until` (replay). Without `--dry-run`, a merged or closed PR is refused
   (exit 3).
 - A PR whose state block says `stopped` is refused (exit 5, stderr says re-entry needs
-  `--reenter`) unless `--reenter`, which starts run `K+1`: budget reset, ledger kept,
-  status back to `running`.
+  `--reenter`) unless `--reenter`, which starts run `K+1`: round count reset, ledger
+  kept, status back to `running`.
 - Exit codes: 0 applied (either decision); 2 invalid dispositions; 3 merged/closed
   without `--dry-run`; 5 stopped without `--reenter`; 1 API error — stderr states which
   actions were posted before the failure, and a re-run continues idempotently.
@@ -158,7 +179,7 @@ The last thing in the babysit report comment's body:
 ```
 <!-- kreview-state
 { "version": 1, "pr": <n>, "status": "running" | "stopped", "run": <k>,
-  "max_rounds": <n>, "rounds": [ { "n": <round>, "run": <k>, "window": {"since","until"},
+  "max_rounds": <n|null>, "rounds": [ { "n": <round>, "run": <k>, "window": {"since","until"},
   "review_ids": [...], "effort": <str|null>, "requested_at": <iso|null>, "no_show": <bool>,
   "signals": { as the packet }, "dispositions": [ { "id", "verdict", "shape",
   "root_cause", "on_pinned_surface", "repeat_of", "commit", "issue", "reply_url",
@@ -174,8 +195,8 @@ the current run whose `requested_at` is set.
 ### `kreview report <pr> --tldr TEXT --changed TEXT… --kselfreview done|na [--post]`
 
 Renders the report below from the state block and the live PR; `--post` rewrites the
-babysit comment with it and sets `status: stopped` (with `stopped.at` now and the last
-round's `stop_reason`); without `--post` it prints only. **A report follows a stop and
+babysit comment with it. It changes no state: `status: stopped` and `stopped` were
+written by the `apply` that decided the stop; without `--post` it prints only. **A report follows a stop and
 never precedes one** (decided 2026-09-20): when the state block's last decision is
 `continue` — no round of this run decided `stop` — both forms exit 5, stderr says the
 loop is still running and names `apply --stop REASON` as the way to record the stop
@@ -190,7 +211,7 @@ state block; 5 when the loop is running.
 
 **TL;DR:** <--tldr verbatim>
 
-**Verdict:** ✅ merge-ready (converged: <stop_reason>) | ⚠️ needs human decision (stopped: <stop_reason>) | ❌ blocked (<reason>)
+**Verdict:** ✅ merge-ready (converged: <stop_reason>) | ⚠️ needs human decision (stopped: <stop_reason>) | ⚠️ needs human decision (diverging: <stop_reason>) | ❌ blocked (<reason>)
 
 ### Rounds
 | Round | Reviewers | Effort | Findings | Suppressed | On original diff | On fix commits | Unknown | Unanchored | Systemic | Implemented | Pushed back | Out of scope | Discuss | Commits |
@@ -222,11 +243,13 @@ state block; 5 when the loop is running.
 ```
 
 Verdict rule: ❌ when CI is failing or `mergeable` is CONFLICTING; else ⚠️ when any
-`DISCUSS` is recorded, the last `stop_kind` is `escalate`, or `unreviewed_commits` is
-non-empty with `--kselfreview na`; else ✅ — so ✅ follows a `converged` stop and nothing
-else (a running loop has no report to apply the rule to: exit 5, above), and the Verdict
-line names the signal: `✅ merge-ready (converged: <stop_reason>)`,
-`⚠️ needs human decision (stopped: <stop_reason>)`, `❌ blocked (<ci|conflicts>)`. Measured
+`DISCUSS` is recorded, the last `stop_kind` is `escalate` or `diverging`, or
+`unreviewed_commits` is non-empty with `--kselfreview na`; else ✅ — so ✅ follows a
+`converged` stop and nothing else (a running loop has no report to apply the rule to:
+exit 5, above), and the Verdict line names the signal: `✅ merge-ready (converged:
+<stop_reason>)`, `⚠️ needs human decision (stopped: <stop_reason>)` for an `escalate`
+stop, `⚠️ needs human decision (diverging: <stop_reason>)` for a `diverging` one,
+`❌ blocked (<ci|conflicts>)`. Measured
 2026-09-14: three skill-driven reports wrote ✅ over a systemic-repeat stop because the
 skill's verdict line was a menu without a rule.
 
@@ -319,19 +342,20 @@ skills' contents, also without running a command.
 | J6 | `::test_apply_refuses_a_closed_pr` | a non-dry-run `apply` on a closed PR: exit 3, no reply, no babysit comment | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6 | `::test_apply_fails_closed_when_github_is_unreachable` | nonexistent repository: exit 1, nothing on stdout | spawn fails (exit 2); no scratch repository, so it never skips |
 | J6, J7 | `::test_apply_dry_run_posts_nothing_on_a_live_thread` | `--dry-run` with an IMPLEMENT **and** an OUT_OF_SCOPE on real open threads: exit 0, `posted` all zero, no reply, both threads still unresolved, no issue filed, no babysit comment | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J7 | `::test_apply_discuss_stops_and_leaves_the_thread_open` | one DISCUSS: reply posted, thread unresolved, `stop` / `escalate` / `discuss` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J7 | `::test_apply_discuss_stops_and_leaves_the_thread_open` | one DISCUSS: reply posted, thread unresolved, `stop` / `escalate` / `discuss`; and **before any report** the state block says `status: stopped` with `stopped.reason` `discuss` and `status` reads `stopped` — the stop is persisted by `apply` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J7 | `::test_apply_dry_run_second_order_on_49_history` | window 14:27–14:30 with two IMPLEMENT (`c121936`): `stop` / `converged` / `second-order`; #49's comment count unchanged across the run | spawn fails (exit 2); no scratch repository, so it never skips |
 | J7 | `::test_apply_dry_run_precedence_on_49_history` | same window: two PUSH_BACK → `second-order`, which outranks `no-in-scope-implement`; one systemic `on_pinned_surface` DISCUSS → `systemic-on-pinned-surface` beats second-order; an empty window → `no-new-findings` | spawn fails (exit 2); no scratch repository, so it never skips |
 | J7 | `::test_apply_stop_reason_from_the_model` | `--stop ci` with two IMPLEMENT in the second-order window: `stop` / `escalate` / `stopped: ci` — the model's reason outranks convergence | spawn fails (exit 2); no scratch repository, so it never skips |
 | J7 | `::test_apply_repeats_only_stops_the_loop` | round 2 whose every disposition carries `repeat_of` into round 1's ledger: `stop` / `converged` / `repeats-only`; and after two rounds **one** babysit comment exists, holding both (D13) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J6, J7 | `::test_apply_refuses_a_repeat_of_outside_the_ledger` | the same round 2 with `repeat_of` naming an id no ledger entry carries: exit 2, stderr names the id, nothing posted and no round recorded — without this an arbitrary string converges the loop through `repeats-only` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J7 | `::test_apply_systemic_repeat_stops_the_loop` | round 2 carrying a `systemic` disposition whose `root_cause` equals round 1's: `stop` / `escalate` / `systemic-repeat`; and `report` on it renders `⚠️ needs human decision (stopped: systemic-repeat)` — the stop that three skill-driven reports called ✅ | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J7 | `::test_apply_budget_stops_after_max_rounds` | `--max-rounds 1` with one IMPLEMENT: `stop` / `escalate` / `budget` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J7 | `::test_apply_systemic_third_time_diverges` | three rounds each carrying a `systemic` IMPLEMENT with the same `root_cause` (a class fix pushed each time): round 2 → `continue` with `repeat_root_causes` naming it — a second occurrence is the model's class fix, not a stop; round 3 → `stop` / `diverging` / `systemic-third-time`; and `report` on it renders `⚠️ needs human decision (diverging: systemic-third-time)` — the stop that three skill-driven reports called ✅ | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J7 | `::test_apply_no_progress_diverges` | three rounds, each one new finding on the original diff, each an isolated IMPLEMENT with a fix pushed: rounds 1 and 2 `continue`, round 3 `stop` / `diverging` / `no-progress` (`on_original` 1 ≥ 1 ≥ 1, the second consecutive non-decrease) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J7 | `::test_apply_budget_stops_after_max_rounds` | an explicit `--max-rounds 1` with one IMPLEMENT: `stop` / `escalate` / `budget`; without the flag `signals.budget.max_rounds` is `null` (asserted on the first packet of `::test_round_wait_returns_when_the_review_lands` and after `--next` and `--reenter`) — the only budget is one the human gives | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J5, J7 | `::test_apply_next_chains_into_the_next_packet` | `apply --next --wait 120` with round 1's window pinned by `--until` and a comment landing after it: `next` holds the following packet with the new finding and the round-1 ledger; the state has 1 recorded round (round 2 is open, not yet applied) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J9 | `::test_report_refuses_while_running` | after an `apply` that decided `continue`: `report --post` exits 5 with stderr naming `apply --stop`, the babysit comment is byte-identical afterwards (still `"status": "running"`, no `**Verdict:**`), `report` without `--post` exits 5 too, and `status` still says `running` | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J9 | `::test_report_renders_and_posts_from_state` | after a stop: the comment carries the Verdict, Rounds row, *Why the loop stopped*, paid rounds, and `status: stopped` in the block; TL;DR verbatim | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J9 | `::test_report_renders_every_changed_line_in_order` | `--changed` given **twice**: both lines appear in *What changed because of review*, in the order given, and the `nothing — pre-PR gates held` fallback does not — the only other report test omits the option, so an implementation that ignored `--changed` entirely passed the suite while J9 makes those lines the model's whole contribution to the section | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
-| J8 | `::test_reentry_is_advised_and_gated` | after the report: `status` → `stopped`, `reentry` is `selfreview` after an unreviewed push; `apply` → exit 5; `apply --reenter` → run 2, `running`, and the next packet shows the budget reset (`used_this_run` 1, not 2) with run 1's dispositions still in `ledger` (A9) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
+| J8 | `::test_reentry_is_advised_and_gated` | after the report: `status` → `stopped`, `reentry` is `selfreview` after an unreviewed push; `apply` → exit 5; `apply --reenter` → run 2, `running`, and the next packet shows the round count reset (`used_this_run` 1, not 2, `max_rounds` `null`) with run 1's dispositions still in `ledger` (A9 as amended 2026-09-20) | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_is_ready_on_a_fresh_pr` | a freshly opened PR: `verdict` `ready`, **exit 0**, `checkout.matches_pr` true, `boundary.status` `none`, `ci` `{none, []}`, `reentry` `none`, `last_reviewed_sha` null, `kselfreview_range` null — every other `status` test asserts a stop, so the verdict the loop actually starts from was ungraded | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J1 (M1) | `::test_status_stops_on_checkout_mismatch` | the same PR read from a clone on the base branch: `verdict` `stop: checkout-mismatch`, exit 3, with the PR open, in scope and green — graded on its own rather than only as the rule `merged` outranks | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
 | J2 (M1) | `::test_round_unknown_provenance_after_a_rebase` | a PR whose reviewed commit is force-pushed out of history: `boundary.status` `none-reachable`, the finding on it `unknown` with `provenance_detail` naming the rebase, `signals.unknown == line_anchored`, `second_order` **false** — the third provenance state, and the signed rule that an unknown never ends a loop, neither of which M1's immutable fixtures can produce | spawn fails (exit 2); skips without `KREVIEW_ACCEPTANCE_REPO` |
@@ -524,9 +548,17 @@ plausible case, and being told is cheaper than a review round finding it.
 ## Decisions
 
 - **D4**, **D5**, **D7**, **D8** in the spec apply here.
-- **D12** — Precedence: escalations before convergence, budget last, so a human's
-  decision is never masked by a convergence that would have ended the loop anyway.
-  *Rejected:* convergence first — a DISCUSS would vanish behind `second-order`.
+- **D12** — Precedence: escalations, then diverging, then convergence, an explicit
+  budget last, so a human's decision is never masked by a convergence that would have
+  ended the loop anyway, and a loop going nowhere is named as such rather than as
+  converged by luck. *Rejected:* convergence first — a DISCUSS would vanish behind
+  `second-order`.
+- **D14** (2026-09-20) — The loop stops when it has converged or is diverging, on
+  nothing else: no default budget, and a repeated systemic root cause is the model's
+  class fix (or one issue) rather than a stop; the third occurrence is divergence.
+  *Rejected:* the 2026-09-13 table (default budget 3, stop on the second occurrence) —
+  on #66 it stopped four of six times on rules that ended nothing, each stop a
+  re-entry the human had to word.
 - **D13** — The babysit comment is one comment, rewritten, from the first apply (A8).
   *Rejected:* one comment per round — the ledger would be scattered.
 - **D14** — A round with no `IMPLEMENT` stops even if the model wanted another look:

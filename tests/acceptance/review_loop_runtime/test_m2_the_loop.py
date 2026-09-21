@@ -137,7 +137,7 @@ def test_round_wait_returns_when_a_review_arrives(scratch: ScratchPR) -> None:
     assert f["source"] == "thread"
     assert (f["path"], f["line"]) == (scratch.path, 3)
     assert f["body"] == "line 3 should say three"
-    assert p["signals"]["budget"] == {"max_rounds": 3, "used_this_run": 0}
+    assert p["signals"]["budget"] == {"max_rounds": None, "used_this_run": 0}
 
 
 def test_round_wait_reports_no_show(scratch: ScratchPR) -> None:
@@ -806,6 +806,16 @@ def test_apply_discuss_stops_and_leaves_the_thread_open(
     t = scratch.thread_of(c1)
     assert t["resolved"] is False
     assert t["comments"][-1]["body"].startswith("Trade-off:")
+    # the stop is persisted by apply, before any report (decided 2026-09-20): a stop
+    # rule that waited for `report --post` depended on the model remembering to post
+    state = scratch.state()
+    assert state["status"] == "stopped"
+    assert (state["stopped"]["reason"], state["stopped"]["kind"]) == (
+        "discuss",
+        "escalate",
+    )
+    s = _kr(scratch, "status", str(scratch.number), "--json").json()
+    assert s["babysit"]["status"] == "stopped"
 
 
 def test_apply_dry_run_second_order_on_49_history(tmp_path: Path) -> None:
@@ -981,10 +991,15 @@ def test_apply_stop_reason_from_the_model(tmp_path: Path) -> None:
 
 
 def test_apply_repeats_only_stops_the_loop(scratch: ScratchPR, tmp_path: Path) -> None:
-    """A round whose every disposition re-raises a prior finding ends the loop."""
+    """A round whose every disposition re-raises a prior finding ends the loop.
+
+    Round 1 implements (a stop is persisted by `apply`, so a round-1 push-back would
+    have ended the loop as `no-in-scope-implement` before round 2 could exist).
+    """
     c1 = scratch.comment(3, "line 3 should say three")
     first = _round(scratch)
-    _apply(
+    sha = scratch.push_fix("three")
+    r1 = _apply(
         scratch,
         "--since",
         first["window"]["since"],
@@ -996,18 +1011,20 @@ def test_apply_repeats_only_stops_the_loop(scratch: ScratchPR, tmp_path: Path) -
                 tmp_path,
                 {
                     "id": f"t{c1}",
-                    "verdict": "PUSH_BACK",
+                    "verdict": "IMPLEMENT",
                     "shape": "isolated",
-                    "reply": "three is not the scope's concern",
+                    "commit": sha,
+                    "reply": "line 3 now says three",
                 },
             )
         ),
-    )
+    ).json()
+    assert r1["decision"] == "continue"
 
     c2 = scratch.comment(4, "line 4 should say four, same as line 3")
     second = _round(scratch)
     assert {f["id"] for f in second["findings"]} == {f"t{c2}"}
-    assert second["ledger"][f"t{c1}"]["verdict"] == "PUSH_BACK"
+    assert second["ledger"][f"t{c1}"]["verdict"] == "IMPLEMENT"
 
     out = _apply(
         scratch,
@@ -1100,44 +1117,106 @@ def test_apply_refuses_a_repeat_of_outside_the_ledger(
     assert [rnd["n"] for rnd in scratch.state()["rounds"]] == [1]
 
 
-def test_apply_systemic_repeat_stops_the_loop(
-    scratch: ScratchPR, tmp_path: Path
-) -> None:
-    """A round that repeats last round's systemic root cause is an escalation.
-
-    kbabysit §4: per-site patches across rounds are never the answer — if a round's
-    findings are the mechanism the previous round already patched, the loop stops, and
-    that stop is the human's, not a convergence. Three skill-driven reports on
-    2026-09-14 wore ✅ over exactly this stop; the tool's verdict is a function of
-    `stop_kind`, so here it must be ⚠️ with the signal named.
-    """
-    c1 = scratch.comment(3, "line 3 has no trailing metadata")
-    first = _round(scratch)
-    root = "the file carries no per-line metadata"
-    _apply(
+def _systemic_fix_round(
+    scratch: ScratchPR, tmp_path: Path, line: int, root: str, window: dict | None = None
+) -> dict:
+    """One round: a comment on `line`, a pushed class fix, a `systemic` IMPLEMENT."""
+    cid = scratch.comment(line, f"line {line} has no trailing metadata")
+    if window is None:
+        window = _round(scratch)["window"]
+    sha = scratch.push_fix(f"metadata for line {line}")
+    return _apply(
         scratch,
         "--since",
-        first["window"]["since"],
+        window["since"],
         "--until",
-        first["window"]["until"],
+        window["until"],
         "--dispositions",
         str(
             dispositions_file(
                 tmp_path,
                 {
-                    "id": f"t{c1}",
-                    "verdict": "PUSH_BACK",
+                    "id": f"t{cid}",
+                    "verdict": "IMPLEMENT",
                     "shape": "systemic",
                     "root_cause": root,
-                    "reply": "metadata is not the scope's concern",
+                    "commit": sha,
+                    "reply": "class fix across every site",
                 },
             )
         ),
-    )
+    ).json()
 
-    c2 = scratch.comment(9, "line 9 has no trailing metadata either")
-    second = _round(scratch)
-    assert {f["id"] for f in second["findings"]} == {f"t{c2}"}
+
+def test_apply_systemic_third_time_diverges(scratch: ScratchPR, tmp_path: Path) -> None:
+    """A repeated systemic root cause is the model's class fix; a third is divergence.
+
+    Decided 2026-09-20: the loop stops when it has converged or is diverging, on
+    nothing else. The second occurrence of a root cause is not a stop — it is the
+    model's to research across every site and close as one class fix — and the
+    output names it so the report can say the first fix did not hold. The third
+    occurrence means the class fix was made twice and held neither time.
+    """
+    root = "the file carries no per-line metadata"
+    r1 = _systemic_fix_round(scratch, tmp_path, 3, root)
+    assert (r1["decision"], r1["repeat_root_causes"]) == ("continue", [])
+
+    r2 = _systemic_fix_round(scratch, tmp_path, 9, root)
+    assert r2["decision"] == "continue"
+    assert r2["repeat_root_causes"] == [root]
+
+    r3 = _systemic_fix_round(scratch, tmp_path, 12, root)
+    assert (r3["decision"], r3["stop_kind"], r3["stop_reason"]) == (
+        "stop",
+        "diverging",
+        "systemic-third-time",
+    )
+    r = _kr(
+        scratch,
+        "report",
+        str(scratch.number),
+        "--tldr",
+        "three rounds, one mechanism",
+        "--kselfreview",
+        "na",
+    )
+    assert r.code == 0, (r.out, r.err)
+    assert "⚠️ needs human decision (diverging: systemic-third-time)" in r.out
+    assert "✅" not in r.out
+
+
+def test_apply_no_progress_diverges(scratch: ScratchPR, tmp_path: Path) -> None:
+    """Two consecutive rounds with no fewer original-diff findings is going nowhere.
+
+    Each round: one new comment on an untouched line of the original file (so it
+    blames `original`), an isolated IMPLEMENT with a fix pushed. `on_original` reads
+    1, 1, 1 — round 2 is the first non-decrease and continues; round 3 is the second
+    and stops as `diverging: no-progress`. A round with nothing on the original diff
+    can never fire this rule: that round is second-order, a convergence.
+    """
+    for line, expected in ((5, "continue"), (7, "continue")):
+        cid = scratch.comment(line, f"line {line} should be clearer")
+        sha = scratch.push_fix(f"clarified line {line}")
+        out = _apply(
+            scratch,
+            "--dispositions",
+            str(
+                dispositions_file(
+                    tmp_path,
+                    {
+                        "id": f"t{cid}",
+                        "verdict": "IMPLEMENT",
+                        "shape": "isolated",
+                        "commit": sha,
+                        "reply": "clarified",
+                    },
+                )
+            ),
+        ).json()
+        assert out["decision"] == expected, (line, out)
+
+    cid = scratch.comment(11, "line 11 should be clearer")
+    sha = scratch.push_fix("clarified line 11")
     out = _apply(
         scratch,
         "--dispositions",
@@ -1145,32 +1224,22 @@ def test_apply_systemic_repeat_stops_the_loop(
             dispositions_file(
                 tmp_path,
                 {
-                    "id": f"t{c2}",
-                    "verdict": "PUSH_BACK",
-                    "shape": "systemic",
-                    "root_cause": root,
-                    "reply": "same mechanism as round 1",
+                    "id": f"t{cid}",
+                    "verdict": "IMPLEMENT",
+                    "shape": "isolated",
+                    "commit": sha,
+                    "reply": "clarified",
                 },
             )
         ),
     ).json()
     assert (out["decision"], out["stop_kind"], out["stop_reason"]) == (
         "stop",
-        "escalate",
-        "systemic-repeat",
+        "diverging",
+        "no-progress",
     )
-    r = _kr(
-        scratch,
-        "report",
-        str(scratch.number),
-        "--tldr",
-        "two rounds, one mechanism",
-        "--kselfreview",
-        "na",
-    )
-    assert r.code == 0, (r.out, r.err)
-    assert "⚠️ needs human decision (stopped: systemic-repeat)" in r.out
-    assert "✅" not in r.out
+    rounds = scratch.state()["rounds"]
+    assert [r["signals"]["on_original"] for r in rounds] == [1, 1, 1]
 
 
 def test_apply_budget_stops_after_max_rounds(
@@ -1251,7 +1320,7 @@ def test_apply_next_chains_into_the_next_packet(
     assert nxt is not None
     assert nxt["no_show"] is False
     assert [f["body"] for f in nxt["findings"]] == ["and line 5 should say five"]
-    assert nxt["signals"]["budget"] == {"max_rounds": 3, "used_this_run": 1}
+    assert nxt["signals"]["budget"] == {"max_rounds": None, "used_this_run": 1}
     assert f"t{c1}" in nxt["ledger"]
     assert nxt["ledger"][f"t{c1}"]["verdict"] == "IMPLEMENT"
     s = _kr(scratch, "status", str(scratch.number), "--json").json()
@@ -1659,7 +1728,7 @@ def test_reentry_is_advised_and_gated(scratch: ScratchPR, tmp_path: Path) -> Non
     # a re-entry is "fresh budget, inherited ledger" (A9): a run that carried
     # used_this_run forward, or dropped run 1's dispositions, also reaches run 2
     p = _round(scratch)
-    assert p["signals"]["budget"] == {"max_rounds": 3, "used_this_run": 1}
+    assert p["signals"]["budget"] == {"max_rounds": None, "used_this_run": 1}
     assert p["ledger"][f"t{c1}"]["verdict"] == "PUSH_BACK"
     assert p["ledger"][f"t{c2}"]["verdict"] == "PUSH_BACK"
 
@@ -1759,6 +1828,8 @@ def _fence_lang(m: re.Match[str]) -> str:
     """The language word of an opening fence: the info string's first word, lowered."""
     info = _info(m)
     return info.split()[0].lower() if info else ""
+
+
 _HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?")
 
 

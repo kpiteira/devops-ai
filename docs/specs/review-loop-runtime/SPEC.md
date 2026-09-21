@@ -53,8 +53,9 @@ two skills shrink to the judgement and the guardrails they exist for.
 - Every rule signed in #34 and #61 holds unchanged: a written review scope is required
   and never inferred; scope is decided before truth; provenance is three-state and an
   unknown never fires the second-order stop; a suppressed comment is a line-anchored
-  finding; a systemic root cause on pinned Surface stops the loop as the human's
-  decision; the budget is 3 rounds per run by default with no cumulative cap; re-entry
+  finding; a systemic root cause the seat may not fix (pinned Surface) stops the loop
+  as the human's decision; the loop stops when it has converged or is diverging and
+  on nothing else — no budget unless the human gives one (2026-09-20); re-entry
   re-applies every rule; the loop never merges, never requests a Claude review, never
   force-pushes.
 - The tool never commits, pushes, or modifies the working tree, the index, or any
@@ -177,7 +178,7 @@ two skills shrink to the judgement and the guardrails they exist for.
   2 on 2026-09-13).
 - **A5** — The cut is two milestones: M1 read side, M2 the loop. M2 is the larger
   brief; it can be split at sign-off if Karl wants smaller executor bites.
-- **A6** — Every DISCUSS disposition stops the loop (escalate). kbabysit 0.4.0 says
+- **A6** *(narrowed 2026-09-20 — Amendments)* — Every DISCUSS disposition stops the loop (escalate). kbabysit 0.4.0 says
   "DISCUSS items that block merge-readiness"; the tool cannot judge "block", and a
   DISCUSS is by definition the human's.
 - **A7** — `apply` refuses to post on a merged or closed PR; `--dry-run` is the replay
@@ -185,7 +186,7 @@ two skills shrink to the judgement and the guardrails they exist for.
 - **A8** — The babysit report comment is created at the first `apply` (status *in
   progress*, rounds so far) and rewritten each round, so the observer sees rounds as
   they happen; `report` finalizes it. Before this feature the comment appeared only at the end.
-- **A9** — Budget default 3 rounds per run, `--max-rounds` raises it; a re-entry is a
+- **A9** *(superseded 2026-09-20 — Amendments)* — Budget default 3 rounds per run, `--max-rounds` raises it; a re-entry is a
   new run with a fresh budget and the inherited ledger (no cumulative cap — #61 item 7).
 
 ## Assumptions
@@ -203,6 +204,7 @@ two skills shrink to the judgement and the guardrails they exist for.
   repository together with `draft` and `scope-empty` (M1 brief D15, M2 Blocking).
   *Rejected:* keeping CI red as a fact plus the skill's "fix CI first" sentence.
   Decided and acknowledged by Karl 2026-09-13.
+- [x] 2026-09-20 (M2) decision-change, D14: the loop stops when it has converged or is diverging, on nothing else. No default round budget (`--max-rounds` is opt-in; A9 superseded); a `systemic` root cause seen a second time is the model's class fix or one issue, not a stop (`systemic-repeat` removed), and a third occurrence is `diverging: systemic-third-time`; two consecutive rounds with no fewer findings on the original diff is `diverging: no-progress`; `DISCUSS` is only for a decision the human owns (A6 narrowed) and `on_pinned_surface` means "this seat may not change it"; `apply` persists the stop it decides (`report` changes no state). *Rejected:* keeping the 2026-09-13 table — six paid rounds on #66 stopped four times on rules that ended nothing. Decided by Karl 2026-09-20 ("if it's not converged - and not diverging - we don't stop"; "systemic issues must be researched and fixed by the agent systematically"), acknowledged the same moment.
 - [x] 2026-09-20 (M2) decision-change: `kreview report` refuses a running loop (exit 5, both forms); the `manual` stop reason is gone. A report with no stop reached the verdict rule's `else ✅` while the rule's own next sentence said ✅ follows a `converged` stop and nothing else (#66 run 6, Copilot). *Rejected:* a non-✅ verdict for a manual report — it keeps a mid-loop report as a supported path, and a mid-loop report is what the 2026-09-14 trust incidents were. Decided by Karl 2026-09-20 ("I agree with the first"), acknowledged the same moment.
 - [x] 2026-09-20 (M1) decision-change: the round packet reads both Copilot body formats, keyed on the `<!-- ccr-overview-v2 -->` marker: `reviews[].format`, `effort` from either effort line, `summary` stripped of both formats' furniture, `suppressed_check` `{0, 0}` on a v2 window; blocking tests on #66's own v1 (round 4) and v2 (round 5) reviews. Found by #66 run 6: Copilot changed its format on 2026-09-20 and every fixture is v1, so M1's tests would have stayed green over a tool blind on its first real round. *Rejected:* mapping `Open`/`Resolved since last review` onto `suppressed` — different concept, and the threads they list are findings already. Decided by Karl 2026-09-20 ("amend m1"), acknowledged the same moment.
 - [x] 2026-09-14 (M2) decision-change: `kbabysit` drops `context: fork` + `model:` from its frontmatter; the loop runs in the Opus agent-deck session that invokes it, and preflight states the model and stops on the wrong one. J10's grader asserts the absence of the fork and the presence of the check instead of the pin. *Rejected:* keeping the fork — it hid every round in a sidechain transcript (measured on #72 and #66). Decided by Karl 2026-09-14 ("drop the fork"), acknowledged the same moment.
