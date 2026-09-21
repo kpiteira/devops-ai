@@ -2,7 +2,7 @@
 name: kbabysit
 description: Drive a PR from ready-for-review to merge-ready — request Copilot review, wait for it, triage and address comments via kreview against the PR's written review scope, re-request, and stop when the reviewer has finished with the PR (not with the fixes). Ends with a TL;DR report. Never merges, never triggers Claude reviews.
 metadata:
-  version: "0.5.0"
+  version: "0.6.0"
 ---
 
 # kbabysit — babysit a PR to merge-ready
@@ -17,7 +17,7 @@ what the PR was for. Truth is not the axis; scope is.
 ```
 /kbabysit                # PR for the current branch
 /kbabysit <pr-number>
-/kbabysit <pr-number> max-rounds: 5   # raise the round budget (default 3, applied in step 4)
+/kbabysit <pr-number> max-rounds: 5   # an explicit ceiling; there is none by default (step 4)
 ```
 
 **Arguments for this run:** `$ARGUMENTS` — empty means "the PR for the current branch".
@@ -249,7 +249,7 @@ git log --oneline "$LAST_REVIEWED_SHA..HEAD"     # the unreviewed commits, if an
   exists to prevent.
 - **Report present, and something genuinely new needs a reviewer** — the human asked, a
   relayed finding turned out to be real, the PR changed substantively — → go to step 1, and
-  count this round against the budget *and* against the PR's running total (step 4).
+  count this round in this run's tally *and* in the PR's running total (step 4).
 
 Whichever branch runs, every stop rule in step 4 applies to it.
 
@@ -309,7 +309,9 @@ Two of its columns are this loop's inputs, not the round's own business:
   sees them. On #49 only 4 of the 13 Copilot reviews opened a thread at all; from round 6
   on, 7 of the last 8 opened none, so a loop reading threads alone saw seven empty rounds
   and paid for each. Counting the suppressed ones fires the second-order stop at round 6.
-- **`systemic → <root cause>`** on pinned Surface is an escalation, below.
+- **`systemic → <root cause>`** on pinned Surface — Surface this seat may not change — is an
+  escalation, below. Any other `systemic` finding is the round's class fix, never a
+  per-site patch, and never a stop.
 
 The babysitter's own rules on top:
 
@@ -364,25 +366,37 @@ auto-review repos the push already triggered it).
   re-review even when threads were resolved or dismissed — the disposition ledger is the only
   defense, and "same findings twice" is the fixed point that means done.
 
-**Stop — escalate** when any of:
-- **A `systemic` finding whose root cause sits on pinned Surface** — anything the brief or
-  the spec pins. `kreview` returns it as DISCUSS with the root cause named and lists it
-  under *For the human*; this loop reads that as a stop signal, not as an item to
-  implement. Buying another round here buys the next site of the same mechanism: #49's
-  rounds 6–11 were five correct patches to five echo sites of one root cause, and the
-  class was only named afterwards, as #60. Off pinned Surface a `systemic` finding does
-  not stop the loop — `kreview` closes it as one class fix in one commit, or files one
-  issue for the class — but **per-site patches across rounds are never the answer**; if a
-  round's findings are the same mechanism it already patched last round, that is this stop.
-  A PR with no brief pins no Surface, so on one of those this stop can only fire the second
-  way: not on the first systemic finding, but on the round that repeats the last one's
-  mechanism.
-- **Round budget reached** (default 3 full rounds, `max-rounds:` raises it). Non-convergence
-  within the budget means the disagreement is real; grinding won't fix it. The budget is the
-  human's money; raising it changes **only** the budget — scope, provenance, and the
-  second-order rule apply exactly as before. "Remove the cap and keep going" read as "run
-  until zero findings" is how one loop reached round 13.
-- Open **DISCUSS** items exist that block merge-readiness.
+**The loop stops when it has converged (above) or when it is diverging (next), and on
+nothing else** — Karl, 2026-09-20, after six paid rounds on #66 stopped four times on
+rules that ended nothing, each stop a re-entry he had to word. A decision that is his is a
+wait, not a stop.
+
+**Stop — diverging** when any of:
+- **A root cause is back for the third time.** A `systemic` finding is researched across
+  every site and closed as one class fix in one commit — or, when the class is too big for
+  the loop, filed as one issue for the class. Never a per-site patch: #49's rounds 6–11 were
+  five correct patches to five echo sites of one root cause, and the class was only named
+  afterwards, as #60. The **second** time the same root cause appears, the first class fix
+  did not hold: research it again, wider, and say so in the report. The **third** time, the
+  loop is going nowhere — stop and hand the human the mechanism.
+- **No progress.** Two consecutive rounds in which the count of findings on the original
+  diff did not fall (and is not zero — a round with nothing on the original diff is
+  second-order, a convergence). The reviewer is finding as much as before.
+- **Oscillation.** The same reviewer suggests X and then suggests reverting X: freeze that
+  file's feedback as DISCUSS and stop naming it.
+
+**Stop — wait on the human** when any of:
+- **A `systemic` finding whose root cause sits on pinned Surface** — Surface this seat may
+  not change: for an executor, the brief it builds against; for a planner on its own spec
+  PR, only a decision the human signed. A gap in a Surface the same seat wrote is that
+  seat's to fix, systematically, and does not stop anything. `kreview` returns the pinned
+  case as DISCUSS with the root cause named and lists it under *For the human*.
+- Open **DISCUSS** items — and a DISCUSS is only ever a decision the human owns (a signed
+  decision, a product semantic, a trade-off the spec leaves to him). Everything a seat may
+  decide, it decides.
+- An explicit **`max-rounds:`** given for this run is reached. There is no default; the
+  only budget is one the human states, and stating it changes nothing else — scope,
+  provenance and the second-order rule apply exactly as before.
 - CI can't be brought green within the loop's scope.
 
 **Stopping is a state, not a mood.** Once the report (step 5) is posted, this session
@@ -428,9 +442,8 @@ rule on this page.
 
 Rounds are counted per babysit run, and a re-invocation on the same PR inherits thread
 history (kreview reads prior replies, so push-backs stay remembered) and the same review
-scope. **Be honest about what the budget does and does not bound:** each re-entry gets its
-own budget, so re-entering repeatedly can spend more than `max-rounds` in total. Three
-things bound the sequence instead, and none of them is a cumulative cap:
+scope. **There is no budget, so be honest about what bounds the sequence.** Three things
+do, and none of them is a cumulative cap:
 
 - **Re-entry needs an explicit trigger** — the human's words, or new commits someone
   pushed. It is never the loop's own idea.
@@ -487,11 +500,13 @@ is always 0 on a Copilot loop is a report whose triage did not read the bodies.
 - <root cause — on pinned Surface (yours to decide) / closed as one class fix in <sha> /
   filed as #<issue> — one line each; "none found" if none>
 
-**Why the loop stopped:** <second-order round / no in-scope IMPLEMENT / no new findings /
-repeats / systemic on pinned Surface / budget / DISCUSS blocks / CI — one line naming the signal>
+**Why the loop stopped:** <converged: second-order round / no in-scope IMPLEMENT / no new
+findings / repeats · diverging: a root cause back a third time / no progress / oscillation ·
+waiting: systemic on pinned Surface / DISCUSS / explicit max-rounds / CI — one line naming the signal>
 **Push-backs:** N of M findings · **CI:** green/red · **Merge conflicts:** none/yes
-**Reviewer effort level:** <Lite/Balanced — and if Lite, that raising it is a repository
-setting the human owns: Settings → Copilot → Code review → "Review effort level">
+**Reviewer effort level:** <Lite/Balanced — read off the review body; if Lite, that raising it
+is the repository's Copilot code-review setting or a per-request choice in the GitHub UI,
+both the human's, neither something `gh` can set>
 **Fix commits since last review:** <shas> · **kselfreview on them:** done / n/a
 **Paid rounds:** N this run · N total on this PR (all runs) — the second number is the one
 that grows across re-entries, and there is no cumulative cap on it by design (#61 item 7).
@@ -502,8 +517,9 @@ reason — which re-applies every stop rule in step 4.
 **The verdict is a function of the stop, not of the to-do list.** ✅ follows a
 *convergence* signal only — approved, no new findings, repeats-only, no in-scope
 IMPLEMENT, or a second-order round whose fix commits got their `kselfreview` pass. Every
-other stop — round budget, DISCUSS open, systemic on pinned Surface, or a round that
-repeated last round's mechanism — is ⚠️ with the signal named in the verdict line itself,
+other stop — diverging (a root cause back a third time, no progress, oscillation), DISCUSS
+open, systemic on pinned Surface, an explicit `max-rounds:` — is ⚠️ with the signal named
+in the verdict line itself,
 even when nothing is left for the human to decide: the reviewer was still finding
 first-order things when the loop chose to stop, and "nothing open for you" is not the
 same sentence as "the reviewer is done with this PR". ❌ is CI red or conflicts the loop
@@ -511,8 +527,8 @@ could not clear — never ⚠️, because a branch whose gates are red is not a 
 human can make.
 
 **When more than one signal fires, ✅ needs all of them to be convergence signals — with
-one exception, which has to be named in the line.** A budget reached on a round that also
-converged was not the binding constraint, since the loop would have stopped anyway; it
+one exception, which has to be named in the line.** An explicit `max-rounds:` reached on a
+round that also converged was not the binding constraint, since the loop would have stopped anyway; it
 does not downgrade the verdict, and the line says so (#66's report got this right: "the
 budget was not the binding constraint: 2 of 3 rounds used"). Anything else firing
 alongside does downgrade it, because the two claims conflict — a second-order round that
@@ -546,9 +562,9 @@ pushed back 3 of 25 findings (all in its last round), the other 0 of about 65.
   no subscribing, no re-enabling or re-running Claude review workflows — these are expensive
   and have caused runaway costs. If one fires anyway from leftover automation, triage its
   output like any other comments, but flag the still-active automation in the report.
-- **Rounds cost real money** — Copilot reviews burn credits/Actions minutes. The round budget
-  is a budget control, not just a convergence heuristic; don't spend a round on a re-review
-  nothing warranted.
+- **Rounds cost real money** — Copilot reviews burn credits/Actions minutes. There is no
+  default budget, so the control is judgement: don't spend a round on a re-review nothing
+  warranted, and stop on divergence instead of grinding.
 - **True is not the same as in scope.** A real defect outside the PR's review scope is an
   issue with a link, never a commit on this branch. The loop that implemented every true
   finding rewrote a registry's concurrency model inside a contract-prose PR.
@@ -559,5 +575,5 @@ pushed back 3 of 25 findings (all in its last round), the other 0 of about 65.
 - Timebox waiting (step 2); a stalled reviewer never blocks the report.
 - If the same reviewer flip-flops across rounds (suggests X, then suggests reverting X),
   freeze that file's feedback as DISCUSS and note the oscillation in the report.
-- A budget exhausted without convergence is information, not an obstacle to push through —
-  stop and hand the human a crisp decision.
+- A loop that is diverging is information, not an obstacle to push through — stop and hand
+  the human the mechanism, not the sites.
