@@ -366,13 +366,19 @@ auto-review repos the push already triggered it).
   re-review even when threads were resolved or dismissed — the disposition ledger is the only
   defense, and "same findings twice" is the fixed point that means done.
 
-**The loop stops when it has converged (above) or when it is diverging (next), and on
-nothing else** — Karl, 2026-09-20, after six paid rounds on #66 stopped four times on
-rules that ended nothing, each stop a re-entry he had to word. Both families below end the
-run and post the report — what differs is what the verdict claims. A **diverging** stop
-says the loop is going nowhere; a **waiting** stop says the next move is the human's.
-Neither claims the reviewer is done with the PR, which is what ✅ means and why only a
-convergence signal earns it.
+**The run ends for exactly three reasons — it has converged (above), it is diverging
+(next), or the next move is the human's (below) — and on nothing else.** Karl,
+2026-09-20, after six paid rounds on #66 stopped four times on rules that ended nothing,
+each stop a re-entry he had to word. His decision in full, as the signed
+`review-loop-runtime` spec records it: *the loop stops when it has converged or when it is
+diverging, and on nothing else; a decision the human owns is a wait, not a verdict on the
+loop.* Both halves matter here. The first is why the old default budget and the
+second-occurrence rule are gone. The second is why **waiting is a third terminal outcome
+and not a fourth stop condition smuggled past the first half**: all three end the run and
+post the report, and what differs is what the verdict claims. A **diverging** stop says
+the loop is going nowhere; a **waiting** stop says the next move is the human's. Neither
+claims the reviewer is done with the PR, which is what ✅ means and why only a convergence
+signal earns it.
 
 **Stop — diverging** when any of:
 - **A root cause is back for the third time.** A `systemic` finding is researched across
