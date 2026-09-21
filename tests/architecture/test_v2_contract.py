@@ -301,7 +301,15 @@ def test_babysit_verdict_is_a_function_of_the_stop() -> None:
     # file-wide would stay green with the template reverted to a bare glyph menu,
     # because the rule paragraphs below quote the glyph too.
     verdict_line = flat(block(skill, "**Verdict:**"))
-    for slot in ("(converged: <signal>)", "(stopped: <signal>)"):
+    # `(diverging: ...)` is pinned alongside the other two: 0.6.0 split the non-✅ stops
+    # into a diverging family and a waiting one, and a template with only the generic
+    # `(stopped: ...)` lets a diverging stop be reported as a wait — which is the menu
+    # this gate exists to prevent, one level down. Found on #85 round 4.
+    for slot in (
+        "(converged: <signal>)",
+        "(diverging: <signal>)",
+        "(stopped: <signal>)",
+    ):
         assert slot in verdict_line, f"Verdict template must carry `{slot}`"
 
     rule = flat(block(skill, "**The verdict is a function of the stop"))
