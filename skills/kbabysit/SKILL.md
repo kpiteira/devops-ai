@@ -382,9 +382,13 @@ convergence signal earns it.
   afterwards, as #60. The **second** time the same root cause appears, the first class fix
   did not hold: research it again, wider, and say so in the report. The **third** time, the
   loop is going nowhere — stop and hand the human the mechanism.
-- **No progress.** Two consecutive rounds in which the count of findings on the original
-  diff did not fall (and is not zero — a round with nothing on the original diff is
-  second-order, a convergence). The reviewer is finding as much as before.
+- **No progress.** The count of findings on the original diff has failed to fall twice in
+  a row: three consecutive rounds, each with at least one, where the second is not fewer
+  than the first and the third is not fewer than the second. A first round has nothing to
+  fall from, so this needs three rounds and can never end a loop at round 2; a round with
+  nothing on the original diff is second-order, a convergence, and never counts here. The
+  reviewer is finding as much as before. (Pinned 2026-09-21 after #85's own loop could
+  read the earlier sentence both ways.)
 - **Oscillation.** The same reviewer suggests X and then suggests reverting X: freeze that
   file's feedback as DISCUSS, then stop — and name the oscillation in the report, both as
   the *Why the loop stopped* signal and as the file it froze.
@@ -536,7 +540,8 @@ human can make.
 one exception, which has to be named in the line.** An explicit `max-rounds:` reached on a
 round that also converged was not the binding constraint, since the loop would have stopped anyway; it
 does not downgrade the verdict, and the line says so (#66's report got this right: "the
-budget was not the binding constraint: 2 of 3 rounds used"). Anything else firing
+budget was not the binding constraint: 2 of 3 rounds used" — under the default of 3
+that this version removes). Anything else firing
 alongside does downgrade it, because the two claims conflict — a second-order round that
 is *also* a root cause back a third time is a reviewer finding echo sites inside the
 fixes, not a reviewer that is done with the PR. A *second* occurrence is not a signal at
