@@ -2,7 +2,7 @@
 name: kpage
 description: Put a set of Markdown files in front of reviewers as one commentable page — a tab per file, rendered diagrams, comment threads anchored to the text — publish it as a claude.ai artifact, read and answer comments from people and other agents, and delete the page once the human approves the documents. Use when a skill (kspec, or any skill that writes Markdown for review) or the human asks to review documents on a page. Claude Code sessions only, since it publishes an artifact.
 metadata:
-  version: "0.3.0"
+  version: "0.3.1"
 ---
 
 # kpage — review Markdown on a commentable page
