@@ -161,14 +161,15 @@ def panel(doc: Doc, docs: list[Doc]) -> str:
     )
 
 
-def page(title: str, docs: list[Doc]) -> str:
+def page(title: str, reviewer: str, docs: list[Doc]) -> str:
     tabs = "".join(
         f'<button type="button" role="tab" data-doc="{d.slug}" aria-selected="false">'
         f"{html.escape(d.label)}</button>"
         for d in docs
     )
     nav = (
-        '<nav class="tabs" aria-label="Documents"><div class="row" role="tablist">'
+        '<nav class="tabs" aria-label="Documents" '
+        f'data-reviewer="{html.escape(reviewer)}"><div class="row" role="tablist">'
         f'<span class="name">{html.escape(title)}</span>{tabs}</div></nav>'
     )
     css = "".join(
@@ -187,6 +188,11 @@ def page(title: str, docs: list[Doc]) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     ap.add_argument("--title", required=True, help="names the page: keep it unique")
+    ap.add_argument(
+        "--reviewer",
+        default="Reviewer",
+        help="name a person comments under until they set their own",
+    )
     ap.add_argument("--out", required=True, type=pathlib.Path, help="HTML to write")
     ap.add_argument(
         "files", nargs="+", type=pathlib.Path, help="one tab each, in order"
@@ -207,7 +213,7 @@ def main() -> int:
             slug = slugify(shown)
         docs.append(Doc(path, shown, slug, path.stem))
 
-    out = page(args.title, docs)
+    out = page(args.title, args.reviewer, docs)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(out, encoding="utf-8")
     for d in docs:

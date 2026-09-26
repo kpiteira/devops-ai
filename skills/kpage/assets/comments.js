@@ -2,6 +2,7 @@
 <div class="cbtn" id="cbtn" hidden><button type="button" class="cprimary">Comment</button></div>
 <div class="composer" id="composer" hidden>
   <div class="cq" id="composerQuote"></div>
+  <label class="cname">Commenting as <input id="composerName" maxlength="60" autocomplete="name"></label>
   <textarea id="composerBody" rows="4" placeholder="What about this?"></textarea>
   <div class="cacts"><button type="button" id="composerCancel" class="tlink">cancel</button><button type="button" id="composerSave" class="cprimary">Comment</button></div>
 </div>
@@ -12,8 +13,7 @@
 // again on every render, uses the context only to choose between repeats, and
 // shows a thread as orphaned when its sentence is gone rather than pinning it
 // to words nobody was talking about. Threads live in the artifact's database,
-// so the Claude session that published the page reads them and replies into
-// the same thread.
+// so the agents reviewing with the page read them and reply into the same thread.
 (function(){
   var state = { db: null, threads: [], active: null, showResolved: false, pending: null, open: false, replying: null, status: '' };
   var $ = function(id){ return document.getElementById(id); };
@@ -24,6 +24,13 @@
   badge.type = 'button'; badge.className = 'cbadge'; badge.setAttribute('aria-pressed', 'false'); badge.textContent = 'Comments';
   document.querySelector('.tabs .row').appendChild(badge);
   try { state.open = localStorage.getItem('kpage-threads') === '1'; } catch(e){}
+  // Everyone who writes names themselves. A person's name is kept in this browser;
+  // until they set one, it is the label the page was built with. Agents write
+  // through the database with kind 'agent' and their own name.
+  var fallbackName = document.querySelector('.tabs').dataset.reviewer || 'Reviewer';
+  state.me = fallbackName;
+  try { state.me = localStorage.getItem('kpage-name') || fallbackName; } catch(e){}
+  function kindOf(m){ return m.kind === 'agent' ? 'agent' : 'human'; }
 
   // --- anchoring ---------------------------------------------------------
   function textNodes(root){
@@ -94,14 +101,15 @@
       '<span>' + (all.length > open.length ? '<button type="button" class="tlink" id="toggleResolved">' + (state.showResolved ? 'hide' : 'show') + ' ' + (all.length - open.length) + ' resolved</button> ' : '') + '<button type="button" class="tlink" id="closeThreads">close</button></span></div>';
     if (state.status) head += '<div class="cstatus">' + esc(state.status) + '</div>';
     if (!state.db) return head + '<div class="tnone">Comments are stored with this page on claude.ai and need the signed-in viewer. This view cannot reach that store, so commenting is off here.</div>';
-    if (!all.length) return head + '<div class="tnone">Select any text on this tab and a <b>Comment</b> button appears. Each comment opens a thread. Tell the Claude session that published this page to read them; it replies here.</div>';
+    if (!all.length) return head + '<div class="tnone">Select any text on this tab and a <b>Comment</b> button appears. Each comment opens a thread. Tell the agent working on these documents to read them; it replies here.</div>';
     return head + shown.map(function(t){
       var cls = 'thread' + (t.resolved ? ' done' : '') + (state.active === t.id ? ' active' : '') + (orphaned[t.id] ? ' orphan' : '');
       var msgs = (t.messages || []).map(function(m){
-        return '<div class="tmsg ' + (m.author === 'Claude' ? 'claude' : 'human') + '"><div class="ta">' + esc(m.author) + ' · ' + fmt(m.at) + '</div><div class="tb">' + esc(m.body) + '</div></div>';
+        var kind = kindOf(m);
+        return '<div class="tmsg ' + kind + '"><div class="ta">' + esc(m.author) + (kind === 'agent' ? ' · agent' : '') + ' · ' + fmt(m.at) + '</div><div class="tb">' + esc(m.body) + '</div></div>';
       }).join('');
       var reply = state.replying === t.id
-        ? '<div class="treplybox"><textarea rows="3" data-reply="' + esc(t.id) + '" placeholder="Reply"></textarea><div class="cacts"><button type="button" class="tlink" data-cancelreply="' + esc(t.id) + '">cancel</button><button type="button" class="cprimary" data-sendreply="' + esc(t.id) + '">Reply</button></div></div>'
+        ? '<div class="treplybox"><textarea rows="3" data-reply="' + esc(t.id) + '" placeholder="Reply"></textarea><div class="cacts"><button type="button" class="tlink" data-cancelreply="' + esc(t.id) + '">cancel</button><button type="button" class="cprimary" data-sendreply="' + esc(t.id) + '">Reply as ' + esc(state.me) + '</button></div></div>'
         : '';
       return '<div class="' + cls + '" data-thread="' + esc(t.id) + '">' +
         '<div class="tquote">' + (orphaned[t.id] ? '<b>no longer on this tab · </b>' : '') + esc(t.quote) + '</div>' + msgs + reply +
@@ -142,12 +150,12 @@
   function openThread(pending, body){
     var now = new Date().toISOString();
     var doc = { doc: currentTab(), quote: pending.quote, before: pending.before, after: pending.after, resolved: false, createdAt: now,
-                messages: [{ author: 'Reviewer', body: body, at: now }] };
+                messages: [{ author: state.me, kind: 'human', body: body, at: now }] };
     return col().add(doc).catch(fail);
   }
   function reply(id, body){
     var t = state.threads.filter(function(x){ return x.id === id; })[0]; if (!t) return;
-    var msgs = (t.messages || []).slice(); msgs.push({ author: 'Reviewer', body: body, at: new Date().toISOString() });
+    var msgs = (t.messages || []).slice(); msgs.push({ author: state.me, kind: 'human', body: body, at: new Date().toISOString() });
     return col().doc(id).update({ messages: msgs }).catch(fail);
   }
   function resolve(id, on){ return col().doc(id).update({ resolved: on }).catch(fail); }
@@ -208,11 +216,13 @@
   cbtn.firstElementChild.onclick = function(){
     cbtn.hidden = true;
     $('composerQuote').textContent = state.pending.quote;
-    composer.hidden = false; $('composerBody').value = ''; $('composerBody').focus();
+    composer.hidden = false; $('composerName').value = state.me; $('composerBody').value = ''; $('composerBody').focus();
   };
   $('composerCancel').onclick = hide;
   $('composerSave').onclick = function(){
     var body = $('composerBody').value.trim(), pending = state.pending;
+    state.me = $('composerName').value.trim() || fallbackName;
+    try { localStorage.setItem('kpage-name', state.me); } catch(e){}
     if (!body || !pending) return;
     $('composerSave').disabled = true;
     openThread(pending, body).then(function(){ $('composerSave').disabled = false; hide(); state.open = true; render(); });
