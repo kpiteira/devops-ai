@@ -27,10 +27,18 @@ The intent paragraph makes five promises, and the merged code keeps each one:
   same project's `.env.secrets` is byte-identical after its references move to OpenBao
   and then to Azure Key Vault, with no other edit.
 - **Any project that installs devops-ai gets the client.** `ksecret` is a second console
-  script of the package. The README's claim that re-running `./install.sh` (a plain
-  `uv tool install -e`, no `--reinstall`) picks it up was measured in an isolated
-  `UV_TOOL_DIR`: base commit installs `kinfra` only; after overlaying `HEAD` on the same
-  path the same command reports `Installed 2 executables: kinfra, ksecret` (uv 0.12.13).
+  script of the package. The README says re-running `./install.sh` "does the same job" as
+  its documented `uv tool install -e . --reinstall`; `install.sh:221` runs a plain
+  `uv tool install -e`, with no `--reinstall`. That plain command was measured in an
+  isolated `UV_TOOL_DIR`: base commit installs `kinfra` only; after overlaying `HEAD` on the
+  same path it reports `Installed 2 executables: kinfra, ksecret` (uv 0.12.13). So the
+  README's claim holds, and `--reinstall` is not needed at that uv version. This supersedes
+  two signing-time statements that call it needed — SPEC.md's Facts line ("A new script
+  needs `uv tool install -e . --reinstall` once") and the M1 brief's Docs line — which stay
+  as written as the record of what was believed then; whether they held for the uv in use
+  at signing was not measured. The same Facts line's "`install.sh` only symlinks skills"
+  was already inaccurate at signing: `install.sh` has run `uv tool install -e` since
+  `cad108c` (2026-02-09).
 
 Every listed outcome and invariant was already checked per milestone (observer runs:
 M1 15 passed / 0 skipped with the `op://` row live; M4 9 passed with `op://` and

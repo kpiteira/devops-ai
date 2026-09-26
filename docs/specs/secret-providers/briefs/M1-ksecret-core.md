@@ -70,7 +70,9 @@ the slot dir has mode 0600. `kinfra init --check` and the interactive prompt nam
 **Docs:** a `## Secrets` section in `README.md` naming every scheme in the grammar
 above plus `bao://` and `akv://` (as "coming" or documented, executor's call), the
 recommendation ladder (vault-backed over `.env`), and the one-time
-`uv tool install -e . --reinstall` needed to obtain the new command. *Amended
+`uv tool install -e . --reinstall` to obtain the new command (*measured at feature close:
+with uv 0.12.13 the plain `uv tool install -e` that `./install.sh` runs relinks it too, so
+`--reinstall` is not needed there — CLOSE.md; J5 still requires the README to name it*). *Amended
 2026-09-14 — a requirement on the amendment, not a description of today's README:*
 the README's grammar row must also say which `$`-prefixed strings are literals and
 which are malformed. It is user-facing, so it lands with the implementation (#80),
