@@ -91,22 +91,19 @@
   // A selection that starts or ends inside a word takes the whole word, so a
   // quote never reads "uction result". Only within one text node: across nodes
   // the page cannot tell a word from two blocks that happen to touch.
-  // Characters are read by code point: a letter outside the BMP is two UTF-16
-  // units, and neither half on its own is a letter.
-  var wordChar = /^[\p{L}\p{N}_'\u2019]$/u;
-  function charAt(t, i){ var c = t.codePointAt(i); return c === undefined ? '' : String.fromCodePoint(c); }
-  function charBefore(t, i){ return i >= 2 && /[\uD800-\uDBFF][\uDC00-\uDFFF]/.test(t.slice(i - 2, i)) ? t.slice(i - 2, i) : t.charAt(i - 1); }
+  // What a word is comes from the platform's Unicode word segmentation, not a
+  // character class: accents written as combining marks, letters outside the
+  // BMP, and scripts written without spaces all need it. Without Intl.Segmenter
+  // a selection is kept as made.
+  var words = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'word' }) : null;
   function nodeAt(tn, i){ for (var k = 0; k < tn.nodes.length; k++) if (i >= tn.nodes[k].start && i < tn.nodes[k].end) return tn.nodes[k]; return null; }
-  function wordStart(tn, s){
-    var n = nodeAt(tn, s), c; if (!n) return s;
-    while (s > n.start && wordChar.test(c = charBefore(tn.text, s)) && wordChar.test(charAt(tn.text, s))) s -= c.length;
-    return Math.max(s, n.start);
+  function wordAt(tn, i){
+    var n = nodeAt(tn, i); if (!n || !words) return null;
+    var w = words.segment(n.node.nodeValue).containing(i - n.start);
+    return w && w.isWordLike ? { start: n.start + w.index, end: n.start + w.index + w.segment.length } : null;
   }
-  function wordEnd(tn, e){
-    var n = nodeAt(tn, e - 1), c; if (!n) return e;
-    while (e < n.end && wordChar.test(charBefore(tn.text, e)) && wordChar.test(c = charAt(tn.text, e))) e += c.length;
-    return Math.min(e, n.end);
-  }
+  function wordStart(tn, s){ var w = wordAt(tn, s); return w ? Math.min(s, w.start) : s; }
+  function wordEnd(tn, e){ var w = wordAt(tn, e - 1); return w ? Math.max(e, w.end) : e; }
   function markSpan(root, start, end, id, cls){
     var nodes = textNodes(root).nodes;
     nodes.filter(function(n){ return n.start < end && n.end > start; }).forEach(function(n){
