@@ -101,9 +101,9 @@ Copilot round sat overnight on a side PR nobody owned. For a milestone PR the ex
 **Model first.** Say which model this session runs on — the harness names it — as a
 `MODEL:` line, and quote the harness's **exact model id** in it, because that id is what
 the condition is read against. Harnesses name a model twice, display name first and id
-second — a session's environment block, read 2026-09-26, gives "the model named Opus 5.5
-(1M context)" and "the exact model ID is `claude-opus-5-5[1m]`", so the honest line is
-`MODEL: Opus 5.5 (1M context) — claude-opus-5-5[1m]`. Re-derive it from your own environment
+second — a session the launch recipe above creates, read 2026-09-26, gives "the model named
+Opus 5.5" and "the exact model ID is `claude-opus-5-5`", so the honest line is
+`MODEL: Opus 5.5 — claude-opus-5-5`. Re-derive it from your own environment
 rather than trusting that example; the point that survives a model change is the shape.
 An acceptance condition anchored to the *start* of that line would reject the very
 session this skill's own launch recipe creates. The rule is therefore about the id appearing, not
