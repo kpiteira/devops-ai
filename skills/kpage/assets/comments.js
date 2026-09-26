@@ -33,8 +33,12 @@
   function kindOf(m){ return m.kind === 'agent' ? 'agent' : 'human'; }
 
   // --- anchoring ---------------------------------------------------------
+  // The page's text as a reader sees it: a rendered diagram carries its own
+  // <style>, and the page adds buttons ("open large"); neither is words anyone
+  // quotes.
+  var unread = { acceptNode: function(n){ return n.parentNode && n.parentNode.closest && n.parentNode.closest('style,script,button') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; } };
   function textNodes(root){
-    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), nodes = [], off = 0, n;
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, unread), nodes = [], off = 0, n;
     while ((n = walker.nextNode())) { nodes.push({ node: n, start: off, end: off + n.nodeValue.length }); off += n.nodeValue.length; }
     return { nodes: nodes, text: nodes.map(function(x){ return x.node.nodeValue; }).join('') };
   }
@@ -84,6 +88,22 @@
     }
     return tn.text.length;
   }
+  // A selection that starts or ends inside a word takes the whole word, so a
+  // quote never reads "uction result". Only within one text node: across nodes
+  // the page cannot tell a word from two blocks that happen to touch.
+  // What a word is comes from the platform's Unicode word segmentation, not a
+  // character class: accents written as combining marks, letters outside the
+  // BMP, and scripts written without spaces all need it. Without Intl.Segmenter
+  // a selection is kept as made.
+  var words = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'word' }) : null;
+  function nodeAt(tn, i){ for (var k = 0; k < tn.nodes.length; k++) if (i >= tn.nodes[k].start && i < tn.nodes[k].end) return tn.nodes[k]; return null; }
+  function wordAt(tn, i){
+    var n = nodeAt(tn, i); if (!n || !words) return null;
+    var w = words.segment(n.node.nodeValue).containing(i - n.start);
+    return w && w.isWordLike ? { start: n.start + w.index, end: n.start + w.index + w.segment.length } : null;
+  }
+  function wordStart(tn, s){ var w = wordAt(tn, s); return w ? Math.min(s, w.start) : s; }
+  function wordEnd(tn, e){ var w = wordAt(tn, e - 1); return w ? Math.max(e, w.end) : e; }
   function markSpan(root, start, end, id, cls){
     var nodes = textNodes(root).nodes;
     nodes.filter(function(n){ return n.start < end && n.end > start; }).forEach(function(n){
@@ -243,6 +263,8 @@
       if (s < 0 || e < 0) { hide(); return; }
       var raw = tn.text.slice(s, e);
       s += raw.length - raw.replace(/^\s+/, '').length; e -= raw.length - raw.replace(/\s+$/, '').length;
+      if (e <= s) { if (composer.hidden) hide(); return; }
+      s = wordStart(tn, s); e = wordEnd(tn, e);
       var quote = tn.text.slice(s, e);
       if (quote.length < 2) { if (composer.hidden) hide(); return; }
       state.pending = { quote: quote, before: tn.text.slice(Math.max(0, s - 60), s), after: tn.text.slice(e, e + 60) };
