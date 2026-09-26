@@ -1,0 +1,15 @@
+
+/* Diagrams: full width inline, click to open a zoomable view */
+.prose .mermaid,.prose .diagram{margin:0 0 14px;position:relative}
+.prose .mermaid svg,.prose .diagram svg{width:100%!important;max-width:100%!important;height:auto!important;cursor:zoom-in}
+.prose .diagram-open{position:absolute;top:6px;right:6px;z-index:2;font:inherit;font-size:12px;padding:4px 10px;border:1px solid var(--hair);border-radius:999px;background:var(--surface);color:var(--ink-2);cursor:pointer}
+.prose .diagram-open:hover{color:var(--accent);border-color:var(--accent)}
+.zoom{position:fixed;inset:0;z-index:40;background:var(--ground);display:grid;grid-template-rows:auto 1fr;padding-top:env(safe-area-inset-top,0px)}
+.zoom[hidden]{display:none}
+.zoom .zbar{display:flex;gap:8px;align-items:center;padding:10px clamp(16px,4vw,40px);border-bottom:1px solid var(--hair);background:var(--surface)}
+.zoom .zbar .zt{font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--ink-2);margin-right:auto}
+.zoom .zbar button{font:inherit;font-size:13px;padding:5px 12px;border:1px solid var(--hair);border-radius:4px;background:var(--surface);color:var(--ink);cursor:pointer}
+.zoom .zbar button:hover{border-color:var(--accent);color:var(--accent)}
+.zoom .zstage{overflow:hidden;position:relative;cursor:grab;touch-action:none}
+.zoom .zstage.drag{cursor:grabbing}
+.zoom .zstage svg{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none!important;user-select:none}

@@ -158,6 +158,7 @@ kinfra done auth-M1                  # Clean up worktree, sandbox, containers
 | `/kspec` | Planner sessions: intent → signed spec + work briefs + acceptance tests; also `replan`, `triage`, and `close` modes |
 | `/kbuild` | Executor sessions: one work brief in, goal loop against its blocking tests, milestone PR out |
 | `/kobserve` | Observer seat: launch executors, verify deliveries (independent re-run, *For the human* gate), land merges |
+| `/kpage "<title>" <files>` | Review Markdown on a commentable claude.ai page: publish, answer comments, delete on approval (Claude Code only) |
 
 ### Issue workflow
 
@@ -510,6 +511,7 @@ devops-ai/
 │   ├── kspec/              # Planner: spec + briefs + acceptance tests, triage, close
 │   ├── kbuild/             # Executor: one brief → goal loop → milestone PR
 │   ├── kobserve/           # Observer: launch, verify, land
+│   ├── kpage/              # Markdown files → commentable review page
 │   ├── kissue/             # Bounded issue lane (defects, chores)
 │   ├── kreview/            # PR review comment assessment (single round)
 │   ├── kbabysit/           # PR review loop orchestration to merge-ready

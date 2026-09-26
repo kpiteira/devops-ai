@@ -3,7 +3,7 @@ name: kspec
 description: Turn a feature idea into a signed intent spec with work briefs and planner-authored acceptance tests. Use when the user wants to plan, spec, or design a feature; triage a diverged milestone; re-plan after a divergence or change of direction; or close a finished feature with an intent-conformance review.
 argument-hint: "<intent dump> | triage <feature> | replan <feature> [M<N>…] | close <feature>"
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # kspec — planner sessions
@@ -112,6 +112,11 @@ No fixed script — loop freely between these obligations until sign-off is earn
   carries the command and its output. The pilot's one divergence was an inferred claim.
   An integration-level blocking test is legal only when the live stack cannot exercise
   the job, labeled with the reason and its baseline in that same table.
+
+**Put the draft in front of him as a page.** In a Claude Code session, call `kpage` with
+the title `kspec · <feature>` and SPEC.md plus the briefs; call it again after each
+revision. His comments on the page are part of the walkthrough below, and his signature
+is the approval that ends the page.
 
 **Sign-off is his word, not his silence — a per-item yes.** Walk him through the draft:
 every Assumption, and for each brief a short **what the tests pin** list (the values and
