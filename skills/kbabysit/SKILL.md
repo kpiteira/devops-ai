@@ -2,7 +2,7 @@
 name: kbabysit
 description: Drive a PR from ready-for-review to merge-ready — request Copilot review, wait for it, triage and address comments via kreview against the PR's written review scope, re-request, and stop when the reviewer has finished with the PR (not with the fixes). Ends with a TL;DR report. Never merges, never triggers Claude reviews.
 metadata:
-  version: "0.6.0"
+  version: "0.6.1"
 ---
 
 # kbabysit — babysit a PR to merge-ready
@@ -28,7 +28,7 @@ This loop runs **in the session that invokes it**, and that session is an Opus-g
 agent-deck session created from the PR's worktree:
 
 ```bash
-agent-deck add <worktree> -t <project>/babysit-<pr> -g <project> -c claude --model claude-opus-5
+agent-deck add <worktree> -t <project>/babysit-<pr> -g <project> -c claude --model claude-opus-5-5
 agent-deck session start <project>/babysit-<pr>
 sleep 3                                                          # the agent has to come up first
 agent-deck session send <project>/babysit-<pr> '/kbabysit <pr>'
@@ -101,9 +101,9 @@ Copilot round sat overnight on a side PR nobody owned. For a milestone PR the ex
 **Model first.** Say which model this session runs on — the harness names it — as a
 `MODEL:` line, and quote the harness's **exact model id** in it, because that id is what
 the condition is read against. Harnesses name a model twice, display name first and id
-second — this session's environment block, read 2026-09-14, gives "the model named Opus 5
-(1M context)" and "the exact model ID is `claude-opus-5[1m]`", so the honest line is
-`MODEL: Opus 5 (1M context) — claude-opus-5[1m]`. Re-derive it from your own environment
+second — a session's environment block, read 2026-09-26, gives "the model named Opus 5.5
+(1M context)" and "the exact model ID is `claude-opus-5-5[1m]`", so the honest line is
+`MODEL: Opus 5.5 (1M context) — claude-opus-5-5[1m]`. Re-derive it from your own environment
 rather than trusting that example; the point that survives a model change is the shape.
 An acceptance condition anchored to the *start* of that line would reject the very
 session this skill's own launch recipe creates. The rule is therefore about the id appearing, not
