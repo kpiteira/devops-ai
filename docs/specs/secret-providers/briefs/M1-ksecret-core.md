@@ -74,7 +74,8 @@ recommendation ladder (vault-backed over `.env`), and the one-time
 2026-09-14 — a requirement on the amendment, not a description of today's README:*
 the README's grammar row must also say which `$`-prefixed strings are literals and
 which are malformed. It is user-facing, so it lands with the implementation (#80),
-not with this spec delta.
+not with this spec delta. *Directive — human (Karl, 2026-09-26):* J5's blocking test is
+not expanded to assert this line; it is verified by reading the README at #80's head.
 
 ## Blocking
 

@@ -113,11 +113,11 @@ reference. (`$HOME/.config` is claimed and refused as well, but by the other mes
 `<name> is not a valid variable name`, since what follows its `$` is a letter.) SPEC.md,
 the M1 grammar row and `test_dollar_shorthand_claims_only_names` all carry the
 three-character claim set — letter, `_`, `{` — while (c) above is left as it was put to
-Karl. **For Karl on this PR:** say if you want `${…}` treated as a literal instead. The
-cost, counted rather than estimated: the SPEC amendment row, the M1 grammar row, and
-three lines of `test_dollar_shorthand_claims_only_names` (the `malformed` list, the
-`lines[:3]` slice and the `braces` assertion), plus `${…}` moving into that test's
-literal list.
+Karl. **Karl, 2026-09-26: keep.** The `{` claim stands as amended; nothing changes in
+SPEC, the grammar row or the test. The same day he declined expanding J5 to assert the
+README's grammar boundary: that requirement stays on the M1 brief's Docs line, lands
+with #80, and the observer's verify reads it against the README at #80's head rather
+than a blocking test.
 
 **2. A `ksecret write op://…` update loses a passkey on the target item** (M4, #70:
 "revisit at feature close"). An update sends the whole fetched item back as the template;
@@ -168,7 +168,7 @@ Human decision (Karl, 2026-09-14): **keep as shipped**. Noted on the M4 amendmen
 ## Acceptance-test disposition
 
 Recommendation per test. **Karl, 2026-09-14: every row as recommended** — said of the table as it
-stood that day; the one row added since is marked pending below rather than signed on his behalf.
+stood that day; the one row added since was confirmed separately on 2026-09-26.
 Suites are promoted by what they need:
 nothing but the console script → `integration`; Docker → `integration` (the suite
 already skips without a daemon, PR #44); a human grant or a real cloud vault → `e2e`
@@ -179,7 +179,7 @@ already skips without a daemon, PR #44); a human grant or a real cloud vault →
 | M1 | `test_read_env_dotenv_and_literal` | integration | as recommended |
 | M1 | `test_read_failure_names_ref_not_value` | integration | as recommended |
 | M1 | `test_read_without_print_confirms_only` | integration | as recommended |
-| M1 | `test_dollar_shorthand_claims_only_names` | integration | **pending** — the row postdates the 2026-09-14 decision (added with this PR) |
+| M1 | `test_dollar_shorthand_claims_only_names` | integration | as recommended (Karl, 2026-09-26) |
 | M1 | `test_read_op_reference` | e2e (needs a 1Password grant) | as recommended |
 | M1 | `test_run_injects_resolved_env_without_disk` | integration | as recommended |
 | M1 | `test_run_refuses_when_any_ref_fails` | integration | as recommended |

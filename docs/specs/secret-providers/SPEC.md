@@ -296,10 +296,11 @@ briefs and tests reference them. -->
   hash cannot be declared in `[sandbox.secrets]` at all), and claiming only exact
   names (`$MY-VAR` and `${HOME}` would become silent self-resolving literals). `{` is
   claimed rather than left a literal because `${HOME}` is the likeliest misspelling of
-  a real reference. **Karl acknowledged option (c) on 2026-09-14; (c) as put to him
-  began the claim at a letter or underscore, so the `{` is the planner's addition and
-  is pending his word on the close PR (#82).** If he declines it, `${…}` becomes a
-  literal; CLOSE.md carries what that costs. Changes the M1 Surface
+  a real reference. Karl acknowledged option (c) on 2026-09-14; (c) as put to him
+  began the claim at a letter or underscore, so the `{` was the planner's addition —
+  **kept on Karl's word, 2026-09-26 (PR #82).** The README's grammar row must state the
+  boundary (M1 brief, Docs); Karl 2026-09-26: J5's blocking test is not expanded for
+  it, the observer's verify reads it against the README at #80's head. Changes the M1 Surface
   (`$NAME` row) and M1's blocking tests: `test_dollar_shorthand_claims_only_names` is
   new and J4's sandbox test declares a `$2b$…` literal; both measured failing on main
   `6edc786` for the right reason. Lands as a small PR after the close PR — issue #80 —
