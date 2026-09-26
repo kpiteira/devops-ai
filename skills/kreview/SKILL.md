@@ -93,7 +93,7 @@ both carry them:
 Three other parts of a v2 body are **not** suppressed findings. `Open (N)` and `Resolved
 since last review (N)` list the titles of review threads, which are findings already, as
 threads. `What changed in this PR` is an overview whose file table has U+200B paths too.
-And the `**Findings:**` line counts open threads only: #85's review 5262627194 said
+And the `**Findings:**` line does not count them: #85's review 5262627194 said
 `Findings: None` and carried three `Previously missed`. Parse them out:
 
 **Fetch once, into a file, and check that the fetch worked** — then let both the parser and
@@ -190,6 +190,8 @@ reads 47 = 47 where the v1-only pair read 40 = 40, missing review 5261175937's s
 reads 5 = 5 where it read 0 = 0. The one mismatch is #12, whose February body spells the
 heading a third way — a bare `<summary>` reading `Comments suppressed due to low confidence
 (1)` — which this parser does not read: declared 1, parsed 0 — the guard doing its job.
+`tests/architecture/test_copilot_body_parsers.py` runs the block above, as written here,
+against six of those bodies and the drifts it names; edit the block and run it.
 
 Each row is a **line-anchored finding** and is triaged like any other. Two differences,
 both mechanical:
