@@ -75,7 +75,9 @@ For each, either change the document or answer why not, then reply in the thread
 `ArtifactData`, `action: "update"`, `collection: "threads"`, the thread's `doc_id`,
 `data: {"messages": [...every existing message, then yours]}` with
 `{"author": "<your name>", "kind": "agent", "body": "...", "at": "<ISO time>"}`, and
-`if_version` set to the version you read. A pinned write that fails means someone wrote
+`if_version` set to the version you read. Take `at` from the clock
+(`date -u +%Y-%m-%dT%H:%M:%SZ`), never write it yourself: the trial's first replies
+carried an invented time seven minutes in the future. A pinned write that fails means someone wrote
 meanwhile: re-read, and redo only if your answer still holds. Several replies go in one
 `batch`.
 
@@ -93,7 +95,7 @@ URL; it does not publish). Open a thread with `ArtifactData`, `action: "set"`,
 `collection: "threads"`, a new `doc_id` (`<your name>-<unix time>`), and
 `data: {"doc": "<slug>", "quote": "...", "before": "", "after": "", "resolved": false,
 "createdAt": "<ISO time>", "messages": [{"author": "<your name>", "kind": "agent",
-"body": "...", "at": "<ISO time>"}]}`.
+"body": "...", "at": "<ISO time>"}]}`. Both times come from the clock, as above.
 
 The page finds a thread by its quote in the rendered text, so `quote` is words as a
 reader sees them — no Markdown marks, inside one paragraph or list item — and occurs
