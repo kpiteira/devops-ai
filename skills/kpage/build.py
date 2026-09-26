@@ -66,8 +66,9 @@ def shown_path(path: pathlib.Path) -> str:
 
 
 def markdown(slug: str) -> MarkdownIt:
+    # raw HTML is shown as text: a reviewed file puts no markup or script on the page
     md = (
-        MarkdownIt("commonmark", {"html": True})
+        MarkdownIt("commonmark", {"html": False})
         .enable(["table", "strikethrough"])
         .use(footnote_plugin)
         .use(tasklists_plugin)
@@ -211,6 +212,9 @@ def main() -> int:
         slug = slugify(shown.split("/", 1)[-1])
         if any(d.slug == slug for d in docs):  # same path in two repositories
             slug = slugify(shown)
+        base, n = slug, 2
+        while any(d.slug == slug for d in docs):  # paths that slugify alike
+            slug, n = f"{base}-{n}", n + 1
         docs.append(Doc(path, shown, slug, path.stem))
 
     out = page(args.title, args.reviewer, docs)

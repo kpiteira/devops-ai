@@ -38,21 +38,51 @@
     while ((n = walker.nextNode())) { nodes.push({ node: n, start: off, end: off + n.nodeValue.length }); off += n.nodeValue.length; }
     return { nodes: nodes, text: nodes.map(function(x){ return x.node.nodeValue; }).join('') };
   }
-  function anchorSpan(text, t){
-    var hits = [], i;
-    for (i = text.indexOf(t.quote); i !== -1; i = text.indexOf(t.quote, i + 1)) hits.push(i);
+  // Whitespace is compared collapsed: the page's text keeps the source's line
+  // breaks, while a reader, a selection, or an agent quoting the page sees spaces.
+  function squash(s){ return String(s || '').replace(/\s+/g, ' '); }
+  function collapsed(text){
+    var out = '', map = [], space = false, i;
+    for (i = 0; i < text.length; i++) {
+      if (/\s/.test(text[i])) { if (!space) { out += ' '; map.push(i); } space = true; }
+      else { out += text[i]; map.push(i); space = false; }
+    }
+    return { text: out, map: map };
+  }
+  function anchorSpan(c, t){
+    var text = c.text, quote = squash(t.quote).trim(), hits = [], i;
+    if (!quote) return null;
+    for (i = text.indexOf(quote); i !== -1; i = text.indexOf(quote, i + 1)) hits.push(i);
     if (!hits.length) return null;
-    if (hits.length === 1) return { start: hits[0], end: hits[0] + t.quote.length };
-    var before = t.before || '', after = t.after || '';
+    var span = function(i){ return { start: c.map[i], end: c.map[i + quote.length - 1] + 1 }; };
+    if (hits.length === 1) return span(hits[0]);
+    var before = squash(t.before), after = squash(t.after);
     var score = function(i){
-      var b = text.slice(Math.max(0, i - before.length), i), a = text.slice(i + t.quote.length, i + t.quote.length + after.length), s = 0, e = 0;
+      var b = text.slice(Math.max(0, i - before.length), i), a = text.slice(i + quote.length, i + quote.length + after.length), s = 0, e = 0;
       while (s < b.length && b[b.length - 1 - s] === before[before.length - 1 - s]) s++;
       while (e < a.length && a[e] === after[e]) e++;
       return s + e;
     };
     var scored = hits.map(function(i){ return [i, score(i)]; }).sort(function(x, y){ return y[1] - x[1]; });
     if (scored.length > 1 && scored[0][1] === scored[1][1]) return null;
-    return { start: scored[0][0], end: scored[0][0] + t.quote.length };
+    return span(scored[0][0]);
+  }
+  // A selection boundary as an offset into textNodes(root).text: the page anchors
+  // against that text, so the quote is cut from it rather than from the selection.
+  function offsetAt(tn, container, offset){
+    var i, n;
+    if (container.nodeType === 3) {
+      for (i = 0; i < tn.nodes.length; i++) if (tn.nodes[i].node === container) return tn.nodes[i].start + offset;
+      return -1;
+    }
+    // an element boundary sits before child `offset`: the first text node from there on
+    var next = container.childNodes[offset] || null;
+    for (i = 0; i < tn.nodes.length; i++) {
+      n = tn.nodes[i].node;
+      if (next ? (next === n || next.contains(n) || (next.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING))
+               : (!container.contains(n) && (container.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING))) return tn.nodes[i].start;
+    }
+    return tn.text.length;
   }
   function markSpan(root, start, end, id, cls){
     var nodes = textNodes(root).nodes;
@@ -75,7 +105,7 @@
   function applyMarks(){
     var root = currentPanel(); if (!root) return;
     clearMarks(root);
-    var text = textNodes(root).text, spans = [];
+    var text = collapsed(textNodes(root).text), spans = [];
     orphaned = {};
     threadsFor(currentTab()).forEach(function(t){
       var s = anchorSpan(text, t);
@@ -104,7 +134,7 @@
     if (!all.length) return head + '<div class="tnone">Select any text on this tab and a <b>Comment</b> button appears. Each comment opens a thread. Tell the agent working on these documents to read them; it replies here.</div>';
     return head + shown.map(function(t){
       var cls = 'thread' + (t.resolved ? ' done' : '') + (state.active === t.id ? ' active' : '') + (orphaned[t.id] ? ' orphan' : '');
-      var msgs = (t.messages || []).map(function(m){
+      var msgs = t.messages.map(function(m){
         var kind = kindOf(m);
         return '<div class="tmsg ' + kind + '"><div class="ta">' + esc(m.author) + (kind === 'agent' ? ' · agent' : '') + ' · ' + fmt(m.at) + '</div><div class="tb">' + esc(m.body) + '</div></div>';
       }).join('');
@@ -135,9 +165,9 @@
     document.body.classList.toggle('threads-open', state.open);
     var aside = $('threads');
     aside.hidden = !state.open;
+    applyMarks();  // first: it decides which threads the list shows as orphaned
     aside.innerHTML = renderThreads();
     renderCounts();
-    applyMarks();
     try { localStorage.setItem('kpage-threads', state.open ? '1' : '0'); } catch(e){}
     if (draft != null) { ta = document.querySelector('textarea[data-reply="' + focusId + '"]'); if (ta) { ta.value = draft; ta.focus(); } }
     wireAside();
@@ -146,19 +176,28 @@
   // --- store -------------------------------------------------------------
   function col(){ return state.db.collection('threads'); }
   function setStatus(msg){ state.status = msg; render(); if (msg) setTimeout(function(){ if (state.status === msg) { state.status = ''; render(); } }, 6000); }
-  function fail(e){ setStatus('Could not save: ' + (e && e.code ? e.code : 'unknown error')); }
+  // Resolves true once saved, false after showing why not: callers keep a draft
+  // until it is saved.
+  function write(p){ return p.then(function(){ return true; }, function(e){ setStatus('Could not save: ' + (e && e.code ? e.code : 'unknown error')); return false; }); }
+  // Messages are a map keyed by message id, not an array: `update` merges nested
+  // objects, so adding one never rewrites the others, and two people (or a person
+  // and an agent) replying at once both land.
+  function message(body){
+    var m = {}, now = new Date().toISOString();
+    m[Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)] = { author: state.me, kind: 'human', body: body, at: now };
+    return m;
+  }
+  function listOf(messages){
+    var m = messages || {};
+    return Object.keys(m).map(function(k){ return m[k]; }).sort(function(a, b){ return (a.at || '').localeCompare(b.at || ''); });
+  }
   function openThread(pending, body){
-    var now = new Date().toISOString();
-    var doc = { doc: currentTab(), quote: pending.quote, before: pending.before, after: pending.after, resolved: false, createdAt: now,
-                messages: [{ author: state.me, kind: 'human', body: body, at: now }] };
-    return col().add(doc).catch(fail);
+    var msg = message(body);
+    return write(col().add({ doc: currentTab(), quote: pending.quote, before: pending.before, after: pending.after, resolved: false,
+                             createdAt: msg[Object.keys(msg)[0]].at, messages: msg }));
   }
-  function reply(id, body){
-    var t = state.threads.filter(function(x){ return x.id === id; })[0]; if (!t) return;
-    var msgs = (t.messages || []).slice(); msgs.push({ author: state.me, kind: 'human', body: body, at: new Date().toISOString() });
-    return col().doc(id).update({ messages: msgs }).catch(fail);
-  }
-  function resolve(id, on){ return col().doc(id).update({ resolved: on }).catch(fail); }
+  function reply(id, body){ return write(col().doc(id).update({ messages: message(body) })); }
+  function resolve(id, on){ return write(col().doc(id).update({ resolved: on })); }
 
   // --- wiring ------------------------------------------------------------
   function wireAside(){
@@ -182,8 +221,8 @@
       b.onclick = function(){
         var ta = aside.querySelector('textarea[data-reply="' + b.dataset.sendreply + '"]'), body = ta ? ta.value.trim() : '';
         if (!body) return;
-        b.disabled = true; state.replying = null;
-        reply(b.dataset.sendreply, body).then(function(){ render(); });
+        b.disabled = true;
+        reply(b.dataset.sendreply, body).then(function(ok){ if (ok) state.replying = null; render(); });
       };
     });
     var tr = $('toggleResolved'); if (tr) tr.onclick = function(){ state.showResolved = !state.showResolved; render(); };
@@ -199,13 +238,13 @@
     setTimeout(function(){
       var sel = window.getSelection(), root = currentPanel();
       if (!sel || sel.isCollapsed || !root || !root.contains(sel.anchorNode)) { if (composer.hidden) hide(); return; }
-      var quote = sel.toString().trim();
-      if (quote.length < 2) { if (composer.hidden) hide(); return; }
       var tn = textNodes(root), r = sel.getRangeAt(0);
-      var entry = tn.nodes.filter(function(n){ return n.node === r.startContainer; })[0];
-      if (!entry) { hide(); return; }
-      var raw = sel.toString(), lead = raw.length - raw.replace(/^\s+/, '').length;
-      var s = entry.start + r.startOffset + lead, e = s + quote.length;
+      var s = offsetAt(tn, r.startContainer, r.startOffset), e = offsetAt(tn, r.endContainer, r.endOffset);
+      if (s < 0 || e < 0) { hide(); return; }
+      var raw = tn.text.slice(s, e);
+      s += raw.length - raw.replace(/^\s+/, '').length; e -= raw.length - raw.replace(/\s+$/, '').length;
+      var quote = tn.text.slice(s, e);
+      if (quote.length < 2) { if (composer.hidden) hide(); return; }
       state.pending = { quote: quote, before: tn.text.slice(Math.max(0, s - 60), s), after: tn.text.slice(e, e + 60) };
       var rect = r.getBoundingClientRect();
       cbtn.style.top = Math.min(window.innerHeight - 44, rect.bottom + 6) + 'px';
@@ -225,7 +264,8 @@
     try { localStorage.setItem('kpage-name', state.me); } catch(e){}
     if (!body || !pending) return;
     $('composerSave').disabled = true;
-    openThread(pending, body).then(function(){ $('composerSave').disabled = false; hide(); state.open = true; render(); });
+    // on failure the composer stays open with the text, and the threads open to show why
+    openThread(pending, body).then(function(ok){ $('composerSave').disabled = false; if (ok) hide(); state.open = true; render(); });
   };
   document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape') { hide(); state.replying = null; render(); } });
   document.addEventListener('kpage:tab', function(){ state.active = null; state.replying = null; render(); });
@@ -236,7 +276,7 @@
     if (!db) { render(); return; }
     state.db = db;
     col().onSnapshot(function(snap){
-      state.threads = snap.docs.map(function(d){ var b = d.data() || {}; return { id: d.id, doc: b.doc, quote: b.quote || '', before: b.before || '', after: b.after || '', resolved: !!b.resolved, createdAt: b.createdAt || '', messages: b.messages || [] }; });
+      state.threads = snap.docs.map(function(d){ var b = d.data() || {}; return { id: d.id, doc: b.doc, quote: b.quote || '', before: b.before || '', after: b.after || '', resolved: !!b.resolved, createdAt: b.createdAt || '', messages: listOf(b.messages) }; });
       render();
     }, function(e){ state.db = null; state.status = 'Comment store unavailable (' + (e && e.code ? e.code : 'error') + ').'; render(); });
     render();
