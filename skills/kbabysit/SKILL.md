@@ -2,7 +2,7 @@
 name: kbabysit
 description: Drive a PR from ready-for-review to merge-ready — request Copilot review, wait for it, triage and address comments via kreview against the PR's written review scope, re-request, and stop when the reviewer has finished with the PR (not with the fixes). Ends with a TL;DR report. Never merges, never triggers Claude reviews.
 metadata:
-  version: "0.6.1"
+  version: "0.6.2"
 ---
 
 # kbabysit — babysit a PR to merge-ready
@@ -101,9 +101,9 @@ Copilot round sat overnight on a side PR nobody owned. For a milestone PR the ex
 **Model first.** Say which model this session runs on — the harness names it — as a
 `MODEL:` line, and quote the harness's **exact model id** in it, because that id is what
 the condition is read against. Harnesses name a model twice, display name first and id
-second — a session's environment block, read 2026-09-26, gives "the model named Opus 5.5
-(1M context)" and "the exact model ID is `claude-opus-5-5[1m]`", so the honest line is
-`MODEL: Opus 5.5 (1M context) — claude-opus-5-5[1m]`. Re-derive it from your own environment
+second — a session the launch recipe above creates, read 2026-09-26, gives "the model named
+Opus 5.5" and "the exact model ID is `claude-opus-5-5`", so the honest line is
+`MODEL: Opus 5.5 — claude-opus-5-5`. Re-derive it from your own environment
 rather than trusting that example; the point that survives a model change is the shape.
 An acceptance condition anchored to the *start* of that line would reject the very
 session this skill's own launch recipe creates. The rule is therefore about the id appearing, not
@@ -170,7 +170,10 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
     updates need an explicit re-request unless the ruleset enables "review new pushes". If a
     Copilot review already exists for the current head, don't request another.
   - **Copilot's review effort level** — record it, you cannot request it. Every Copilot
-    review body ends with a `Review effort level:` line. Preflight asks only **what level
+    review body states it, in one of two spellings: a v1 body ends with a
+    `- **Review effort level:** X` footer, and a v2 body (first line
+    `<!-- ccr-overview-v2 -->`, served since 2026-09-20) carries `**Review effort:** X`
+    under its overview heading. Preflight asks only **what level
     this PR has been reviewed at so far** — the per-round level is read in step 2, off that
     round's own review, because at preflight the round's review does not exist yet and a
     level read here could only ever describe somebody else's round:
@@ -184,11 +187,11 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
     # them. Reporting from page 1 alone goes wrong at 30+ reviews, exactly where it matters.
     gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
       --jq '[.[] | select(.state != "PENDING" and (.user.login | test("copilot"; "i")))] | length' \
-      | awk '{n += $1} END {print "copilot reviews so far: " n+0}'
+      | awk '{ n += $NF } END { print "copilot reviews so far: " n+0 }'
 
     gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
       --jq '.[] | select(.state != "PENDING" and (.user.login | test("copilot"; "i"))) | .body // ""' \
-      | grep -oE 'Review effort level:\*\* *[A-Za-z]+' | sed -E 's/.*\*\* *//' \
+      | grep -oE '^(- )?\*\*Review effort( level)?:\*\* *[A-Za-z]+' | sed -E 's/.*\*\* *//' \
       | sort -u | tr '\n' ' '      # the distinct levels seen, not the last one found
     ```
 
@@ -196,7 +199,10 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
     is a broken parser — GitHub renamed or moved the line — and the report says so rather
     than printing `—`. Take the distinct set, never `tail -1`: the last *matching* line is
     not the newest *review*, so a newest review that dropped the footer would be masked by
-    an older one and the broken-parser path would never be reached.
+    an older one and the broken-parser path would never be reached. The pattern is
+    anchored to the start of the line in both spellings, because a finding that quotes the
+    line is not the line: #66's review 5192489979 quoted `Review effort level:** X` in a finding,
+    and the unanchored grep read `X Lite` off a `Lite` review.
 
     `Lite` is GitHub's default, and it is what all 25 Copilot reviews across #49 and #51
     reported on 2026-09-13 (13 and 12, measured). This repo's default is now `Balanced`:
@@ -217,8 +223,8 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
     *For the human* line says that a deeper first pass is one toggle on that settings page
     — his call, his money: GitHub's [code review
     concepts](https://docs.github.com/en/copilot/concepts/agents/code-review) page
-    estimates "$0.05 USD to $1 USD worth of AI credits with 'Lite' effort, and $0.25 USD
-    to $5 USD with 'Balanced'". The hypothesis worth measuring once he flips it is whether
+    estimates 0.05 to 1 USD worth of AI credits with 'Lite' effort, and 0.25 to 5 USD
+    with 'Balanced'. The hypothesis worth measuring once he flips it is whether
     the first pass finds more and the round count drops — which is why the report carries
     the level per round rather than once.
   - **Claude reviews are out of scope — cost.** They are expensive and have caused runaway
@@ -276,10 +282,11 @@ its id, so read that review and nothing else:
 
 ```bash
 gh api "repos/$REPO/pulls/$PR_NUMBER/reviews/$REVIEW_ID" --jq '.body // ""' \
-  | grep -oE 'Review effort level:\*\* *[A-Za-z]+' | sed -E 's/.*\*\* *//'
+  | grep -oE '^(- )?\*\*Review effort( level)?:\*\* *[A-Za-z]+' | sed -E 's/.*\*\* *//'
 ```
 
-Empty here is unambiguous — this review exists and carried no footer — so it is a broken
+Empty here is unambiguous — this review exists and carried the line in neither spelling
+(step 0 has both) — so it is a broken
 parser, not a missing round, and the report's `Effort` column says `?` rather than `—`.
 Reading the level off the round's own review is the whole point: a grep across the PR's
 review history answers a different question and cannot attribute a level to a round.
@@ -295,7 +302,8 @@ the loop on a reviewer that never comes.
 Run `kreview` in **autonomous mode** for this round. It resolves the PR from the checkout,
 which step 0 has already established is `$PR_NUMBER` — that check is what makes this safe.
 It fetches the full review surface
-(review bodies **including their `Suppressed comments` sections**, threads with
+(review bodies **including their suppressed findings** — v1's `Suppressed comments`, v2's
+`Previously missed` — threads with
 resolved/outdated state, issue comments, CI), gives each new
 finding its **provenance** (on the PR's original diff, or on a review-fix commit), asks
 **isolated or systemic** of each before deciding anything, hands out one of
@@ -361,7 +369,8 @@ auto-review repos the push already triggered it).
   line-anchored finding counts as no new findings — and **a suppressed comment is a
   line-anchored finding**, not a remark: it carries a `path:line`. Only a remark with no
   `path:line` anywhere is unanchored. Reading a body's summary prose and skipping its
-  `Suppressed comments` section is how seven rounds on #49 looked like nothing was said.
+  suppressed section (v1 `Suppressed comments`, v2 `Previously missed`) is how seven
+  rounds on #49 looked like nothing was said.
 - New comments only re-raise points already handled — reply linking the prior reasoning
   (kreview's cross-round memory), then stop. Copilot is *documented* to repeat comments on
   re-review even when threads were resolved or dismissed — the disposition ledger is the only
@@ -496,8 +505,8 @@ keeps the second-order stop from firing, and Unanchored because it is excluded f
 stop; a report that hides either cannot show a human why a stop was safe. **Effort** is the
 level the reviewer reported for that round (`Lite`/`Balanced`/`—`), so the "deeper first
 pass" question has data instead of opinion. **Suppressed** is how many of that round's
-line-anchored findings came from a review body's `Suppressed comments` section rather than
-a thread — it is a subset of Findings, not a fifth provenance column, and a report where it
+line-anchored findings came from a review body's suppressed section (v1 `Suppressed
+comments`, v2 `Previously missed`) rather than a thread — it is a subset of Findings, not a fifth provenance column, and a report where it
 is always 0 on a Copilot loop is a report whose triage did not read the bodies.
 **Systemic** counts the round's findings whose root cause covered a class.
 

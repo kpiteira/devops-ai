@@ -2,7 +2,7 @@
 name: kreview
 description: Address PR review comments critically — assess each comment against the PR's written review scope, recommend action (implement/push-back/discuss/out-of-scope), and execute. Works with any reviewer (Copilot, human, other bots). Single-round engine; kbabysit drives the multi-round loop.
 metadata:
-  version: "0.4.0"
+  version: "0.4.1"
 ---
 
 # Address PR Review Comments
@@ -73,14 +73,28 @@ gh pr checks "$PR_NUMBER" 2>/dev/null || true
 `gh pr view --comments` only shows issue comments — never rely on it alone. Fetch full
 `.body` content; review comments can be 2000+ characters with the key detail in later sections.
 
-**Suppressed comments are findings.** Copilot folds part of its output into a
-`### Suppressed comments (N)` section of the **review body** instead of opening threads —
-each entry a line `**path:line**` followed by the finding text and often a code snippet.
-They are not a lesser class of finding, and a triage that reads only threads is blind to
-them: on devops-ai #49, 15 suppressed entries appeared across 11 of the 13 Copilot
-reviews, while only **4** of those 13 reviews opened a thread at all — and from round 6
-(14:27) on, 7 of the last 8 opened none, so 8 of the 9 findings that whole phase produced
-existed only in the bodies. Parse them out:
+**Suppressed comments are findings.** Copilot folds part of its output into the **review
+body** instead of opening threads. They are not a lesser class of finding, and a triage
+that reads only threads is blind to them: on devops-ai #49, 15 suppressed entries appeared
+across 11 of the 13 Copilot reviews, while only **4** of those 13 reviews opened a thread
+at all — and from round 6 (14:27) on, 7 of the last 8 opened none, so 8 of the 9 findings
+that whole phase produced existed only in the bodies. The body comes in two formats, and
+both carry them:
+
+- **v1** (no marker): a `### Suppressed comments (N)` section, each entry a line
+  `**path:line**` followed by the finding text and often a code snippet.
+- **v2** (first line `<!-- ccr-overview-v2 -->`, served since 2026-09-20): a
+  `<details><summary><strong>Previously missed (N)</strong></summary>` block, "in code
+  that hasn't changed since last review", holding one nested `<details>` per finding — a
+  `<summary>` with a severity `<picture>` and a title, then a line `` `path:line` `` whose
+  path carries U+200B zero-width spaces between its segments, then the finding text. On
+  #66, review 5261175937 held seven, and the babysit that read it reported none.
+
+Three other parts of a v2 body are **not** suppressed findings. `Open (N)` and `Resolved
+since last review (N)` list the titles of review threads, which are findings already, as
+threads. `What changed in this PR` is an overview whose file table has U+200B paths too.
+And the `**Findings:**` line does not count them: #85's review 5262627194 said
+`Findings: None` and carried three `Previously missed`. Parse them out:
 
 **Fetch once, into a file, and check that the fetch worked** — then let both the parser and
 its guard read those same bytes. One fetch means the two can never disagree about which
@@ -91,35 +105,57 @@ quiet round:
 REVIEWS=$(mktemp)
 if ! gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
      --jq '.[] | select(.state != "PENDING")
-           | "@@REVIEW\t\(.id)\t\(.commit_id)\t\(.submitted_at)", (.body // "")' > "$REVIEWS"
+           | "@@REVIEW\t\(.id)\t\(.commit_id)\t\(.submitted_at)",
+             ((.body // "") | gsub("\u200b"; "") | gsub("\r"; ""))' > "$REVIEWS"
 then
   echo "FETCH FAILED — this is not an empty round. Stop and report it."; exit 1
 fi
 grep -c '^@@REVIEW' "$REVIEWS"   # 0 here means genuinely no submitted reviews yet
 
 # --paginate runs the --jq filter per page, so each review emits a marker line and awk
-# carries its commit_id and submitted_at down the body. The fence toggle stops a
-# `**path:line**` line *inside* a quoted snippet from being counted as a finding of its own.
-awk -F'\t' '
-    $1=="@@REVIEW" { rid=$2; sha=$3; ts=$4; sup=0; fence=0; next }
-    /^```/         { fence=!fence; next }
-    fence          { next }
-    /^#+ +Suppressed comments/     { sup=1; next }
-    sup && /^- \*\*Files reviewed/ { sup=0 }
-    sup && /^\*\*[^*]+:[0-9]+\*\*$/ {
-      s=substr($0,3,length($0)-4); p=s; sub(/:[0-9]+$/,"",p); l=s; sub(/^.*:/,"",l)
-      print ts"\t"rid"\t"sha"\t"p"\t"l }' "$REVIEWS"
-# one row per suppressed finding: submitted_at · review-id · the commit the review judged
-# · path · line
+# carries its commit_id and submitted_at down the body. The fetch strips U+200B, or a v2
+# path names no file git can blame, and CR, which v2 tables carry. The fence toggle stops
+# a path line *inside* a quoted snippet from counting as a finding of its own.
+ROWS=$(mktemp)
+awk -F'\n' '
+    { line = $NF }
+    /^@@REVIEW\t/ { split(line, f, "\t"); rid = f[2]; sha = f[3]; ts = f[4]
+                    sec = ""; fence = 0; next }
+    /^```/        { fence = !fence; next }
+    fence         { next }
+    /^#+ +Suppressed comments/              { sec = "v1"; next }
+    sec == "v1" && /^- \*\*Files reviewed/  { sec = "" }
+    /^<summary><strong>/                    { sec = (/^<summary><strong>Previously missed/) ? "v2" : ""
+                                              want = 0; next }
+    sec == "v2" && /^<summary>/             { want = 1; next }
+    sec == "v1" && /^\*\*[^*]+:[0-9]+\*\*$/ { s = substr(line, 3, length(line) - 4) }
+    sec == "v2" && want && /^`[^`]+:[0-9]+`$/ { s = substr(line, 2, length(line) - 2); want = 0 }
+    s != "" { p = s; sub(/:[0-9]+$/, "", p); l = s; sub(/^.*:/, "", l)
+              print ts "\t" rid "\t" sha "\t" p "\t" l; s = "" }' "$REVIEWS" > "$ROWS"
+cat "$ROWS"   # one row per suppressed finding: submitted_at · review-id · the commit
+              # the review judged · path · line
+echo "parsed: $(grep -c . "$ROWS")"
 
-grep -oE '^#+ +Suppressed comments \([0-9]+\)' "$REVIEWS" | grep -oE '[0-9]+' \
-  | awk '{n += $1} END {print "declared: " n+0}'
+# The guard: the (N) of every counted section heading in either format, markdown or
+# <summary>, whatever its name — except the two lists of thread titles.
+grep -oE '^#+ .*\([0-9]+\)$|<summary>(<[a-z]+>)*[^<]*\([0-9]+\)(</[a-z]+>)*</summary>' "$REVIEWS" \
+  | grep -vE '>(Open|Resolved since last review) \(' \
+  | sed -E 's/.*\(([0-9]+)\).*/\1/' | awk '{ n += $NF } END { print "declared: " n+0 }'
+echo "unknown formats: $(grep -oE 'ccr-overview-v[0-9]+' "$REVIEWS" | grep -cvx 'ccr-overview-v2')"
 ````
 
 Parsed must equal declared **over the whole file** (compare before the per-round cutoff, or
-you are comparing two different questions). A mismatch is a defect in the parser — GitHub
-changed the format — never an empty round: say so and triage that round from the bodies by
-hand.
+you are comparing two different questions), and `unknown formats` must be 0. The two sides
+share no pattern, on purpose. The parser finds each section by its **name** and each entry
+by its shape; the guard counts the `(N)` of **every** counted heading, whatever its name. So
+a renamed section reads declared > parsed, and a heading that drops its count reads parsed >
+declared. A guard built from the parser's own heading could do neither: on every v2 body it
+read 0 = 0, agreeing with a parser that saw nothing. `unknown formats` counts overview
+markers other than v2. Any of the three is a defect in the parser — GitHub changed the
+format — never an empty round: say so and triage that round from the bodies by hand. (The
+guard reads the bodies whole, fences and all, so it stays independent of the parser's fence
+toggle; the price is that a counted heading quoted inside a finding counts too. None of
+the 349 reviews below did that, and a false alarm costs one round read by hand.)
 
 **Why the file, and why the `if`.** Piping straight from `gh` gives three ways to be wrong
 and this shape closes all of them. Two pipelines with separately-typed `--jq` filters drift
@@ -131,6 +167,14 @@ guard that passes most reliably when the fetch failed is worse than no guard. Th
 must be branched on, which is what `if ! gh api … ; then` does, and the review count printed
 separately is what tells a real zero from a broken one.
 
+**Why the awk names no field.** When a skill is invoked with arguments — `kbabysit` invokes
+this one with some — the harness replaces every `$` followed by digits with that argument
+(counted from 0, the arguments split into words) before the text reaches you, fenced code included. On
+#92's babysit the old parser's field tests arrived as `—=="@@REVIEW"` and `rid=PR`: broken
+awk, from a file that was intact on disk. So `-F'\n'` makes each line a single field, `$NF`
+is that line, and the marker's fields come out of `split()`.
+`tests/architecture/test_skill_arguments.py` fails on a positional placeholder in any skill.
+
 **Scope the rows to this round.** The file holds every review the PR has, so on round N the
 parser re-emits rounds 1..N-1 as well. `submitted_at` is carried for exactly that reason:
 apply the same cutoff the threads get — keep only rows newer than the round you last
@@ -140,7 +184,14 @@ what counting suppressed findings is for.
 
 Measured on devops-ai #49 (2026-09-13): 15 parsed, 15 declared, across the 11 headers; the
 two Copilot reviews with no header — an approval, and a round whose single finding *did*
-open a thread — correctly yield none.
+open a thread — correctly yield none. Measured again on 2026-09-26 across the 349 reviews on
+the repo's 54 reviewed PRs: every v1 row comes out byte-identical to the old parser's; #66
+reads 47 = 47 where the v1-only pair read 40 = 40, missing review 5261175937's seven; #85
+reads 5 = 5 where it read 0 = 0. The one mismatch is #12, whose February body spells the
+heading a third way — a bare `<summary>` reading `Comments suppressed due to low confidence
+(1)` — which this parser does not read: declared 1, parsed 0 — the guard doing its job.
+`tests/architecture/test_copilot_body_parsers.py` runs the block above, as written here,
+against six of those bodies and the drifts it names; edit the block and run it.
 
 Each row is a **line-anchored finding** and is triaged like any other. Two differences,
 both mechanical:
@@ -198,7 +249,7 @@ FIRST_REVIEWED_SHA=$(printf '%s\n' "$REVIEWS" | while read -r ts sha; do
 
 # Per finding: blame at the commit the comment was made against (originalCommit.oid,
 # originalLine from the thread fetch; for a suppressed finding, the review's own commit_id
-# and the line parsed out of its `**path:line**` header) — never at the current head, where
+# and the line from its parsed row) — never at the current head, where
 # a later fix that touched the line would claim it and every old finding would look
 # second-order.
 BLAME_SHA=$(git blame -L "$ORIGINAL_LINE,$ORIGINAL_LINE" --porcelain "$ORIGINAL_COMMIT" -- "$FILE" \
