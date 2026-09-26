@@ -13,10 +13,10 @@ five cents read `94.05` on `/kbabysit 94`.
 rewritten either. The slot is filled verbatim — nothing is quoted for a shell — so in a
 fenced block it is shell source, and kbabysit's preflight had it inside a double-quoted
 string: backticks or `$(…)` in the arguments ran, and a `"` broke the line. In a fenced
-block the slot is allowed only as the body of a quoted heredoc, the one place a shell
-neither expands nor runs text. The one text that still escapes is a line reading
-exactly the heredoc's delimiter; no quoting written into the skill can close that, only
-keeping the arguments out of shell source altogether.
+block the slot is allowed only as the body of a quoted heredoc that `read` takes in,
+the one place a shell neither expands nor runs text. The one text that still escapes is
+a line reading exactly the heredoc's delimiter; no quoting written into the skill can
+close that, only keeping the arguments out of shell source altogether.
 """
 
 import os
@@ -39,7 +39,10 @@ KBABYSIT = ROOT / "skills" / "kbabysit" / "SKILL.md"
 POSITIONAL = re.compile(r"\$ARGUMENTS\[\d+\]|\$\d+(?!\w)")
 SLOT = "$ARGUMENTS"
 FENCE = re.compile(r"\s*(`{3,}|~{3,})")
-QUOTED_HEREDOC = re.compile(r"(?<!<)<<-?\s*'(\w+)'")  # not a <<< herestring
+# The one opener the gate accepts, as a whole line: `read` from a heredoc whose
+# delimiter is quoted, a trailing comment at most. Searching the line above the slot
+# for `<<'WORD'` passed six of the placements in BYPASSES below (PR #98's review).
+READ_OPENER = re.compile(r"IFS= read -r [A-Za-z_]\w* <<'(\w+)'(?:\s+#.*|\s*)")
 
 
 def tracked_skills() -> list[Path]:
@@ -229,26 +232,76 @@ def test_no_skill_carries_a_positional_argument_slot() -> None:
     )
 
 
-def test_the_slot_reaches_shell_only_as_heredoc_data() -> None:
+def slot_misuses(text: str) -> list[str]:
+    """`line: text` for each `$ARGUMENTS` in a fenced block outside the data form.
+
+    The form is three lines at one indentation: the `READ_OPENER` line, the slot alone,
+    the delimiter alone. Any other indentation or trailing text on the last two, and a
+    shell either does not end the heredoc there or does not read the slot as its body.
+    """
+    lines = text.splitlines()
     hits = []
-    for path in tracked_skills():
-        lines = path.read_text().splitlines()
-        for index in (i for block in fenced_blocks(lines) for i in block):
-            if SLOT not in lines[index]:
-                continue
-            opener = QUOTED_HEREDOC.search(lines[index - 1])
-            closes = (
-                index + 1 < len(lines)
-                and opener
-                and lines[index + 1].strip() == opener.group(1)
-            )
-            if lines[index].strip() != SLOT or not closes:
-                hits.append(
-                    f"{path.relative_to(ROOT)}:{index + 1}: {lines[index].strip()}"
-                )
+    for index in (i for block in fenced_blocks(lines) for i in block):
+        if SLOT not in lines[index]:
+            continue
+        above = lines[index - 1]
+        indent = above[: len(above) - len(above.lstrip())]
+        opener = READ_OPENER.fullmatch(above.lstrip())
+        if not (
+            opener
+            and lines[index] == indent + SLOT
+            and index + 1 < len(lines)
+            and lines[index + 1] == indent + opener.group(1)
+        ):
+            hits.append(f"{index + 1}: {lines[index].strip()}")
+    return hits
+
+
+def fence(*lines: str) -> str:
+    return "\n".join(["```bash", *lines, "```"]) + "\n"
+
+
+BYPASSES = {
+    # The slot is shell source: a line of its own, an expanded heredoc, a string, or a
+    # comment that a newline in the arguments ends.
+    "in-a-comment": fence("# <<'ARGS'", SLOT, "ARGS"),
+    "in-a-string": fence("echo \"<<'ARGS'\"", SLOT, "ARGS"),
+    "herestring": fence("IFS= read -r L <<<'ARGS'", SLOT, "ARGS"),
+    "unquoted-delimiter": fence("IFS= read -r L <<ARGS", SLOT, "ARGS"),
+    "double-quoted": fence('ARG_PR=$(printf "%s" "$ARGUMENTS")'),
+    "in-a-comment-alone": fence("true  # $ARGUMENTS"),
+    # A tab-indented line in the arguments reading ARGS ends the body.
+    "tab-stripping": fence("IFS= read -r L <<-'ARGS'", SLOT, "ARGS"),
+    # bash 3.2 cannot parse it when the arguments hold an apostrophe.
+    "command-substitution": fence("L=$(cat <<'ARGS'", SLOT, "ARGS", ")"),
+    # The heredoc does not end where the block says, and swallows the rest of it.
+    "glued-hash": fence("IFS= read -r L <<'ARGS'#x", SLOT, "ARGS"),
+    "other-delimiter": fence("IFS= read -r L <<'ARGS'", SLOT, "END"),
+    "indented-delimiter": fence("IFS= read -r L <<'ARGS'", SLOT, "  ARGS"),
+}
+
+
+@pytest.mark.parametrize("text", list(BYPASSES.values()), ids=list(BYPASSES))
+def test_the_gate_sees_every_other_placement(text: str) -> None:
+    assert slot_misuses(text), text
+
+
+def test_the_gate_passes_the_data_form_and_prose() -> None:
+    prose = "**Arguments for this run:** `$ARGUMENTS` — in prose, the slot is text.\n"
+    top = fence("IFS= read -r ARG_LINE <<'ARGS'      # the first line", SLOT, "ARGS")
+    listed = textwrap.indent(fence("IFS= read -r L <<'ARGS'", SLOT, "ARGS"), "  ")
+    assert slot_misuses(prose + top + listed) == []
+
+
+def test_the_slot_reaches_shell_only_as_heredoc_data() -> None:
+    hits = [
+        f"{path.relative_to(ROOT)}:{hit}"
+        for path in tracked_skills()
+        for hit in slot_misuses(path.read_text())
+    ]
     assert not hits, (
         "the harness pastes the arguments over $ARGUMENTS verbatim, so in a fenced "
-        "block it is shell source — put it alone on a line, as the body of a quoted "
-        "heredoc (<<'WORD' … WORD), and nowhere else in the block, comments included: "
-        + ", ".join(hits)
+        "block it is shell source — put it alone on a line between "
+        "`IFS= read -r NAME <<'WORD'` and `WORD`, and nowhere else in the block, "
+        "comments included: " + ", ".join(hits)
     )
