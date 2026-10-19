@@ -218,8 +218,8 @@ disposition below is judged against, and what lets a stranger check the judgemen
 
 ```bash
 BODY=$(gh pr view "$PR_NUMBER" --json body -q '.body')
-HEAD='## Review scope'; grep -q '^## Review scope' <<<"$BODY" || HEAD='## Outcomes'
-sed -n "/^$HEAD/,/^## /p" <<<"$BODY"
+HEAD='## Review scope'; grep -q '^## Review scope[[:space:]]*$' <<<"$BODY" || HEAD='## Outcomes'
+sed -n "/^${HEAD}[[:space:]]*\$/,/^## /p" <<<"$BODY"   # the whole heading, never a prefix
 ```
 
 **Provenance of each finding.** A line-anchored finding sits either on the PR's original

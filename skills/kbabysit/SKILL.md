@@ -155,11 +155,14 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
 
   ```bash
   BODY=$(gh pr view "$PR_NUMBER" --json body -q '.body')
-  HEAD='## Review scope'; grep -q '^## Review scope' <<<"$BODY" || HEAD='## Outcomes'
-  if ! grep -q "^$HEAD" <<<"$BODY"; then echo "SCOPE: missing"
-  elif [ -z "$(sed -n "/^$HEAD/,/^## /p" <<<"$BODY" | grep -v '^## ' | grep -v '^[[:space:]]*$')" ]; then echo "SCOPE: empty"
+  HEAD='## Review scope'; grep -q '^## Review scope[[:space:]]*$' <<<"$BODY" || HEAD='## Outcomes'
+  if ! grep -q "^${HEAD}[[:space:]]*\$" <<<"$BODY"; then echo "SCOPE: missing"
+  elif [ -z "$(sed -n "/^${HEAD}[[:space:]]*\$/,/^## /p" <<<"$BODY" | grep -v '^## ' | grep -v '^[[:space:]]*$')" ]; then echo "SCOPE: empty"
   else echo "SCOPE: present ($HEAD)"; fi
   ```
+
+  Each pattern matches the whole heading line, trailing whitespace allowed: a prefix match
+  would take `## Outcomes not delivered` for the scope.
 
   Anything but `SCOPE: present (…)` ends the run before step 1 — a heading with nothing under
   it is not a scope. **Stop and say what is missing** — the section's name, what goes in it,
