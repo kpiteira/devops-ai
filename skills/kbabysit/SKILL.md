@@ -148,17 +148,20 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
 - Draft → mark ready (`gh pr ready`) only if the work is actually complete; otherwise stop.
 - **Review scope present → else stop.** The PR body must carry a `## Review scope` section:
   the outcomes this PR delivers, in the author's words, one line each (a milestone PR lists
-  the brief's jobs). Every finding in every round is judged against it, and a stranger
-  reading the report can check that judgement.
+  the brief's jobs). A PR opened from an outcomes brief may carry the brief's `## Outcomes`
+  section instead, as written; with both present, `## Review scope` is the scope. Every
+  finding in every round is judged against it, and a stranger reading the report can check
+  that judgement.
 
   ```bash
   BODY=$(gh pr view "$PR_NUMBER" --json body -q '.body')
-  if ! grep -q '^## Review scope' <<<"$BODY"; then echo "SCOPE: missing"
-  elif [ -z "$(sed -n '/^## Review scope/,/^## /p' <<<"$BODY" | grep -v '^## ' | grep -v '^[[:space:]]*$')" ]; then echo "SCOPE: empty"
-  else echo "SCOPE: present"; fi
+  HEAD='## Review scope'; grep -q '^## Review scope' <<<"$BODY" || HEAD='## Outcomes'
+  if ! grep -q "^$HEAD" <<<"$BODY"; then echo "SCOPE: missing"
+  elif [ -z "$(sed -n "/^$HEAD/,/^## /p" <<<"$BODY" | grep -v '^## ' | grep -v '^[[:space:]]*$')" ]; then echo "SCOPE: empty"
+  else echo "SCOPE: present ($HEAD)"; fi
   ```
 
-  Anything but `SCOPE: present` ends the run before step 1 — a heading with nothing under
+  Anything but `SCOPE: present (…)` ends the run before step 1 — a heading with nothing under
   it is not a scope. **Stop and say what is missing** — the section's name, what goes in it,
   and that the loop starts once the author adds it. kbabysit never writes it: a scope
   derived from the diff makes everything in the diff in scope by construction, including
