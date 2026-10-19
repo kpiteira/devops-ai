@@ -211,12 +211,15 @@ both mechanical:
   the finding in the fix commit message. Nothing to resolve, so nothing is resolved.
 
 **The review scope.** The PR body carries a `## Review scope` section — the outcomes this
-PR delivers, in the author's words (`kbabysit` refuses to start without it; attended runs
-should ask for it rather than infer one). Read it before triaging: it is the reference every
+PR delivers, in the author's words — or, for a PR opened from an outcomes brief, the
+brief's `## Outcomes` section; `## Review scope` wins when both are there (`kbabysit`
+refuses to start without either; attended runs should ask for it rather than infer one). Read it before triaging: it is the reference every
 disposition below is judged against, and what lets a stranger check the judgement later.
 
 ```bash
-gh pr view "$PR_NUMBER" --json body -q '.body' | sed -n '/^## Review scope/,/^## /p'
+BODY=$(gh pr view "$PR_NUMBER" --json body -q '.body')
+HEAD='## Review scope'; grep -q '^## Review scope[[:space:]]*$' <<<"$BODY" || HEAD='## Outcomes'
+sed -n "/^${HEAD}[[:space:]]*\$/,/^## /p" <<<"$BODY"   # the whole heading, never a prefix
 ```
 
 **Provenance of each finding.** A line-anchored finding sits either on the PR's original
