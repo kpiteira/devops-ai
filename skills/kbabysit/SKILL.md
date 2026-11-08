@@ -2,7 +2,7 @@
 name: kbabysit
 description: Drive a PR from ready-for-review to merge-ready — request Copilot review, wait for it, triage and address comments via kreview against the PR's written review scope, re-request, and stop when the reviewer has finished with the PR (not with the fixes). Ends with a TL;DR report. Never merges, never triggers Claude reviews.
 metadata:
-  version: "0.6.2"
+  version: "0.6.3"
 ---
 
 # kbabysit — babysit a PR to merge-ready
@@ -70,8 +70,8 @@ Two reasons for the tier and the visibility, both measured:
 
 What that costs you, and how this skill pays it:
 
-- **The session sees no planner conversation** — only this file with `$ARGUMENTS`
-  substituted and whatever the kickoff said. So the PR number must either be passed
+- **The session sees no planner conversation** — only this file, the arguments
+  substituted in, and whatever the kickoff said. So the PR number must either be passed
   explicitly (`/kbabysit 42`) or be resolvable from the checkout. Step 0 reads the explicit
   number **first** and only falls back to `gh pr view` — the other order silently babysits
   the branch's PR when you asked for a different one — and stops outright if the two
@@ -125,7 +125,10 @@ unnoticed until someone read the status bar. If this session was restarted or re
 mid-loop, state the `MODEL:` line again before the next round and apply the same stop.
 
 ```bash
-ARG_PR=$(printf '%s' "$ARGUMENTS" | sed 's/^#//' | grep -oE '^[0-9]+')      # explicit <pr-number>, if given
+IFS= read -r ARG_LINE <<'KBABYSIT_ARGUMENTS'                                # the arguments' first line, as data
+$ARGUMENTS
+KBABYSIT_ARGUMENTS
+ARG_PR=$(printf '%s\n' "$ARG_LINE" | sed 's/^#//' | grep -oE '^[0-9]+')     # explicit <pr-number>, if given
 BRANCH_PR=$(gh pr view --json number -q '.number' 2>/dev/null)              # this checkout's own PR, if any
 PR_NUMBER="${ARG_PR:-$BRANCH_PR}"
 
@@ -136,6 +139,14 @@ else echo "TARGET: #$PR_NUMBER"; fi
 REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner')
 gh pr view "$PR_NUMBER" --json state,isDraft,mergeable,headRefName,baseRefName,statusCheckRollup
 ```
+
+**The arguments reach that block as a quoted heredoc, and only there.** The harness pastes
+them into this file verbatim, quoting nothing for a shell, so inside a quoted string a
+backtick or `$(…)` in a note ran and a stray `"` broke the line. A quoted heredoc expands
+and runs nothing; the one text that still ends it early is a line reading exactly
+`KBABYSIT_ARGUMENTS`. Read it with `read`, never inside `$(…)`: bash 3.2, macOS's
+`/bin/bash`, cannot parse a heredoc with an apostrophe there
+(`tests/architecture/test_skill_arguments.py`).
 
 **Anything but `TARGET: #N` ends the run before step 1** — say which of the two it was and
 stop. The second case looks harmless and is not: this loop does not only *read* a PR, it
