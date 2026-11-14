@@ -2,7 +2,7 @@
 name: kreview
 description: Address PR review comments critically — assess each comment against the PR's written review scope, recommend action (implement/push-back/discuss/out-of-scope), and execute. Works with any reviewer (Copilot, human, other bots). Single-round engine; kbabysit drives the multi-round loop.
 metadata:
-  version: "0.4.1"
+  version: "0.4.2"
 ---
 
 # Address PR Review Comments
@@ -88,11 +88,16 @@ both carry them:
   that hasn't changed since last review", holding one nested `<details>` per finding — a
   `<summary>` with a severity `<picture>` and a title, then a line `` `path:line` `` whose
   path carries U+200B zero-width spaces between its segments, then the finding text. On
-  #66, review 5261175937 held seven, and the babysit that read it reported none.
+  #66, review 5261175937 held seven, and the babysit that read it reported none. Since
+  2026-10-17 the same block's heading puts the count first and drops the `(N)`:
+  `<summary><strong>1 previously missed issue</strong></summary>`, `3 previously missed
+  issues`. On homelab#92, review 5898789029 held one, and parser and guard both read
+  0 = 0; only a hand read found it (#86).
 
 Three other parts of a v2 body are **not** suppressed findings. `Open (N)` and `Resolved
-since last review (N)` list the titles of review threads, which are findings already, as
-threads. `What changed in this PR` is an overview whose file table has U+200B paths too.
+since last review (N)` — since 2026-10-17 `3 open issues` and `3 resolved since last
+review` — list the titles of review threads, which are findings already, as threads.
+`What changed in this PR` is an overview whose file table has U+200B paths too.
 And the `**Findings:**` line does not count them: #85's review 5262627194 said
 `Findings: None` and carried three `Previously missed`. Parse them out:
 
@@ -125,7 +130,7 @@ awk -F'\n' '
     fence         { next }
     /^#+ +Suppressed comments/              { sec = "v1"; next }
     sec == "v1" && /^- \*\*Files reviewed/  { sec = "" }
-    /^<summary><strong>/                    { sec = (/^<summary><strong>Previously missed/) ? "v2" : ""
+    /^<summary><strong>/                    { sec = (tolower(line) ~ /^<summary><strong>([0-9]+ )?previously missed/) ? "v2" : ""
                                               want = 0; next }
     sec == "v2" && /^<summary>/             { want = 1; next }
     sec == "v1" && /^\*\*[^*]+:[0-9]+\*\*$/ { s = substr(line, 3, length(line) - 4) }
@@ -136,26 +141,61 @@ cat "$ROWS"   # one row per suppressed finding: submitted_at · review-id · the
               # the review judged · path · line
 echo "parsed: $(grep -c . "$ROWS")"
 
-# The guard: the (N) of every counted section heading in either format, markdown or
-# <summary>, whatever its name — except the two lists of thread titles.
-grep -oE '^#+ .*\([0-9]+\)$|<summary>(<[a-z]+>)*[^<]*\([0-9]+\)(</[a-z]+>)*</summary>' "$REVIEWS" \
-  | grep -vE '>(Open|Resolved since last review) \(' \
-  | sed -E 's/.*\(([0-9]+)\).*/\1/' | awk '{ n += $NF } END { print "declared: " n+0 }'
+# The guard reads every section heading for its count, wherever the count sits, and
+# never for its name. A heading is a markdown `#` line, or a <summary> line that is not a
+# finding's own (a finding's carries a severity <picture>). Its count is a trailing
+# `(N)`, or, in a <summary>, a leading N. The two thread-title lists (open,
+# resolved) are left out; every other counted heading is declared. A <summary> heading
+# whose count it cannot read, other than the five that never carry one, or a markdown
+# heading naming missed or suppressed comments without one, could not be parsed.
+awk -F'\n' '
+    { line = $NF; kind = "" }
+    /^#+ /                                      { kind = "md"; h = line; sub(/^#+ +/, "", h) }
+    /^(<details[^>]*>)?<summary/ && !/<picture|<img/ { kind = "summary"; h = line; gsub(/<[^>]*>/, "", h) }
+    kind == ""                                  { next }   # not a heading
+    { name = tolower(h); sub(/^ +/, "", name); sub(/ +$/, "", name); n = -1
+      if (match(name, /\([0-9]+\)$/)) {
+        n = substr(name, RSTART + 1, RLENGTH - 2) + 0; name = substr(name, 1, RSTART - 1)
+      } else if (kind == "summary" && match(name, /^[0-9]+ /)) {
+        n = substr(name, 1, RLENGTH - 1) + 0; name = substr(name, RLENGTH + 1)
+      }
+      sub(/ +$/, "", name) }
+    n >= 0 && name ~ /^(open|resolved)( |$)/    { next }
+    n >= 0                                      { declared += n; next }
+    name ~ /missed|suppress/ || (kind == "summary" && name !~ /^(pull request overview|review details|file summaries|show a summary per file|what changed in this pr)$/) {
+        print "could not parse: " h; bad++ }
+    END { print "declared: " declared + 0; print "unreadable headings: " bad + 0 }' "$REVIEWS"
 echo "unknown formats: $(grep -oE 'ccr-overview-v[0-9]+' "$REVIEWS" | grep -cvx 'ccr-overview-v2')"
 ````
 
-Parsed must equal declared **over the whole file** (compare before the per-round cutoff, or
-you are comparing two different questions), and `unknown formats` must be 0. The two sides
-share no pattern, on purpose. The parser finds each section by its **name** and each entry
-by its shape; the guard counts the `(N)` of **every** counted heading, whatever its name. So
-a renamed section reads declared > parsed, and a heading that drops its count reads parsed >
-declared. A guard built from the parser's own heading could do neither: on every v2 body it
-read 0 = 0, agreeing with a parser that saw nothing. `unknown formats` counts overview
-markers other than v2. Any of the three is a defect in the parser — GitHub changed the
-format — never an empty round: say so and triage that round from the bodies by hand. (The
-guard reads the bodies whole, fences and all, so it stays independent of the parser's fence
-toggle; the price is that a counted heading quoted inside a finding counts too. None of
-the 349 reviews below did that, and a false alarm costs one round read by hand.)
+A round is clean only when **parsed equals declared over the whole file** (compare before
+the per-round cutoff, or you are comparing two different questions), `unknown formats` is
+0, and `unreadable headings` is 0. Anything else is a defect in the parser — GitHub changed
+the format — never an empty round: say so, quote the `could not parse:` lines, and triage
+that round from the bodies by hand.
+
+The two sides share no pattern, on purpose. The parser finds each section by its **name**
+and each entry by its shape. The guard never looks at a name except to leave out the two
+thread lists: it finds headings by their **shape** and reads each one's count wherever the
+count sits. So every way a heading can move makes the two disagree instead of agreeing at
+zero. Renamed with its count kept: declared > parsed. Count dropped, moved somewhere the
+guard cannot read, spelled out, or the heading split across lines: `could not parse`. Tag
+changed or given an attribute: the guard still sees a `<summary>`, the parser does not.
+`unknown formats` counts overview markers other than v2. The rule the guard enforces is the
+one #86 asked for: a heading it cannot read is *unknown*, never 0. Its first version summed
+`(N)` alone, so when Copilot moved the count to the front, guard and parser both read 0 =
+0 on every body that had findings — the same blind spot, a second time.
+
+Two lists in the guard are names, and both fail loud if they go stale. The thread lists
+(`open …`, `resolved …`) are left out of declared; rename one and its count is declared,
+which reads declared > parsed. Five `<summary>` headings never carry a count (`Pull request
+overview`, `Review details`, `File summaries`, `Show a summary per file`, `What changed in
+this PR`); any other countless `<summary>` is unreadable, so a new one costs a round read by
+hand, not a finding. A finding's own `<summary>` carries a severity `<picture>` and is not a
+heading, so a finding titled "previously missed …" does not trip it. (The guard reads the
+bodies whole, fences and all, so it stays independent of the parser's fence toggle; the
+price is that a counted heading quoted inside a finding counts too. None of the 1,464
+reviews below did that, and a false alarm costs one round read by hand.)
 
 **Why the file, and why the `if`.** Piping straight from `gh` gives three ways to be wrong
 and this shape closes all of them. Two pipelines with separately-typed `--jq` filters drift
@@ -190,8 +230,18 @@ reads 47 = 47 where the v1-only pair read 40 = 40, missing review 5261175937's s
 reads 5 = 5 where it read 0 = 0. The one mismatch is #12, whose February body spells the
 heading a third way — a bare `<summary>` reading `Comments suppressed due to low confidence
 (1)` — which this parser does not read: declared 1, parsed 0 — the guard doing its job.
+Measured again on 2026-11-14 across 1,464 Copilot reviews on 648 PRs in the 12 repos of
+this owner that have any: 15 PRs move from 0 = 0 to their real count, 43 findings in all
+(devops-ai #100; homelab #80, #85, #86, #92 and #102; nine kfactory PRs, #57 alone carrying
+ten), and kfactory#10 moves from 8 = 8 to 9 = 9. No row the old parser printed is lost, and
+no body raises `could not parse`. Every other mismatch reads the same before and after,
+and each is accounted for: bodies served up to 2026-08-17 in two older spellings no parser
+here reads (the bare `<summary>Comments suppressed due to low confidence (N)` and
+`<summary>Suppressed comments (N)`), which the guard flags as it should; and six bodies
+from June or earlier (khealth #14, #35, #44, #145; cashflow-pro #41, #43) whose `Files not
+reviewed (N)` heading it counts as declared, a false alarm on a format not served since.
 `tests/architecture/test_copilot_body_parsers.py` runs the block above, as written here,
-against six of those bodies and the drifts it names; edit the block and run it.
+against eleven of those bodies and the drifts it names; edit the block and run it.
 
 Each row is a **line-anchored finding** and is triaged like any other. Two differences,
 both mechanical:
