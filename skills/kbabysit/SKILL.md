@@ -2,7 +2,7 @@
 name: kbabysit
 description: Drive a PR from ready-for-review to merge-ready — request Copilot review, wait for it, triage and address comments via kreview against the PR's written review scope, re-request, and stop when the reviewer has finished with the PR (not with the fixes). Ends with a TL;DR report. Never merges, never triggers Claude reviews.
 metadata:
-  version: "0.6.2"
+  version: "0.6.3"
 ---
 
 # kbabysit — babysit a PR to merge-ready
@@ -176,10 +176,15 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
     updates need an explicit re-request unless the ruleset enables "review new pushes". If a
     Copilot review already exists for the current head, don't request another.
   - **Copilot's review effort level** — record it, you cannot request it. Every Copilot
-    review body states it, in one of two spellings: a v1 body ends with a
-    `- **Review effort level:** X` footer, and a v2 body (first line
-    `<!-- ccr-overview-v2 -->`, served since 2026-09-20) carries `**Review effort:** X`
-    under its overview heading. Preflight asks only **what level
+    review body states it, in one of three spellings: a v1 body ends with a
+    `- **Review effort level:** X` footer; a v2 body (first line
+    `<!-- ccr-overview-v2 -->`, served since 2026-09-20) carried `**Review effort:** X`
+    under its overview heading, and since 2026-10-17 ends with `<sub>Review effort:
+    X</sub>` instead (devops-ai #100, kfactory #20 and #29, homelab #92 and #98; #87).
+    In between, from 2026-10-10 to 10-12, five reviews (ktrdrv2#1, kfactory#10) spelled it
+    `🧠 **Review effort:** X`, which none of these patterns reads; it has not been served
+    since, and a babysit re-reading those PRs reports `?` for them.
+    Preflight asks only **what level
     this PR has been reviewed at so far** — the per-round level is read in step 2, off that
     round's own review, because at preflight the round's review does not exist yet and a
     level read here could only ever describe somebody else's round:
@@ -197,7 +202,8 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
 
     gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
       --jq '.[] | select(.state != "PENDING" and (.user.login | test("copilot"; "i"))) | .body // ""' \
-      | grep -oE '^(- )?\*\*Review effort( level)?:\*\* *[A-Za-z]+' | sed -E 's/.*\*\* *//' \
+      | grep -oE '^((- )?\*\*Review effort( level)?:\*\*|<sub>Review effort:) *[A-Za-z]+' \
+      | sed -E 's/^.*[:*] *//' \
       | sort -u | tr '\n' ' '      # the distinct levels seen, not the last one found
     ```
 
@@ -206,7 +212,7 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
     than printing `—`. Take the distinct set, never `tail -1`: the last *matching* line is
     not the newest *review*, so a newest review that dropped the footer would be masked by
     an older one and the broken-parser path would never be reached. The pattern is
-    anchored to the start of the line in both spellings, because a finding that quotes the
+    anchored to the start of the line in all three spellings, because a finding that quotes the
     line is not the line: #66's review 5192489979 quoted `Review effort level:** X` in a finding,
     and the unanchored grep read `X Lite` off a `Lite` review.
 
@@ -288,11 +294,12 @@ its id, so read that review and nothing else:
 
 ```bash
 gh api "repos/$REPO/pulls/$PR_NUMBER/reviews/$REVIEW_ID" --jq '.body // ""' \
-  | grep -oE '^(- )?\*\*Review effort( level)?:\*\* *[A-Za-z]+' | sed -E 's/.*\*\* *//'
+  | grep -oE '^((- )?\*\*Review effort( level)?:\*\*|<sub>Review effort:) *[A-Za-z]+' \
+  | sed -E 's/^.*[:*] *//'
 ```
 
-Empty here is unambiguous — this review exists and carried the line in neither spelling
-(step 0 has both) — so it is a broken
+Empty here is unambiguous — this review exists and carried the line in none of the three
+spellings (step 0 names them) — so it is a broken
 parser, not a missing round, and the report's `Effort` column says `?` rather than `—`.
 Reading the level off the round's own review is the whole point: a grep across the PR's
 review history answers a different question and cannot attribute a level to a round.
@@ -309,7 +316,7 @@ Run `kreview` in **autonomous mode** for this round. It resolves the PR from the
 which step 0 has already established is `$PR_NUMBER` — that check is what makes this safe.
 It fetches the full review surface
 (review bodies **including their suppressed findings** — v1's `Suppressed comments`, v2's
-`Previously missed` — threads with
+`Previously missed` in either spelling — threads with
 resolved/outdated state, issue comments, CI), gives each new
 finding its **provenance** (on the PR's original diff, or on a review-fix commit), asks
 **isolated or systemic** of each before deciding anything, hands out one of
@@ -375,7 +382,7 @@ auto-review repos the push already triggered it).
   line-anchored finding counts as no new findings — and **a suppressed comment is a
   line-anchored finding**, not a remark: it carries a `path:line`. Only a remark with no
   `path:line` anywhere is unanchored. Reading a body's summary prose and skipping its
-  suppressed section (v1 `Suppressed comments`, v2 `Previously missed`) is how seven
+  suppressed section (v1 `Suppressed comments`, v2 `Previously missed` / `N previously missed issues`) is how seven
   rounds on #49 looked like nothing was said.
 - New comments only re-raise points already handled — reply linking the prior reasoning
   (kreview's cross-round memory), then stop. Copilot is *documented* to repeat comments on
@@ -512,7 +519,7 @@ stop; a report that hides either cannot show a human why a stop was safe. **Effo
 level the reviewer reported for that round (`Lite`/`Balanced`/`—`), so the "deeper first
 pass" question has data instead of opinion. **Suppressed** is how many of that round's
 line-anchored findings came from a review body's suppressed section (v1 `Suppressed
-comments`, v2 `Previously missed`) rather than a thread — it is a subset of Findings, not a fifth provenance column, and a report where it
+comments`, v2 `Previously missed` / `N previously missed issues`) rather than a thread — it is a subset of Findings, not a fifth provenance column, and a report where it
 is always 0 on a Copilot loop is a report whose triage did not read the bodies.
 **Systemic** counts the round's findings whose root cause covered a class.
 
