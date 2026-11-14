@@ -119,5 +119,16 @@
     "user": {
       "login": "copilot-pull-request-reviewer[bot]"
     }
+  },
+  {
+    "body": "### \ud83d\udfe1 Changes recommended\n\nToken validation and failure cleanup can leave privileged credentials valid or orphaned, and setup/documentation inconsistencies remain.\n\n*Get a fresh assessment by requesting another Copilot review.*\n\n<details>\n<summary>Pull request overview</summary>\n\nThis PR replaces the admin token used for SSH signing with a dedicated, short-lived signing token and updates related documentation.\n\n**Changes:**\n- Adds dedicated token minting and validation.\n- Adds the `ssh-sign-karl` Vault policy.\n- Updates runbooks, findings, and architecture documentation.\n</details>\n\n<details>\n<summary>File summaries</summary>\n\n| File | Summary |\r\n|---|---|\r\n| `scripts/operations/vault-ssh-sign.sh` | Implements the dedicated signing-token lifecycle. |\r\n| `docs/runbooks/vault.md` | Documents separated login and signing credentials. |\r\n| `docs/findings/2026-09-16-admin-token-on-the-laptop.md` | Records verification and remediation status. |\r\n| `docs/architecture/services-vault.md` | Updates Vault policy documentation. |\r\n| `config/vault/ssh-sign-karl-policy.hcl` | Adds the narrow SSH-signing policy. |\n</details>\n\n<details>\n<summary>Review details</summary>\n\n### Suppressed comments (1)\n\n**scripts/operations/vault-ssh-sign.sh:114**\n* This rename is not checked before the cleanup below. Because `mint_signing_token` is called on the right-hand side of `signing_token_valid || ...`, Bash does not let `set -e` stop the function here; if the destination is unwritable, the function can revoke the admin session and delete `~/.vault-token` even though no usable signing token was installed. Handle the rename failure and return before revoking the session.\n```\n  mv \"$tmp\" \"$SIGN_TOKEN_FILE\"\n```\n\n- **Files reviewed:** 5/5 changed files\n- **Comments generated:** 6\n- **Review effort level:** Lite\n</details>\n\n---\n\n\ud83d\udca1 <a href=\"/kpiteira/homelab/new/main?filename=.github/skills/code-review/SKILL.md\" class=\"Link--inTextBlock\" target=\"_blank\" rel=\"noopener noreferrer\">Add a `code-review` agent skill</a> or configure MCP servers for context-aware, tailored reviews. <a href=\"https://docs.github.com/copilot/how-tos/use-copilot-agents/request-a-code-review/use-code-review?tool=webui#mcp-servers-and-agent-skills\" class=\"Link--inTextBlock\" target=\"_blank\" rel=\"noopener noreferrer\">Learn more in the docs.</a>",
+    "commit_id": "337872f35595bb81aa08947284cd9ceeacad0902",
+    "html_url": "https://github.com/kpiteira/homelab/pull/66#pullrequestreview-5230511867",
+    "id": 5230511867,
+    "state": "COMMENTED",
+    "submitted_at": "2026-09-17T02:56:02Z",
+    "user": {
+      "login": "copilot-pull-request-reviewer[bot]"
+    }
   }
 ]

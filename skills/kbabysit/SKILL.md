@@ -181,6 +181,9 @@ commits and pushes fixes, and `kreview` resolves the PR from the checkout the sa
     `<!-- ccr-overview-v2 -->`, served since 2026-09-20) carried `**Review effort:** X`
     under its overview heading, and since 2026-10-17 ends with `<sub>Review effort:
     X</sub>` instead (devops-ai #100, kfactory #20 and #29, homelab #92 and #98; #87).
+    In between, from 2026-10-10 to 10-12, five reviews (ktrdrv2#1, kfactory#10) spelled it
+    `🧠 **Review effort:** X`, which none of these patterns reads; it has not been served
+    since, and a babysit re-reading those PRs reports `?` for them.
     Preflight asks only **what level
     this PR has been reviewed at so far** — the per-round level is read in step 2, off that
     round's own review, because at preflight the round's review does not exist yet and a

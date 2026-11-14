@@ -57,6 +57,7 @@ V2_MISSED_7 = 5261175937  # #66: Previously missed (7) beside Open (3), Resolved
 V2_NONE_3 = 5262627194  # #85: `Findings: None` and Previously missed (3)
 V2_OPEN_9 = 5327351542  # #93: Open (9), a What changed table with U+200B and CR
 LEGACY_1 = 3800891523  # #12, February: Comments suppressed due to low confidence (1)
+V1_OVERVIEW = 5230511867  # homelab#66: Suppressed comments (1), <summary> overviews
 # Count-first v2 headings, served since 2026-10-17 (#86), with a <sub> effort footer
 # (#87).
 NEW_MISSED_1 = 5898789029  # homelab#92: 1 previously missed issue, 3 resolved since...
@@ -159,6 +160,7 @@ def reads_clean(counts: dict) -> bool:
         (V2_MISSED_7, 7),
         (V2_NONE_3, 3),
         (V2_OPEN_9, 0),
+        (V1_OVERVIEW, 1),
         (NEW_MISSED_1, 1),
         (NEW_MISSED_1B, 1),
         (NEW_MISSED_3, 3),

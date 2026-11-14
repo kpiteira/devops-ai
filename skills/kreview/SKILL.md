@@ -194,8 +194,9 @@ this PR`); any other countless `<summary>` is unreadable, so a new one costs a r
 hand, not a finding. A finding's own `<summary>` carries a severity `<picture>` and is not a
 heading, so a finding titled "previously missed …" does not trip it. (The guard reads the
 bodies whole, fences and all, so it stays independent of the parser's fence toggle; the
-price is that a counted heading quoted inside a finding counts too. None of the 1,464
-reviews below did that, and a false alarm costs one round read by hand.)
+price is that a counted heading quoted inside a finding counts too, and a quoted `#`
+comment naming missed or suppressed output reads as unreadable. None of the 1,464 reviews
+below did either, and a false alarm costs one round read by hand.)
 
 **Why the file, and why the `if`.** Piping straight from `gh` gives three ways to be wrong
 and this shape closes all of them. Two pipelines with separately-typed `--jq` filters drift
@@ -230,18 +231,21 @@ reads 47 = 47 where the v1-only pair read 40 = 40, missing review 5261175937's s
 reads 5 = 5 where it read 0 = 0. The one mismatch is #12, whose February body spells the
 heading a third way — a bare `<summary>` reading `Comments suppressed due to low confidence
 (1)` — which this parser does not read: declared 1, parsed 0 — the guard doing its job.
-Measured again on 2026-11-14 across 1,464 Copilot reviews on 648 PRs in the 12 repos of
-this owner that have any: 15 PRs move from 0 = 0 to their real count, 43 findings in all
-(devops-ai #100; homelab #80, #85, #86, #92 and #102; nine kfactory PRs, #57 alone carrying
-ten), and kfactory#10 moves from 8 = 8 to 9 = 9. No row the old parser printed is lost, and
-no body raises `could not parse`. Every other mismatch reads the same before and after,
-and each is accounted for: bodies served up to 2026-08-17 in two older spellings no parser
-here reads (the bare `<summary>Comments suppressed due to low confidence (N)` and
-`<summary>Suppressed comments (N)`), which the guard flags as it should; and six bodies
-from June or earlier (khealth #14, #35, #44, #145; cashflow-pro #41, #43) whose `Files not
-reviewed (N)` heading it counts as declared, a false alarm on a format not served since.
+
+Measured again on 2026-11-14 across 1,464 Copilot reviews on 648 PRs, the PRs opened in 2026
+in the 12 repos of this owner that have any (five fetches failed and are not in it:
+devops-ai #3, #12 and #13, agent-memory #84, and ktrdr's second page of PRs): 15 PRs move
+from 0 = 0 to their real count, 43 findings in all (devops-ai #100; homelab #80, #85, #86,
+#92 and #102; nine kfactory PRs, #57 alone carrying ten), and kfactory#10 moves from 8 = 8
+to 9 = 9. No row the old parser printed is lost, and no body raises `could not parse`. Every
+other mismatch reads the same before and after, and each is accounted for: bodies served up
+to 2026-08-17 in two older spellings no parser here reads (the bare `<summary>Comments
+suppressed due to low confidence (N)` and `<summary>Suppressed comments (N)`), which the
+guard flags as it should; and six PRs with bodies from June or earlier (khealth #14, #35,
+#44, #145; cashflow-pro #41, #43) whose `Files not reviewed (N)` heading it counts as
+declared, a false alarm on a format not served since.
 `tests/architecture/test_copilot_body_parsers.py` runs the block above, as written here,
-against eleven of those bodies and the drifts it names; edit the block and run it.
+against twelve of those bodies and the drifts it names; edit the block and run it.
 
 Each row is a **line-anchored finding** and is triaged like any other. Two differences,
 both mechanical:
